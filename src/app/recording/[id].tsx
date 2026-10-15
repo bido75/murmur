@@ -1,14 +1,17 @@
 import { useAudioPlayer } from 'expo-audio';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActionMenu, type MenuAction } from '@/components/ActionMenu';
+import { SendToTracker } from '@/components/SendToTracker';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { ask, audioUrl, deleteRecording, getRecording, renameRecording, retryProcessing, updateTask } from '@/lib/api';
+import { ask, audioUrl, deleteRecording, getRecording, listProjects, renameRecording, retryProcessing, setRecordingProject, updateTask } from '@/lib/api';
+import { confirm, notify } from '@/lib/dialog';
 import { shareText, sharePdf } from '@/lib/export';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
-import { TEMPLATE_LABELS, type Task } from '@/lib/types';
+import { CONSENT_LABELS, TEMPLATE_LABELS, type Project, type Task } from '@/lib/types';
 
 type Data = Awaited<ReturnType<typeof getRecording>>;
 type Tab = 'notes' | 'transcript' | 'tasks' | 'ask';
@@ -21,12 +24,18 @@ export default function RecordingDetail() {
   const [title, setTitle] = useState('');
   const player = useAudioPlayer(null);
   const [loadedSegment, setLoadedSegment] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{ title?: string; actions: MenuAction[] } | null>(null);
 
-  const load = useCallback(async () => {
-    const d = await getRecording(id);
-    setData(d);
-    if (d.recording) setTitle((prev) => prev || d.recording!.title);
-  }, [id]);
+  const load = useCallback(
+    () =>
+      getRecording(id)
+        .then((d) => {
+          setData(d);
+          if (d.recording) setTitle((prev) => prev || d.recording!.title);
+        })
+        .catch((e) => notify("Couldn't load recording", (e as Error).message)),
+    [id],
+  );
 
   useEffect(() => {
     void load();
@@ -63,7 +72,7 @@ export default function RecordingDetail() {
       await player.seekTo(Math.max(0, (ms - offset) / 1000 - 1));
       player.play();
     } catch (e) {
-      Alert.alert("Can't play audio", (e as Error).message);
+      notify("Can't play audio", (e as Error).message);
     }
   }
 
@@ -72,43 +81,58 @@ export default function RecordingDetail() {
     try {
       await updateTask(task.id, patch);
     } catch (e) {
-      Alert.alert("Couldn't update task", (e as Error).message);
+      notify("Couldn't update task", (e as Error).message);
       void load();
     }
   }
 
-  function menu() {
-    if (!data?.recording) return;
-    const rec = data.recording;
-    const actions: { label: string; run: () => void | Promise<void>; destructive?: boolean }[] = [
-      { label: 'Share as text', run: () => shareText(rec, data.summary, data.tasks) },
-      { label: 'Share as PDF', run: () => sharePdf(rec, data.summary, data.tasks) },
-      { label: 'Re-run notes', run: async () => { await retryProcessing(rec.id); void load(); } },
-      {
-        label: 'Delete recording',
-        destructive: true,
-        run: () =>
-          Alert.alert('Delete this recording?', 'The audio, transcript, notes and tasks are deleted permanently.', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: async () => { await deleteRecording(rec.id); router.back(); } },
-          ]),
-      },
-    ];
-    const run = async (i: number) => {
-      try {
-        await actions[i]?.run();
-      } catch (e) {
-        Alert.alert('Something went wrong', (e as Error).message);
-      }
-    };
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options: [...actions.map((a) => a.label), 'Cancel'], cancelButtonIndex: actions.length, destructiveButtonIndex: 3 },
-        (i) => void run(i),
-      );
-    } else {
-      Alert.alert(rec.title, undefined, [...actions.map((a, i) => ({ text: a.label, style: a.destructive ? ('destructive' as const) : ('default' as const), onPress: () => void run(i) })), { text: 'Cancel', style: 'cancel' as const }]);
+  const guard = (fn: () => void | Promise<void>) => async () => {
+    try {
+      await fn();
+    } catch (e) {
+      notify('Something went wrong', (e as Error).message);
     }
+  };
+
+  async function chooseProject() {
+    const rec = data?.recording;
+    if (!rec) return;
+    const projects: Project[] = await listProjects().catch(() => []);
+    setMenu({
+      title: 'Move to project',
+      actions: [
+        { label: 'No project', onPress: guard(async () => { await setRecordingProject(rec.id, null); await load(); }) },
+        ...projects.map((p) => ({
+          label: p.id === rec.project_id ? `${p.name} ✓` : p.name,
+          onPress: guard(async () => { await setRecordingProject(rec.id, p.id); await load(); }),
+        })),
+      ],
+    });
+  }
+
+  function openMenu() {
+    const rec = data?.recording;
+    if (!rec) return;
+    setMenu({
+      title: rec.title,
+      actions: [
+        { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
+        { label: 'Share as text', onPress: guard(() => shareText(rec, data.summary, data.tasks)) },
+        { label: 'Share as PDF', onPress: guard(() => sharePdf(rec, data.summary, data.tasks)) },
+        { label: 'Move to project', onPress: () => void chooseProject() },
+        { label: 'Re-run notes', onPress: guard(async () => { await retryProcessing(rec.id); await load(); }) },
+        {
+          label: 'Delete recording',
+          destructive: true,
+          onPress: guard(async () => {
+            const ok = await confirm('Delete this recording?', 'The audio, transcript, notes and tasks are deleted permanently.', 'Delete', true);
+            if (!ok) return;
+            await deleteRecording(rec.id);
+            router.back();
+          }),
+        },
+      ],
+    });
   }
 
   const rec = data?.recording;
@@ -120,7 +144,7 @@ export default function RecordingDetail() {
         options={{
           title: '',
           headerRight: () => (
-            <Pressable onPress={menu} accessibilityRole="button" accessibilityLabel="More actions" hitSlop={12}>
+            <Pressable onPress={openMenu} accessibilityRole="button" accessibilityLabel="More actions" hitSlop={12}>
               <T size={22} weight="700" style={{ color: t.accent }}>···</T>
             </Pressable>
           ),
@@ -160,9 +184,11 @@ export default function RecordingDetail() {
           </View>
 
           {tab === 'notes' && <Notes data={data} playAt={playAt} />}
+          <ActionMenu visible={!!menu} title={menu?.title} actions={menu?.actions ?? []} onClose={() => setMenu(null)} />
           {tab === 'transcript' && <TranscriptView data={data} playAt={playAt} />}
           {tab === 'tasks' && (
             <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}>
+              {data.tasks.some((x) => x.status === 'open' && !x.needs_review) && <SendToTracker tasks={data.tasks} onDone={load} />}
               {data.tasks.length === 0 ? (
                 <Empty title={rec.status === 'ready' ? 'No action items' : 'Tasks appear when notes are ready'} />
               ) : (
@@ -212,10 +238,37 @@ function Notes({ data, playAt }: { data: Data; playAt: (ms: number) => void }) {
           ))}
         </Section>
       )}
+      {(s.task_updates ?? []).length > 0 && (
+        <Section title="Earlier tasks discussed">
+          {(s.task_updates ?? []).map((u, i) => (
+            <Card key={i} style={{ gap: 4 }}>
+              <T weight="600">
+                {u.status === 'done' ? '✓ Done: ' : u.status === 'blocked' ? 'Blocked: ' : 'In progress: '}
+                {u.text}
+              </T>
+              {u.note ? <T size={14}>{u.note}</T> : null}
+              {u.quote ? (
+                <Pressable disabled={u.quote_ms == null} onPress={() => u.quote_ms != null && playAt(u.quote_ms)}>
+                  <T muted size={13} style={{ fontStyle: 'italic' }}>
+                    “{u.quote}”{u.quote_ms != null ? `  ${clock(u.quote_ms)}` : ''}
+                    {u.verified ? '' : '  (not found in transcript, task left open)'}
+                  </T>
+                </Pressable>
+              ) : null}
+            </Card>
+          ))}
+        </Section>
+      )}
       {s.open_questions.length > 0 && (
         <Section title="Open questions">
           {s.open_questions.map((q, i) => <T key={i}>•  {q}</T>)}
         </Section>
+      )}
+      {data.recording?.consent_method && (
+        <T muted size={12}>
+          Recording notice: {CONSENT_LABELS[data.recording.consent_method]}
+          {data.recording.consent_confirmed_at ? ` (${new Date(data.recording.consent_confirmed_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })})` : ''}
+        </T>
       )}
       <T muted size={12} style={{ color: t.muted }}>AI-generated from the transcript. Check important details against the audio.</T>
     </ScrollView>
@@ -282,7 +335,7 @@ function AskView({ recordingId }: { recordingId: string }) {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100}>
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
-        {history.length === 0 && <T muted>Ask anything about this recording, e.g. "What did we agree on pricing?"</T>}
+        {history.length === 0 && <T muted>Ask anything about this recording, e.g. “What did we agree on pricing?”</T>}
         {history.map((h, i) => (
           <View key={i} style={{ gap: space.sm }}>
             <T weight="600">{h.q}</T>

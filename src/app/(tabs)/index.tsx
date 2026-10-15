@@ -1,10 +1,11 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Banner, Button, Card, Empty, StatusPill, T } from '@/components/ui';
 import { getSettings, importAudio, listRecordings, localOnlyRecordings } from '@/lib/api';
 import { minutes, shortDate } from '@/lib/format';
 import { subscribe } from '@/lib/sync';
+import { notify } from '@/lib/dialog';
 import { radius, space, useTheme } from '@/lib/theme';
 import { TEMPLATE_LABELS, type Recording } from '@/lib/types';
 
@@ -47,7 +48,7 @@ export default function Recordings() {
       const id = await importAudio(s.defaultTemplate);
       if (id) void load();
     } catch (e) {
-      Alert.alert("Couldn't import that file", (e as Error).message);
+      notify("Couldn't import that file", (e as Error).message);
     }
   }
 

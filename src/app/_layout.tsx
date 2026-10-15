@@ -2,8 +2,9 @@ import type { Session } from '@supabase/supabase-js';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { isWeb, notify } from '@/lib/dialog';
 import { recoverInterruptedRecording } from '@/lib/recorder';
 import { supabase } from '@/lib/supabase';
 import { flush, startSyncLoop } from '@/lib/sync';
@@ -30,7 +31,7 @@ export default function RootLayout() {
   useEffect(() => {
     recoverInterruptedRecording()
       .then((id) => {
-        if (id) Alert.alert('Recording recovered', "The app closed while you were recording. What was captured is saved and will be processed.");
+        if (id) notify('Recording recovered', 'The app closed while you were recording. What was captured is saved and will be processed.');
       })
       .catch(() => {});
     return startSyncLoop();
@@ -47,6 +48,9 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
+      {/* On wide browser windows, keep content at a readable width. */}
+      <View style={{ flex: 1, backgroundColor: t.bg }}>
+      <View style={isWeb ? { flex: 1, width: '100%', maxWidth: 860, alignSelf: 'center' } : { flex: 1 }}>
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: t.bg },
@@ -59,11 +63,16 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="record" options={{ presentation: 'fullScreenModal', headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="recording/[id]" options={{ title: '' }} />
+          <Stack.Screen name="project/[id]" options={{ title: '' }} />
+          <Stack.Screen name="deck" options={{ title: 'Make a deck', presentation: 'modal' }} />
+          <Stack.Screen name="integrations" options={{ title: 'Task trackers' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
+      </View>
+      </View>
     </SafeAreaProvider>
   );
 }

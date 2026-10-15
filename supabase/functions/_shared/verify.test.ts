@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findQuote, formatClock, offsetUtterances, verifyActionItems, type Utterance } from './verify.ts';
+import { dropRepeats, findQuote, formatClock, makeRefs, offsetUtterances, verifyActionItems, verifyTaskUpdates, type Utterance } from './verify.ts';
 
 const transcript: Utterance[] = [
   { start_ms: 0, end_ms: 4000, speaker: 0, text: "Okay, let's get started with the site review." },
@@ -89,4 +89,29 @@ test('offsets utterances for later segments', () => {
   const [u] = offsetUtterances([transcript[0]], 600_000);
   assert.equal(u.start_ms, 600_000);
   assert.equal(u.end_ms, 604_000);
+});
+
+test('carry-over: verified done update maps back to the task id', () => {
+  const refs = makeRefs([{ id: 'task-a', text: 'Send revised quote' }, { id: 'task-b', text: 'Book crane' }]);
+  const out = verifyTaskUpdates(
+    [
+      { ref: 't1', status: 'done', quote: "Yes, I'll send it over tomorrow morning" },
+      { ref: 'T1', status: 'blocked', quote: 'duplicate ref is ignored' },
+      { ref: 'T9', status: 'done', quote: 'unknown ref is ignored' },
+      { ref: 'T2', status: 'done', quote: 'The crane is booked for Monday' },
+    ],
+    refs,
+    transcript,
+  );
+  assert.equal(out.length, 2);
+  assert.deepEqual([out[0].task_id, out[0].status, out[0].verified, out[0].quote_ms], ['task-a', 'done', true, 9000]);
+  assert.deepEqual([out[1].task_id, out[1].verified], ['task-b', false]);
+});
+
+test('carry-over: repeated tasks are not created twice', () => {
+  const out = dropRepeats(
+    [{ text: 'Send the revised quote to the client' }, { text: 'Order rebar from new supplier' }],
+    ['Send revised quote to client'],
+  );
+  assert.deepEqual(out.map((o) => o.text), ['Order rebar from new supplier']);
 });

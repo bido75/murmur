@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Switch, View } from 'react-native';
+import { router } from 'expo-router';
+import { Pressable, ScrollView, Switch, View } from 'react-native';
 import { Button, Card, T } from '@/components/ui';
 import { getSettings, saveSettings, type Settings } from '@/lib/api';
 import { APP_NAME } from '@/lib/config';
+import { confirm } from '@/lib/dialog';
 import { supabase } from '@/lib/supabase';
 import { flush, pendingOps } from '@/lib/sync';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -67,6 +69,12 @@ export default function SettingsScreen() {
       </Card>
 
       <Card style={{ gap: space.sm }}>
+        <T weight="600">Task trackers</T>
+        <T muted size={14}>Send confirmed action items to Asana, Linear or Jira.</T>
+        <Button label="Manage connections" kind="secondary" onPress={() => router.push('/integrations')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
         <T weight="600">Uploads</T>
         <T muted size={14}>{pending ? `${pending} audio part${pending > 1 ? 's' : ''} waiting to upload.` : 'Everything is uploaded.'}</T>
         {pending > 0 && <Button label="Retry now" kind="secondary" onPress={() => void flush().then(() => pendingOps()).then((o) => setPending(o.filter((x) => x.kind === 'segment').length))} />}
@@ -79,12 +87,10 @@ export default function SettingsScreen() {
         <Button
           label="Sign out"
           kind="secondary"
-          onPress={() =>
-            Alert.alert('Sign out?', 'Recordings waiting to upload stay on this phone and upload after you sign back in.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Sign out', style: 'destructive', onPress: () => void supabase.auth.signOut() },
-            ])
-          }
+          onPress={async () => {
+            const ok = await confirm('Sign out?', 'Recordings waiting to upload stay on this device and upload after you sign back in.', 'Sign out', true);
+            if (ok) void supabase.auth.signOut();
+          }}
         />
       </Card>
 

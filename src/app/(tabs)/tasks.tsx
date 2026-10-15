@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, RefreshControl, View } from 'react-native';
+import { FlatList, RefreshControl, View } from 'react-native';
 import { TaskRow } from '@/components/TaskRow';
 import { Empty, Segmented } from '@/components/ui';
 import { listTasks, updateTask } from '@/lib/api';
+import { notify } from '@/lib/dialog';
 import { space, useTheme } from '@/lib/theme';
 import type { Task } from '@/lib/types';
 
@@ -21,7 +22,7 @@ export default function Tasks() {
     try {
       setItems(await listTasks(filter));
     } catch (e) {
-      Alert.alert("Couldn't load tasks", (e as Error).message);
+      notify("Couldn't load tasks", (e as Error).message);
     } finally {
       setLoading(false);
     }
@@ -35,7 +36,7 @@ export default function Tasks() {
     try {
       await updateTask(task.id, change);
     } catch (e) {
-      Alert.alert("Couldn't update task", (e as Error).message);
+      notify("Couldn't update task", (e as Error).message);
       void load();
     }
   }

@@ -2,8 +2,9 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Share } from 'react-native';
 import { APP_NAME } from './config';
+import { isWeb } from './dialog';
 import { clock, shortDate } from './format';
-import type { Recording, Summary, Task } from './types';
+import { CONSENT_LABELS, type Recording, type Summary, type Task } from './types';
 
 export function toMarkdown(rec: Recording, summary: Summary | null, tasks: Task[]): string {
   const lines: string[] = [`# ${rec.title}`, shortDate(rec.created_at), ''];
@@ -20,6 +21,7 @@ export function toMarkdown(rec: Recording, summary: Summary | null, tasks: Task[
     lines.push('');
   }
   if (summary?.open_questions?.length) lines.push('## Open questions', ...summary.open_questions.map((q) => `- ${q}`), '');
+  if (rec.consent_method) lines.push(`Recording notice: ${CONSENT_LABELS[rec.consent_method]}`);
   lines.push(`— Notes by ${APP_NAME}`);
   return lines.join('\n');
 }
@@ -49,15 +51,44 @@ export function toHtml(rec: Recording, summary: Summary | null, tasks: Task[]): 
     ${summary?.decisions?.length ? `<h2>Decisions</h2>${list(summary.decisions.map((d) => d.text))}` : ''}
     ${taskRows ? `<h2>Action items</h2><table>${taskRows}</table>` : ''}
     ${summary?.open_questions?.length ? `<h2>Open questions</h2>${list(summary.open_questions)}` : ''}
-    <footer>Notes by ${esc(APP_NAME)}</footer>
+    <footer>${rec.consent_method ? `Recording notice: ${esc(CONSENT_LABELS[rec.consent_method])} · ` : ''}Notes by ${esc(APP_NAME)}</footer>
   </body></html>`;
 }
 
 export async function shareText(rec: Recording, summary: Summary | null, tasks: Task[]) {
-  await Share.share({ title: rec.title, message: toMarkdown(rec, summary, tasks) });
+  const md = toMarkdown(rec, summary, tasks);
+  if (isWeb) {
+    downloadWeb(`${safeName(rec.title)}.md`, new Blob([md], { type: 'text/markdown' }));
+    return;
+  }
+  await Share.share({ title: rec.title, message: md });
 }
 
 export async function sharePdf(rec: Recording, summary: Summary | null, tasks: Task[]) {
+  if (isWeb) {
+    // Opens the browser's print dialog, where "Save as PDF" is available.
+    const w = window.open('', '_blank');
+    if (!w) throw new Error('Allow pop-ups for this site to save a PDF.');
+    w.document.write(toHtml(rec, summary, tasks));
+    w.document.close();
+    w.focus();
+    w.print();
+    return;
+  }
   const { uri } = await Print.printToFileAsync({ html: toHtml(rec, summary, tasks) });
   if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
+}
+
+export function safeName(s: string): string {
+  return s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'notes';
+}
+
+export function downloadWeb(filename: string, blob: Blob | string) {
+  const a = document.createElement('a');
+  a.href = typeof blob === 'string' ? blob : URL.createObjectURL(blob);
+  a.download = filename;
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }

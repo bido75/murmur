@@ -30,7 +30,22 @@ export function systemPrompt(template: string): string {
     '- Do not invent facts, names, numbers or dates. If something is unclear, put it in open_questions.',
     '- Decisions also need a word-for-word quote.',
     '- Keep the overview to 2–4 sentences. Key points are short bullets.',
+    '',
+    'If a list of open tasks from earlier recordings is given:',
+    '- Report in task_updates only the ones actually discussed: status "done" if someone says it is finished, "in_progress" or "blocked" otherwise, with a word-for-word quote. Leave the rest out.',
+    '- Do not add an open task again as a new action item.',
   ].join('\n');
+}
+
+export function userMessage(transcript: string, openTasks: { ref: string; text: string }[]): string {
+  const parts = [];
+  if (openTasks.length) {
+    parts.push('Open tasks from earlier recordings in this project:');
+    parts.push(...openTasks.map((t) => `${t.ref}: ${t.text}`));
+    parts.push('');
+  }
+  parts.push('Transcript:', '', transcript);
+  return parts.join('\n');
 }
 
 export const NOTES_TOOL = {
@@ -66,8 +81,22 @@ export const NOTES_TOOL = {
         },
       },
       open_questions: { type: 'array', items: { type: 'string' } },
+      task_updates: {
+        type: 'array',
+        description: 'Updates to the earlier open tasks listed, if any were discussed.',
+        items: {
+          type: 'object',
+          properties: {
+            ref: { type: 'string', description: 'The task ref, e.g. "T3".' },
+            status: { type: 'string', enum: ['done', 'in_progress', 'blocked'] },
+            note: { type: ['string', 'null'] },
+            quote: { type: 'string' },
+          },
+          required: ['ref', 'status', 'note', 'quote'],
+        },
+      },
     },
-    required: ['title', 'overview', 'key_points', 'decisions', 'action_items', 'open_questions'],
+    required: ['title', 'overview', 'key_points', 'decisions', 'action_items', 'open_questions', 'task_updates'],
   },
 } as const;
 
@@ -85,6 +114,7 @@ export type NotesOutput = {
     quote: string;
   }[];
   open_questions: string[];
+  task_updates?: { ref: string; status: 'done' | 'in_progress' | 'blocked'; note: string | null; quote: string }[];
 };
 
 export const ASK_SYSTEM = [

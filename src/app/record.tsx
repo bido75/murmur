@@ -1,13 +1,15 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ProjectPicker } from '@/components/ProjectPicker';
 import { Banner, Button, Card, T } from '@/components/ui';
-import { getSettings, newRecording } from '@/lib/api';
+import { getSettings, newRecording, openProjectTasks } from '@/lib/api';
+import { confirm, notify } from '@/lib/dialog';
 import { clock } from '@/lib/format';
 import { useSegmentedRecorder } from '@/lib/recorder';
 import { radius, space, useTheme } from '@/lib/theme';
-import { TEMPLATE_LABELS, type Template } from '@/lib/types';
+import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentMethod, type Task, type Template } from '@/lib/types';
 
 const NOTICE = "Quick note: I'm recording this conversation so I can take accurate notes. Is everyone okay with that?";
 
@@ -15,8 +17,13 @@ export default function Record() {
   const t = useTheme();
   const rec = useSegmentedRecorder();
   const [template, setTemplate] = useState<Template>('meeting');
+  const params = useLocalSearchParams<{ projectId?: string }>();
+  const [projectId, setProjectId] = useState<string | null>(params.projectId ?? null);
+  const [briefFor, setBriefFor] = useState<{ projectId: string; tasks: Task[] } | null>(null);
+  const brief = projectId && briefFor?.projectId === projectId ? briefFor.tasks : [];
   const [needConsent, setNeedConsent] = useState(true);
-  const [consented, setConsented] = useState(false);
+  const [consent, setConsent] = useState<ConsentMethod | null>(null);
+  const consented = consent !== null;
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
@@ -27,6 +34,14 @@ export default function Record() {
     });
   }, []);
 
+  // The brief: what's still open in this project, so you can raise it in the meeting.
+  useEffect(() => {
+    if (!projectId) return;
+    openProjectTasks(projectId)
+      .then((tasks) => setBriefFor({ projectId, tasks }))
+      .catch(() => setBriefFor({ projectId, tasks: [] }));
+  }, [projectId]);
+
   async function start() {
     setStarting(true);
     try {
@@ -34,29 +49,24 @@ export default function Record() {
         template,
         source: 'mic',
         consentAt: consented ? new Date().toISOString() : null,
+        consentMethod: consent ?? 'not_confirmed',
+        projectId,
       });
       setRecordingId(id);
       await rec.start(id);
     } catch (e) {
-      Alert.alert("Couldn't start recording", (e as Error).message);
+      notify("Couldn't start recording", (e as Error).message);
     } finally {
       setStarting(false);
     }
   }
 
-  function confirmStop() {
-    Alert.alert('Stop recording?', 'Your notes will be ready in a minute or two.', [
-      { text: 'Keep recording', style: 'cancel' },
-      {
-        text: 'Stop',
-        style: 'destructive',
-        onPress: async () => {
-          await rec.stop();
-          if (recordingId) router.replace({ pathname: '/recording/[id]', params: { id: recordingId } });
-          else router.back();
-        },
-      },
-    ]);
+  async function confirmStop() {
+    const ok = await confirm('Stop recording?', 'Your notes will be ready in a minute or two.', 'Stop', true);
+    if (!ok) return;
+    await rec.stop();
+    if (recordingId) router.replace({ pathname: '/recording/[id]', params: { id: recordingId } });
+    else router.back();
   }
 
   const live = rec.phase !== 'idle';
@@ -90,24 +100,42 @@ export default function Record() {
             </View>
           </View>
 
+          <View style={{ gap: space.sm }}>
+            <T muted size={13} weight="600">PROJECT</T>
+            <ProjectPicker value={projectId} onChange={setProjectId} />
+          </View>
+
+          {brief.length > 0 && (
+            <Card style={{ gap: space.sm }}>
+              <T weight="600">Still open in this project ({brief.length})</T>
+              {brief.slice(0, 6).map((task) => (
+                <T key={task.id} size={14}>
+                  •  {task.text}{task.owner ? ` — ${task.owner}` : ''}
+                </T>
+              ))}
+              {brief.length > 6 && <T muted size={13}>and {brief.length - 6} more</T>}
+              <T muted size={13}>If these come up, your notes will mark them done or updated, with the quote as proof.</T>
+            </Card>
+          )}
+
           {needConsent && (
             <Card style={{ gap: space.md }}>
               <T weight="600">Let people know</T>
               <T muted size={14}>
-                Many places require everyone's permission to record, and some US states require it from every person on a call. You can say:
+                Many places require everyone’s permission to record, and some US states require it from every person on a call. You can say:
               </T>
               <T size={15} style={{ fontStyle: 'italic' }}>“{NOTICE}”</T>
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: consented }}
-                onPress={() => setConsented((c) => !c)}
-                style={styles.checkRow}
-              >
-                <View style={[styles.box, { borderColor: consented ? t.accent : t.muted, backgroundColor: consented ? t.accent : 'transparent' }]}>
-                  {consented && <T size={13} weight="800" style={{ color: '#fff' }}>✓</T>}
-                </View>
-                <T style={{ flex: 1 }}>Everyone being recorded knows and agrees</T>
-              </Pressable>
+              {(['told_everyone', 'in_invite', 'solo'] as ConsentMethod[]).map((m) => {
+                const on = consent === m;
+                return (
+                  <Pressable key={m} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setConsent(m)} style={styles.checkRow}>
+                    <View style={[styles.radio, { borderColor: on ? t.accent : t.muted }]}>
+                      {on && <View style={[styles.radioDot, { backgroundColor: t.accent }]} />}
+                    </View>
+                    <T style={{ flex: 1 }}>{CONSENT_LABELS[m]}</T>
+                  </Pressable>
+                );
+              })}
             </Card>
           )}
 
@@ -161,7 +189,8 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  box: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  radioDot: { width: 10, height: 10, borderRadius: 5 },
   live: { flex: 1, justifyContent: 'center', padding: space.xl, gap: space.xl },
   liveDot: { width: 14, height: 14, borderRadius: 7 },
   meterTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },

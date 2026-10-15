@@ -5,8 +5,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Directory, File, Paths, UploadType } from 'expo-file-system';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
+import { isWeb } from './dialog';
 import { supabase } from './supabase';
-import type { Template } from './types';
+import type { ConsentMethod, Template } from './types';
 
 type Base = { recordingId: string; attempts: number; nextAt: number; lastError?: string };
 
@@ -16,6 +17,8 @@ export type CreateOp = Base & {
   template: Template;
   source: 'mic' | 'import';
   consentAt: string | null;
+  consentMethod?: ConsentMethod;
+  projectId?: string | null;
   createdAt: string;
 };
 export type SegmentOp = Base & { kind: 'segment'; idx: number; localUri: string; ext: string; durationMs: number };
@@ -27,8 +30,12 @@ let queue: Op[] | null = null;
 let running: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
-/** Folder where finished segments wait for upload (survives app restarts). */
-export const pendingDir = new Directory(Paths.document, 'pending-audio');
+/** Folder where finished segments wait for upload (survives app restarts). Native only. */
+let pendingDirCache: Directory | null = null;
+function pendingDir(): Directory {
+  pendingDirCache ??= new Directory(Paths.document, 'pending-audio');
+  return pendingDirCache;
+}
 
 async function load(): Promise<Op[]> {
   if (queue) return queue;
@@ -64,8 +71,11 @@ export async function enqueue(op: Omit<CreateOp, 'attempts' | 'nextAt'> | Omit<S
 
 /** Move a finished audio file into the pending folder so it survives restarts. */
 export function keepFile(sourceUri: string, recordingId: string, idx: number, ext: string): string {
-  if (!pendingDir.exists) pendingDir.create({ intermediates: true });
-  const dest = new File(pendingDir, `${recordingId}-${String(idx).padStart(4, '0')}.${ext}`);
+  // On the web the recording is an in-memory blob URL; it uploads in this session.
+  if (isWeb) return sourceUri;
+  const dir = pendingDir();
+  if (!dir.exists) dir.create({ intermediates: true });
+  const dest = new File(dir, `${recordingId}-${String(idx).padStart(4, '0')}.${ext}`);
   if (dest.exists) dest.delete();
   new File(sourceUri).moveSync(dest);
   return dest.uri;
@@ -98,6 +108,11 @@ async function run() {
       await perform(op, session.user.id, session.access_token);
       q.splice(q.indexOf(op), 1);
     } catch (e) {
+      if (e instanceof LostAudioError) {
+        q.splice(q.indexOf(op), 1);
+        await save();
+        continue;
+      }
       op.attempts += 1;
       op.lastError = (e as Error).message;
       op.nextAt = Date.now() + Math.min(5000 * 2 ** op.attempts, 10 * 60 * 1000);
@@ -118,6 +133,8 @@ async function perform(op: Op, userId: string, accessToken: string) {
         source: op.source,
         status: 'recording',
         consent_confirmed_at: op.consentAt,
+        consent_method: op.consentMethod ?? (op.consentAt ? 'told_everyone' : 'not_confirmed'),
+        project_id: op.projectId ?? null,
         created_at: op.createdAt,
       },
       { onConflict: 'id', ignoreDuplicates: true },
@@ -127,28 +144,11 @@ async function perform(op: Op, userId: string, accessToken: string) {
   }
 
   if (op.kind === 'segment') {
-    const file = new File(op.localUri);
     const path = `${userId}/${op.recordingId}/seg-${String(op.idx).padStart(4, '0')}.${op.ext}`;
-    if (file.exists) {
-      const result = await file.upload(`${SUPABASE_URL}/storage/v1/object/audio/${path}`, {
-        httpMethod: 'POST',
-        uploadType: UploadType.BINARY_CONTENT,
-        mimeType: mimeFor(op.ext),
-        sessionType: 'background',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          apikey: SUPABASE_ANON_KEY,
-          'x-upsert': 'true',
-          'content-type': mimeFor(op.ext),
-        },
-      });
-      if (result.status < 200 || result.status >= 300) {
-        throw new Error(`Upload failed (${result.status}) ${result.body.slice(0, 120)}`);
-      }
+    if (isWeb) {
+      await uploadWeb(op, path);
     } else {
-      // File already uploaded on a previous attempt and then removed; just record the row.
-      const { data } = await supabase.storage.from('audio').list(`${userId}/${op.recordingId}`);
-      if (!data?.some((f) => path.endsWith(f.name))) throw new Error('Audio file is missing');
+      await uploadNative(op, path, userId, accessToken);
     }
     const { error } = await supabase
       .from('recording_segments')
@@ -157,7 +157,10 @@ async function perform(op: Op, userId: string, accessToken: string) {
         { onConflict: 'recording_id,idx' },
       );
     if (error) throw new Error(error.message);
-    if (file.exists) file.delete();
+    if (!isWeb) {
+      const file = new File(op.localUri);
+      if (file.exists) file.delete();
+    }
     return;
   }
 
@@ -168,6 +171,46 @@ async function perform(op: Op, userId: string, accessToken: string) {
     .eq('id', op.recordingId);
   if (error) throw new Error(error.message);
   await processRecording(op.recordingId);
+}
+
+/** The audio no longer exists anywhere; retrying can't help, so the op is dropped. */
+class LostAudioError extends Error {}
+
+async function uploadWeb(op: SegmentOp, path: string) {
+  let blob: Blob;
+  try {
+    blob = await (await fetch(op.localUri)).blob();
+  } catch {
+    // Blob URLs don't survive a page reload; nothing left to upload.
+    throw new LostAudioError('This browser recording was lost when the page reloaded.');
+  }
+  const { error } = await supabase.storage.from('audio').upload(path, blob, { upsert: true, contentType: mimeFor(op.ext) });
+  if (error) throw new Error(error.message);
+}
+
+async function uploadNative(op: SegmentOp, path: string, userId: string, accessToken: string) {
+  const file = new File(op.localUri);
+  if (file.exists) {
+    const result = await file.upload(`${SUPABASE_URL}/storage/v1/object/audio/${path}`, {
+      httpMethod: 'POST',
+      uploadType: UploadType.BINARY_CONTENT,
+      mimeType: mimeFor(op.ext),
+      sessionType: 'background',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON_KEY,
+        'x-upsert': 'true',
+        'content-type': mimeFor(op.ext),
+      },
+    });
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`Upload failed (${result.status}) ${result.body.slice(0, 120)}`);
+    }
+  } else {
+    // File already uploaded on a previous attempt and then removed; just record the row.
+    const { data } = await supabase.storage.from('audio').list(`${userId}/${op.recordingId}`);
+    if (!data?.some((f) => path.endsWith(f.name))) throw new Error('Audio file is missing');
+  }
 }
 
 export async function processRecording(recordingId: string) {

@@ -1,8 +1,17 @@
 // POST { recording_id } — transcribes every segment, writes notes and verified tasks.
 // Returns 202 immediately; the work continues in the background and the app polls status.
 import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser, transcribe } from '../_shared/services.ts';
-import { NOTES_TOOL, systemPrompt, type NotesOutput } from '../_shared/prompts.ts';
-import { findQuote, formatTranscript, offsetUtterances, verifyActionItems, type Utterance } from '../_shared/verify.ts';
+import { NOTES_TOOL, systemPrompt, userMessage, type NotesOutput } from '../_shared/prompts.ts';
+import {
+  dropRepeats,
+  findQuote,
+  formatTranscript,
+  makeRefs,
+  offsetUtterances,
+  verifyActionItems,
+  verifyTaskUpdates,
+  type Utterance,
+} from '../_shared/verify.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -22,7 +31,7 @@ Deno.serve(async (req) => {
 
     const admin = adminClient();
     await admin.from('recordings').update({ status: 'transcribing', error: null }).eq('id', recording_id);
-    EdgeRuntime.waitUntil(run(recording_id, userId, rec.template, rec.title));
+    EdgeRuntime.waitUntil(run(recording_id, userId, rec.template, rec.title, rec.project_id));
     return json({ status: 'transcribing' }, 202);
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
@@ -30,7 +39,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function run(recordingId: string, userId: string, template: string, currentTitle: string) {
+async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null) {
   const admin = adminClient();
   try {
     const { data: segments, error } = await admin
@@ -68,15 +77,27 @@ async function run(recordingId: string, userId: string, template: string, curren
       return;
     }
 
-    // 2. Structured notes from Claude.
+    // 2. Open tasks from earlier recordings in the same project (the carry-over brief).
+    const openTasks = projectId ? await openProjectTasks(projectId, recordingId) : [];
+    const refs = makeRefs(openTasks);
+
+    // 3. Structured notes from Claude.
     const notes = await claudeStructured<NotesOutput>(
       systemPrompt(template),
-      [{ role: 'user', content: `Transcript:\n\n${formatTranscript(all)}` }],
+      [{ role: 'user', content: userMessage(formatTranscript(all), refs) }],
       NOTES_TOOL,
     );
 
-    // 3. Check every task and decision against the transcript before saving.
-    const tasks = verifyActionItems(notes.action_items ?? [], all);
+    // 4. Check every task, decision and update against the transcript before saving.
+    const tasks = dropRepeats(verifyActionItems(notes.action_items ?? [], all), openTasks.map((t) => t.text));
+    const updates = verifyTaskUpdates(notes.task_updates ?? [], refs, all);
+    for (const u of updates.filter((x) => x.verified)) {
+      const patch =
+        u.status === 'done'
+          ? { status: 'done', completed_by_recording_id: recordingId, completion_quote: u.quote, completion_ms: u.quote_ms, progress_note: u.note }
+          : { progress_note: [u.status === 'blocked' ? 'Blocked' : 'In progress', u.note].filter(Boolean).join(': ') };
+      await admin.from('tasks').update(patch).eq('id', u.task_id).eq('user_id', userId).eq('status', 'open');
+    }
     const decisions = (notes.decisions ?? []).map((d) => {
       const m = findQuote(d.quote, all);
       return { text: d.text, quote: d.quote, quote_ms: m.start_ms, verified: m.found };
@@ -89,6 +110,7 @@ async function run(recordingId: string, userId: string, template: string, curren
       key_points: notes.key_points ?? [],
       decisions,
       open_questions: notes.open_questions ?? [],
+      task_updates: updates,
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });
 
@@ -108,4 +130,21 @@ async function run(recordingId: string, userId: string, template: string, curren
       .update({ status: 'failed', error: (e as Error).message.slice(0, 500) })
       .eq('id', recordingId);
   }
+}
+
+/** Open, confirmed tasks from this project's other recordings (newest first, max 40). */
+async function openProjectTasks(projectId: string, recordingId: string): Promise<{ id: string; text: string }[]> {
+  const admin = adminClient();
+  const { data: recs } = await admin.from('recordings').select('id').eq('project_id', projectId).neq('id', recordingId);
+  const ids = (recs ?? []).map((r: { id: string }) => r.id);
+  if (!ids.length) return [];
+  const { data } = await admin
+    .from('tasks')
+    .select('id, text')
+    .in('recording_id', ids)
+    .eq('status', 'open')
+    .eq('needs_review', false)
+    .order('created_at', { ascending: false })
+    .limit(40);
+  return (data ?? []) as { id: string; text: string }[];
 }

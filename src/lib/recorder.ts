@@ -17,6 +17,7 @@ import { File } from 'expo-file-system';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from './config';
+import { isWeb } from './dialog';
 import { enqueue, keepFile } from './sync';
 
 const OPTIONS: RecordingOptions = {
@@ -25,7 +26,8 @@ const OPTIONS: RecordingOptions = {
   bitRate: 64000,
   isMeteringEnabled: true,
 };
-const EXT = 'm4a';
+// Browsers record WebM/Opus via MediaRecorder; phones record AAC in .m4a.
+const EXT = isWeb ? 'webm' : 'm4a';
 const ACTIVE_KEY = 'recorder.active.v1';
 const KEEP_AWAKE_TAG = 'recording';
 
@@ -45,7 +47,7 @@ export async function recoverInterruptedRecording(): Promise<string | null> {
   if (!raw) return null;
   const a = JSON.parse(raw) as Active;
   try {
-    if (a.currentUri) {
+    if (a.currentUri && !isWeb) {
       const f = new File(a.currentUri);
       if (f.exists && f.size > 4096) {
         const uri = keepFile(a.currentUri, a.recordingId, a.segIdx, EXT);
@@ -72,7 +74,8 @@ export function useSegmentedRecorder() {
   const session = useRef<Active | null>(null);
   const busy = useRef(false);
   const silenceSince = useRef<number | null>(null);
-  const lastProgress = useRef({ ms: 0, at: Date.now() });
+  const lastProgress = useRef({ ms: 0, at: 0 });
+  const [doneMs, setDoneMs] = useState(0);
 
   const beginSegment = useCallback(async () => {
     await recorder.prepareToRecordAsync();
@@ -96,6 +99,7 @@ export function useSegmentedRecorder() {
       s.doneMs += durationMs;
       s.segIdx += 1;
       setSegmentsSaved((n) => n + 1);
+      setDoneMs(s.doneMs);
     }
     s.currentUri = null;
     await saveActive(s);
@@ -129,6 +133,7 @@ export function useSegmentedRecorder() {
       });
       session.current = { recordingId, segIdx: 1, doneMs: 0, currentUri: null };
       setSegmentsSaved(0);
+      setDoneMs(0);
       setWarning(null);
       silenceSince.current = null;
       await beginSegment();
@@ -169,48 +174,51 @@ export function useSegmentedRecorder() {
     }
   }, [finishSegment]);
 
-  // Health checks and segment rotation, driven by the recorder's status updates.
+  // Health checks and segment rotation, polled twice a second while recording.
   useEffect(() => {
-    if (phase !== 'recording' || busy.current) return;
-    const now = Date.now();
+    if (phase !== 'recording') return;
+    const timer = setInterval(() => {
+      if (busy.current) return;
+      const st = recorder.getStatus();
+      const now = Date.now();
 
-    if (state.mediaServicesDidReset) {
-      void rotate();
-      return;
-    }
-    if (state.durationMillis >= SEGMENT_MS) {
-      void rotate();
-      return;
-    }
-
-    if (state.durationMillis > lastProgress.current.ms) {
-      lastProgress.current = { ms: state.durationMillis, at: now };
-    } else if (now - lastProgress.current.at > 4000) {
-      setWarning('Recording stopped by the system (a call or another app may have the mic). Tap "Restart mic".');
-      return;
-    }
-
-    if (typeof state.metering === 'number' && state.metering < SILENCE_DB) {
-      silenceSince.current ??= now;
-      if (now - silenceSince.current > SILENCE_WARN_MS) {
-        setWarning("Not hearing anything for a while. Check the mic isn't covered.");
+      if (st.mediaServicesDidReset || st.durationMillis >= SEGMENT_MS) {
+        void rotate();
+        return;
       }
-    } else {
-      silenceSince.current = null;
-      setWarning((w) => (w?.startsWith('Not hearing') ? null : w));
-    }
-  }, [phase, rotate, state.durationMillis, state.mediaServicesDidReset, state.metering]);
+
+      if (st.durationMillis > lastProgress.current.ms) {
+        lastProgress.current = { ms: st.durationMillis, at: now };
+      } else if (lastProgress.current.at && now - lastProgress.current.at > 4000) {
+        setWarning('Recording stopped by the system (a call or another app may have the mic). Tap "Restart mic".');
+        return;
+      }
+
+      if (typeof st.metering === 'number' && st.metering < SILENCE_DB) {
+        silenceSince.current ??= now;
+        if (now - silenceSince.current > SILENCE_WARN_MS) {
+          setWarning("Not hearing anything for a while. Check the mic isn't covered.");
+        }
+      } else {
+        silenceSince.current = null;
+        setWarning((w) => (w?.startsWith('Not hearing') ? null : w));
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [phase, recorder, rotate]);
 
   // Never leave the mic open if the screen goes away (runs on unmount only).
   const stopRef = useRef(stop);
-  stopRef.current = stop;
+  useEffect(() => {
+    stopRef.current = stop;
+  }, [stop]);
   useEffect(() => {
     return () => {
       if (session.current) void stopRef.current();
     };
   }, []);
 
-  const elapsedMs = (session.current?.doneMs ?? 0) + (phase === 'idle' ? 0 : state.durationMillis);
+  const elapsedMs = phase === 'idle' ? 0 : doneMs + state.durationMillis;
 
   return {
     phase,

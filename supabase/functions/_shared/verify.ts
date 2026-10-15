@@ -193,3 +193,63 @@ export function verifyActionItems(
 export function offsetUtterances(utterances: Utterance[], offsetMs: number): Utterance[] {
   return utterances.map((u) => ({ ...u, start_ms: u.start_ms + offsetMs, end_ms: u.end_ms + offsetMs }));
 }
+
+// ---------- Carry-over: earlier tasks discussed in a later recording ----------
+
+export type OpenTaskRef = { ref: string; id: string; text: string };
+export type RawTaskUpdate = { ref: string; status: 'done' | 'in_progress' | 'blocked'; note?: string | null; quote?: string | null };
+export type VerifiedTaskUpdate = {
+  task_id: string;
+  text: string;
+  status: 'done' | 'in_progress' | 'blocked';
+  note: string | null;
+  quote: string | null;
+  quote_ms: number | null;
+  verified: boolean;
+};
+
+/** Short refs (T1, T2...) are easier for the model to copy than UUIDs. */
+export function makeRefs(tasks: { id: string; text: string }[]): OpenTaskRef[] {
+  return tasks.map((t, i) => ({ ref: `T${i + 1}`, id: t.id, text: t.text }));
+}
+
+/**
+ * Keep only updates that point at a real open task, once each, and check the quote.
+ * Only a verified "done" may close a task; everything else is informational.
+ */
+export function verifyTaskUpdates(updates: RawTaskUpdate[], refs: OpenTaskRef[], utterances: Utterance[]): VerifiedTaskUpdate[] {
+  const byRef = new Map(refs.map((r) => [r.ref.toUpperCase(), r]));
+  const seen = new Set<string>();
+  const out: VerifiedTaskUpdate[] = [];
+  for (const u of updates ?? []) {
+    const r = byRef.get(String(u.ref ?? '').trim().toUpperCase());
+    if (!r || seen.has(r.id)) continue;
+    if (!['done', 'in_progress', 'blocked'].includes(u.status)) continue;
+    seen.add(r.id);
+    const m = findQuote(u.quote, utterances);
+    out.push({
+      task_id: r.id,
+      text: r.text,
+      status: u.status,
+      note: u.note?.trim() || null,
+      quote: u.quote?.trim() || null,
+      quote_ms: m.start_ms,
+      verified: m.found,
+    });
+  }
+  return out;
+}
+
+function jaccard(a: string, b: string): number {
+  const A = new Set(tokens(a).filter((t) => !STOPWORDS.has(t)));
+  const B = new Set(tokens(b).filter((t) => !STOPWORDS.has(t)));
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / (A.size + B.size - inter);
+}
+
+/** Drop new action items that just repeat a task that is already open. */
+export function dropRepeats<T extends { text: string }>(items: T[], openTexts: string[]): T[] {
+  return items.filter((it) => !openTexts.some((o) => normalize(o) === normalize(it.text) || jaccard(o, it.text) >= 0.75));
+}

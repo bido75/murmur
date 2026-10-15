@@ -1,7 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { clock } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
-import type { Task } from '@/lib/types';
+import { PROVIDER_LABELS, type Provider, type Task } from '@/lib/types';
 
 type Props = {
   task: Task;
@@ -43,8 +43,24 @@ export function TaskRow({ task, source, onToggle, onAccept, onDismiss, onQuotePr
         <View style={styles.meta}>
           {task.owner && <Chip label={task.owner} />}
           {task.due_text && <Chip label={`Due ${task.due_text}`} />}
+          {Object.entries(task.external ?? {}).map(([p, ext]) =>
+            ext?.url ? (
+              <Pressable key={p} onPress={() => Linking.openURL(ext.url)} accessibilityRole="link" hitSlop={6}>
+                <Text style={{ color: t.accent, fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' }}>
+                  {PROVIDER_LABELS[p as Provider]}{ext.key ? ` ${ext.key}` : ''} ↗
+                </Text>
+              </Pressable>
+            ) : null,
+          )}
           {source && <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>{source}</Text>}
         </View>
+
+        {task.progress_note && task.status === 'open' ? (
+          <Text style={{ color: t.warn, fontSize: 13 }}>Update: {task.progress_note}</Text>
+        ) : null}
+        {task.status === 'done' && task.completion_quote ? (
+          <Text style={{ color: t.accent, fontSize: 13 }}>Closed in a later meeting: “{task.completion_quote}”</Text>
+        ) : null}
 
         {task.quote ? (
           <Pressable onPress={onQuotePress} disabled={!onQuotePress} accessibilityRole={onQuotePress ? 'button' : undefined}>

@@ -21,6 +21,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Recordings', tabBarIcon: ({ color }) => <Icon glyph="●" color={color} /> }} />
+      <Tabs.Screen name="projects" options={{ title: 'Projects', tabBarIcon: ({ color }) => <Icon glyph="▤" color={color} /> }} />
       <Tabs.Screen name="tasks" options={{ title: 'Tasks', tabBarIcon: ({ color }) => <Icon glyph="✓" color={color} /> }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: ({ color }) => <Icon glyph="⚙" color={color} /> }} />
     </Tabs>

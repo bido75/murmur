@@ -2,8 +2,15 @@ export type Template = 'general' | 'meeting' | 'lecture' | 'phone_call' | 'site_
 
 export type RecordingStatus = 'recording' | 'uploading' | 'transcribing' | 'summarizing' | 'ready' | 'failed';
 
+export type ConsentMethod = 'told_everyone' | 'in_invite' | 'solo' | 'not_confirmed';
+
+export type Project = { id: string; name: string; archived: boolean; created_at: string };
+
 export type Recording = {
   id: string;
+  project_id?: string | null;
+  consent_method?: ConsentMethod;
+  consent_confirmed_at?: string | null;
   title: string;
   template: Template;
   source: 'mic' | 'import';
@@ -19,11 +26,35 @@ export type Transcript = { utterances: Utterance[]; speaker_names: Record<string
 
 export type Decision = { text: string; quote: string; quote_ms: number | null; verified: boolean };
 
+export type TaskUpdate = {
+  task_id: string;
+  text: string;
+  status: 'done' | 'in_progress' | 'blocked';
+  note: string | null;
+  quote: string | null;
+  quote_ms: number | null;
+  verified: boolean;
+};
+
 export type Summary = {
   overview: string;
   key_points: string[];
   decisions: Decision[];
   open_questions: string[];
+  task_updates?: TaskUpdate[];
+};
+
+export type Provider = 'asana' | 'linear' | 'jira';
+export type External = Partial<Record<Provider, { id: string; key: string | null; url: string }>>;
+export type Integration = { provider: Provider; config: { account?: string; target?: { id: string; name: string }; site?: string; email?: string } };
+
+export const PROVIDER_LABELS: Record<Provider, string> = { asana: 'Asana', linear: 'Linear', jira: 'Jira' };
+
+export const CONSENT_LABELS: Record<ConsentMethod, string> = {
+  told_everyone: 'Told everyone at the start',
+  in_invite: 'Notice was in the invite or agenda',
+  solo: 'Only my own voice (notes to self)',
+  not_confirmed: 'Not confirmed',
 };
 
 export type Task = {
@@ -41,6 +72,10 @@ export type Task = {
   verified: boolean;
   needs_review: boolean;
   created_at: string;
+  external?: External;
+  progress_note?: string | null;
+  completion_quote?: string | null;
+  completed_by_recording_id?: string | null;
 };
 
 export const TEMPLATE_LABELS: Record<Template, string> = {
