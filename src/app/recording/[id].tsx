@@ -7,13 +7,12 @@ import { SendToTracker } from '@/components/SendToTracker';
 import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { ask, audioUrl, currentUserId, deletePhoto, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
+import { ask, audioUrl, cancelBot, consentResponses, currentUserId, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
 import { confirm, isWeb, notify } from '@/lib/dialog';
 import { queuePhoto, takePhoto } from '@/lib/photos';
-import { shareText, sharePdf } from '@/lib/export';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
-import { CONSENT_LABELS, TEMPLATE_LABELS, type Integration, type Photo, type Project, type Task } from '@/lib/types';
+import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentResponse, type Integration, type MeetingBot, type Photo, type Project, type Task } from '@/lib/types';
 
 type Data = Awaited<ReturnType<typeof getRecording>>;
 type Tab = 'notes' | 'transcript' | 'tasks' | 'ask';
@@ -35,12 +34,16 @@ export default function RecordingDetail() {
     listIntegrations().then(setIntegrations).catch(() => setIntegrations([]));
   }, []);
 
+  const [responses, setResponses] = useState<ConsentResponse[]>([]);
+  const [bot, setBot] = useState<MeetingBot | null>(null);
   const load = useCallback(
     () =>
       getRecording(id)
-        .then((d) => {
+        .then(async (d) => {
           setData(d);
           if (d.recording) setTitle((prev) => prev || d.recording!.title);
+          setResponses(await consentResponses(id));
+          if (d.recording?.source === 'bot') setBot(await getBot(id));
         })
         .catch((e) => notify("Couldn't load recording", (e as Error).message)),
     [id],
@@ -52,7 +55,7 @@ export default function RecordingDetail() {
 
   const status = data?.recording?.status;
   useEffect(() => {
-    if (!status || status === 'ready' || status === 'failed') return;
+    if (!status || ['ready', 'failed', 'cancelled'].includes(status)) return;
     const timer = setInterval(() => void load(), 3000);
     return () => clearInterval(timer);
   }, [status, load]);
@@ -61,6 +64,10 @@ export default function RecordingDetail() {
   async function playAt(ms: number) {
     const segs = data?.segments ?? [];
     if (!segs.length) return;
+    if (data?.recording?.audio_deleted_at) {
+      notify('Audio removed', 'The audio was deleted by your retention setting. The transcript and notes are kept.');
+      return;
+    }
     // Walk the segments to find the file containing `ms`. A segment with unknown
     // duration (recovered or imported) is treated as running to the end.
     let offset = 0;
@@ -73,7 +80,8 @@ export default function RecordingDetail() {
     }
     try {
       if (loadedSegment !== seg.idx) {
-        const url = await audioUrl(seg.storage_path);
+        // Link imports play straight from the link.
+        const url = seg.storage_path ? await audioUrl(seg.storage_path) : seg.source_url;
         if (!url) throw new Error('Audio is not available');
         player.replace({ uri: url });
         setLoadedSegment(seg.idx);
@@ -159,8 +167,7 @@ export default function RecordingDetail() {
     const isOwner = !rec.user_id || rec.user_id === me;
     const actions: MenuAction[] = [
       { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
-      { label: 'Share as text', onPress: guard(() => shareText(rec, data.summary, data.tasks)) },
-      { label: 'Share as PDF', onPress: guard(() => sharePdf(rec, data.summary, data.tasks, data.photos)) },
+      { label: 'Share, email or export', onPress: () => router.push({ pathname: '/share', params: { id: rec.id } }) },
     ];
     if (isOwner) {
       if (!isWeb) actions.push({ label: 'Take a photo', onPress: () => void addPhoto('camera') });
@@ -217,6 +224,24 @@ export default function RecordingDetail() {
               {shortDate(rec.created_at)} · {TEMPLATE_LABELS[rec.template]}{rec.duration_ms ? ` · ${minutes(rec.duration_ms)}` : ''}
             </T>
             {rec.status !== 'ready' && <StatusPill status={rec.status} />}
+            {bot && !['done', 'cancelled'].includes(bot.status) && rec.status !== 'ready' && (
+              <Banner
+                text={
+                  bot.status === 'scheduled'
+                    ? `Notetaker will join${bot.join_at ? ` at ${new Date(bot.join_at).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ' shortly'}.`
+                    : bot.status_detail ?? `Notetaker: ${bot.status.replace(/_/g, ' ')}`
+                }
+                action={
+                  rec.user_id === me
+                    ? {
+                        label: bot.status === 'scheduled' ? 'Cancel' : 'Make it leave',
+                        onPress: () => void cancelBot(rec.id).then(load).catch((e) => notify("Couldn't cancel", (e as Error).message)),
+                      }
+                    : undefined
+                }
+              />
+            )}
+            {rec.audio_deleted_at && <T muted size={13}>Audio removed by your retention setting; transcript and notes kept.</T>}
             {rec.status === 'failed' && (
               <Banner
                 text={rec.error ?? 'Processing failed.'}
@@ -241,6 +266,7 @@ export default function RecordingDetail() {
               playAt={playAt}
               onOpenPhoto={setViewing}
               procore={procore?.config.target ? { target: procore.config.target.name, onSend: sendLog } : null}
+              responses={responses}
             />
           )}
           <PhotoViewer
@@ -285,11 +311,12 @@ export default function RecordingDetail() {
   );
 }
 
-function Notes({ data, playAt, onOpenPhoto, procore }: {
+function Notes({ data, playAt, onOpenPhoto, procore, responses }: {
   data: Data;
   playAt: (ms: number) => void;
   onOpenPhoto: (p: Photo) => void;
   procore: { target: string; onSend: () => void } | null;
+  responses: ConsentResponse[];
 }) {
   const t = useTheme();
   const s = data.summary;
@@ -368,6 +395,20 @@ function Notes({ data, playAt, onOpenPhoto, procore }: {
       {s.open_questions.length > 0 && (
         <Section title="Open questions">
           {s.open_questions.map((q, i) => <T key={i}>•  {q}</T>)}
+        </Section>
+      )}
+      {responses.length > 0 && (
+        <Section title={`Consent link answers (${responses.length})`}>
+          {responses.map((r) => (
+            <T key={r.id} size={14} style={{ color: r.decision === 'decline' ? t.danger : t.ink }}>
+              {r.decision === 'agree' ? '✓ ' : '✕ '}
+              {r.name}
+              {r.email ? ` (${r.email})` : ''} {r.decision === 'agree' ? 'agreed' : 'did not agree'}
+            </T>
+          ))}
+          {responses.some((r) => r.decision === 'decline') && (
+            <T muted size={13}>Someone didn’t agree. Consider deleting their parts or the recording, and check the law where they are.</T>
+          )}
         </Section>
       )}
       {data.recording?.consent_method && (

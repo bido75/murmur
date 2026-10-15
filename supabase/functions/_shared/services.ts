@@ -61,6 +61,9 @@ export async function transcribe(audioUrl: string, keyterms: string[] = []): Pro
     utterances: 'true',
     detect_language: 'true',
   });
+  // Keep customer audio out of Deepgram's model-improvement program (on by default here,
+  // because the app promises recordings aren't used to train AI). Set DEEPGRAM_MIP_OPT_OUT=false to change.
+  if ((Deno.env.get('DEEPGRAM_MIP_OPT_OUT') ?? 'true') !== 'false') params.set('mip_opt_out', 'true');
   const send = (p: URLSearchParams) =>
     fetch(`https://api.deepgram.com/v1/listen?${p}`, {
       method: 'POST',

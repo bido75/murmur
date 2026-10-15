@@ -2,7 +2,8 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Banner, Button, Card, Empty, StatusPill, T } from '@/components/ui';
-import { getSettings, importAudio, listRecordings, localOnlyRecordings, upcomingEvents } from '@/lib/api';
+import { ActionMenu } from '@/components/ActionMenu';
+import { botAvailable, getSettings, importAudio, listRecordings, localOnlyRecordings, upcomingEvents } from '@/lib/api';
 import { briefParams, dayLabel, timeRange } from '@/lib/calendarUi';
 import { minutes, shortDate } from '@/lib/format';
 import { subscribe } from '@/lib/sync';
@@ -16,6 +17,11 @@ export default function Recordings() {
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
   const [next, setNext] = useState<CalendarEvent | null>(null);
+  const [addMenu, setAddMenu] = useState(false);
+  const [hasBot, setHasBot] = useState(false);
+  useEffect(() => {
+    botAvailable().then(setHasBot);
+  }, []);
 
   // The next meeting in the coming 24 hours, if a calendar is connected.
   useFocusEffect(
@@ -46,7 +52,7 @@ export default function Recordings() {
   useEffect(() => subscribe(() => void load()), [load]);
 
   // While anything is processing, refresh every few seconds.
-  const processing = items.some((r) => r.status !== 'ready' && r.status !== 'failed');
+  const processing = items.some((r) => !['ready', 'failed', 'scheduled', 'cancelled'].includes(r.status));
   useEffect(() => {
     if (!processing) return;
     const timer = setInterval(() => void load(), 5000);
@@ -102,7 +108,7 @@ export default function Recordings() {
       />
 
       <View style={[styles.dock, { backgroundColor: t.bg, borderTopColor: t.border }]}>
-        <Button label="Import" kind="secondary" onPress={onImport} style={{ flex: 1 }} />
+        <Button label="Add" kind="secondary" onPress={() => setAddMenu(true)} style={{ flex: 1 }} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Start recording"
@@ -113,6 +119,16 @@ export default function Recordings() {
           <T size={17} weight="700" style={{ color: '#fff' }}>Record</T>
         </Pressable>
       </View>
+      <ActionMenu
+        visible={addMenu}
+        title="Add a recording"
+        onClose={() => setAddMenu(false)}
+        actions={[
+          { label: 'Import a file', onPress: () => void onImport() },
+          { label: 'Import from a link', onPress: () => router.push('/import-link') },
+          ...(hasBot ? [{ label: 'Send a notetaker to a meeting', onPress: () => router.push('/notetaker') }] : []),
+        ]}
+      />
     </View>
   );
 }

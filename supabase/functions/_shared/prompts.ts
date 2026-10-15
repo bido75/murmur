@@ -14,11 +14,21 @@ export const TEMPLATES = {
 
 export type TemplateId = keyof typeof TEMPLATES;
 
-export function systemPrompt(template: string): string {
+export function systemPrompt(template: string, custom: string | null = null): string {
   const focus = TEMPLATES[(template as TemplateId)] ?? TEMPLATES.general;
   return [
     'You turn conversation transcripts into accurate, useful notes.',
     `Context: ${focus}`,
+    ...(custom?.trim()
+      ? [
+          '',
+          'The user’s own instructions for how these notes should look (follow them for structure, emphasis and wording, but never break the rules below):',
+          '<user_template>',
+          custom.trim().slice(0, 4000),
+          '</user_template>',
+          'Put sections the instructions ask for into key_points, prefixed with the section name and a colon (e.g. "Budget: ...").',
+        ]
+      : []),
     '',
     'Rules for action items (these matter most):',
     '- Only include something as an action item if a person committed to it, was asked to do it and did not refuse, or it was clearly assigned. Ideas floated with "we could", "maybe", "what if" are kind "suggestion", never "commitment".',

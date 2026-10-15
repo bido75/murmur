@@ -71,12 +71,20 @@ export default function RootLayout() {
           <Stack.Screen name="api-access" options={{ title: 'Claude & ChatGPT' }} />
           <Stack.Screen name="upcoming" options={{ title: 'Upcoming meetings' }} />
           <Stack.Screen name="brief" options={{ title: 'Brief' }} />
+          <Stack.Screen name="share" options={{ title: 'Share', presentation: 'modal' }} />
+          <Stack.Screen name="templates" options={{ title: 'Summary templates' }} />
+          <Stack.Screen name="privacy" options={{ title: 'Privacy & data' }} />
+          <Stack.Screen name="import-link" options={{ title: 'Import from a link', presentation: 'modal' }} />
+          <Stack.Screen name="notetaker" options={{ title: 'Send a notetaker', presentation: 'modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
         {/* Reachable signed in or out: it shows its own sign-in form. */}
         <Stack.Screen name="oauth/authorize" options={{ headerShown: false }} />
+        {/* Public pages for people without an account: shared notes and consent links. */}
+        <Stack.Screen name="s/[token]" options={{ headerShown: false }} />
+        <Stack.Screen name="c/[token]" options={{ headerShown: false }} />
       </Stack>
       </View>
       </View>

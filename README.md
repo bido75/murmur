@@ -71,7 +71,24 @@ An AI note taker in the same category as Wave: record meetings, calls, lectures 
 | PDFs include the site log and photos | `src/lib/export.ts` |
 | **Procore**: sign in with Procore, pick a project; tasks become **punch items with their photos**; a site walk's log goes into the project's **Daily Log** (Notes) for that date, once | `supabase/functions/procore`, `_shared/procore.ts` (+ tests), `push-tasks` |
 
-Still to come: phone-call recording, optional meeting bot, on-device transcription for no-signal sites, emailed team invites.
+### Sharing, search, privacy and the notetaker
+
+| Feature | Where |
+| --- | --- |
+| **Search tab**: titles, notes and transcripts of everything you can see (yours and your teams’), matching words highlighted, plus matching tasks; **Ask** answers a question across all of it with links to the recordings | `src/app/(tabs)/search.tsx`, `search_recordings()` |
+| **Share links**: read-only notes page, no sign-in; optional transcript; expiry; view count; turn off any time. Only confirmed tasks and checked decisions are shown | `src/app/share.tsx`, `src/app/s/[token].tsx`, `supabase/functions/share` |
+| **Email recap** to attendees: summary, next steps, decisions, site log and a link; attendees BCC’d, replies go to you; 100 recipients a day per user | `share/recap`, `_shared/share.ts` (+ tests) |
+| **Word export** (.docx), optionally with the transcript | `share/docx`, `_shared/docx.ts` |
+| **Custom summary templates**: your own format on top of a built-in type, personal or shared with a team (admins); pick it when recording | `src/app/templates.tsx`, `summary_templates` |
+| **Import from a link**: Dropbox, Google Drive, OneDrive share links and direct audio/video links. YouTube, Zoom and Teams links are refused with a reason (sign-in required, or downloading is against their terms) | `src/app/import-link.tsx`, `_shared/links.ts` (+ tests) |
+| **Retention**: keep audio for 7 days to forever; keep whole recordings for 90 days to forever; a daily job deletes what's due | `src/app/privacy.tsx`, `supabase/functions/retention` |
+| **Delete account** in the app (App Store requirement): files, data and login. Team projects pass to a teammate; refused if you're a team's only owner | `supabase/functions/account`, `prepare_account_deletion()` (+ tests) |
+| **Consent link**: attendees open a page and agree or decline; answers show on the recording | `src/app/c/[token].tsx`, `supabase/functions/consent` |
+| **State-aware warnings**: the record screen says when everyone must agree (13 all-party states, phone vs in-person nuances), using where you are and, for calls, where the other person is | `_shared/consent.ts` (+ tests) |
+| **Optional notetaker bot** for meetings you can't attend (Zoom, Meet, Teams, Webex): joins under its own name, posts a recording notice in the chat, notes arrive like any recording; cancel or make it leave | `src/app/notetaker.tsx`, `supabase/functions/bot`, `_shared/recall.ts` (+ tests) |
+| Recordings are kept out of Deepgram's model-training program (`mip_opt_out`) | `transcribe()` |
+
+Still to come: phone-call recording, on-device transcription for no-signal sites, emailed team invites, Zoom cloud-recording import (needs a Zoom app).
 
 ## Setup
 
@@ -107,6 +124,11 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    supabase functions deploy oauth --no-verify-jwt     # AI-connector sign-in
    supabase functions deploy calendar --no-verify-jwt  # provider redirects carry no session
    supabase functions deploy procore --no-verify-jwt   # same, for Procore's sign-in redirect
+   supabase functions deploy share --no-verify-jwt     # public share pages; other routes check the user
+   supabase functions deploy consent --no-verify-jwt   # attendees aren't signed in
+   supabase functions deploy account
+   supabase functions deploy retention --no-verify-jwt # called by the daily schedule with CRON_SECRET
+   supabase functions deploy bot --no-verify-jwt       # Recall's webhook; other routes check the user
    ```
    Optional: `supabase secrets set APP_URL=https://your-web-app.example.com` so tasks sent to trackers link back to the recording.
 6. **Run on a phone.** Background recording needs a development build (Expo Go won't keep recording when locked):
@@ -144,6 +166,23 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    - Each Procore company must install your app (company admin → App Management) before its users can connect.
    - Users need Punch List (create) and Daily Log (Notes, create) permission in the chosen project.
    - Selling it to other Procore customers means listing on the Procore App Marketplace, which has its own review.
+10. **Email recaps** (optional). Create a [Resend](https://resend.com) account, verify your sending domain, then
+    `supabase secrets set RESEND_API_KEY=re_... RECAP_FROM="Murmur <notes@yourdomain.com>"`. Without these the app says email isn't set up.
+11. **Retention schedule.** `supabase secrets set CRON_SECRET=$(openssl rand -hex 24)`, enable the `pg_cron` and `pg_net`
+    extensions (Dashboard → Database → Extensions), then run in the SQL editor (fill in your project ref and the secret):
+    ```sql
+    select cron.schedule('murmur-retention', '17 3 * * *', $$
+      select net.http_post(
+        url := 'https://YOUR-PROJECT.supabase.co/functions/v1/retention',
+        headers := jsonb_build_object('x-cron-secret', 'YOUR_CRON_SECRET')
+      );
+    $$);
+    ```
+12. **Notetaker bot** (optional). Create a [Recall.ai](https://recall.ai) account and API key. In Recall's dashboard add a webhook
+    to `https://YOUR-PROJECT.supabase.co/functions/v1/bot/webhook` for bot status events and copy its signing secret (starts with `whsec_`):
+    `supabase secrets set RECALL_API_KEY=... RECALL_REGION=us-west-2 RECALL_WEBHOOK_SECRET=whsec_...` (optional `BOT_NAME="Acme Notetaker"`).
+    Recall charges per bot hour. Zoom bots may need Recall's Zoom app setup for recording permission in some accounts.
+13. **Share and consent links** open in the web app, so set `EXPO_PUBLIC_APP_URL` and `APP_URL` (step 7). Optional: `supabase secrets set APP_NAME=YourName`.
    Browser recordings upload during the session; if the tab is closed before upload finishes, that audio is lost (phones keep it on disk).
 
 ## Checks
@@ -182,8 +221,24 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Add your project's names and terms under "Words to listen for", record them being said, and compare the transcript with a recording made before.
 - [ ] Procore sandbox: connect, pick a project, send a task with a photo (punch item has the photo attached), then "Add to daily log" (Notes entry on the right date). Sending again doesn't duplicate.
 - [ ] Make a site-report deck from a site walk with photos; check the Safety and photo slides.
+- [ ] Search for a word said in a team recording, signed in as the teammate: it's found; as an outsider: nothing.
+- [ ] Share a link, open it in a private browser window (no sign-in), turn it off, reload: "turned off". Try with transcript on.
+- [ ] Email a recap to two addresses you own: both get it, neither sees the other, replying reaches you.
+- [ ] Export Word with and without transcript; open in Word, Pages and Google Docs.
+- [ ] Make a template ("Sections: Schedule, Budget, Risks"), record with it, check the notes follow it and tasks still have quotes.
+- [ ] Import a Dropbox and a Google Drive link (shared publicly) and a direct .mp3 link. Paste a YouTube link: clear refusal.
+- [ ] Set "keep audio" to 7 days on a test account, backdate a recording in the database, run the retention job: audio gone, notes kept.
+- [ ] Delete a test account that owns a team project with a teammate: teammate keeps the project; the account can't sign in.
+- [ ] Phone call with "other person in California": red warning. Send the consent link, answer it from another phone, see the answer on the recording.
+- [ ] Send the notetaker to a test Meet and Zoom call: it joins as "Notetaker", posts the notice, notes arrive after you end the call. Cancel a scheduled one.
 
 ## Known limits
+
+- **Consent rules are information, not legal advice.** The state list (13 all-party states, with phone/in-person nuances) was checked against current summaries in Oct 2026; outside the US the app always says "ask everyone first". Have counsel review before launch.
+- **Notetaker bot** uses Recall.ai and was tested with a fake server only (requests, signatures, events), not a live meeting. Bots that join without the host present can be blocked by meeting settings (waiting rooms, "only signed-in users").
+- **Retention applies to the recording owner's setting**, including recordings they made in team projects. Team-wide policies are a later step.
+- **Link imports** read the file from where it is; if the link stops working later, playback in the app stops (notes stay). Very large Google Drive files show a virus-scan page instead of the file and fail with a clear error.
+- **Share pages** need the web app deployed (`APP_URL`). On phones, links open in the browser.
 
 - **Procore** was built from Procore's public REST docs and tested with a fake server, not a real Procore company. Check the punch item and daily log links open the right page (Procore's web URLs change; set `PROCORE_APP_URL` if needed) and that photo attachments arrive.
 - **Procore token renewal**: Procore issues a new refresh token on every renewal. Two Procore actions started at the same second could race and force a reconnect; rare, and the app says so when it happens.

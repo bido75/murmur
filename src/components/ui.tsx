@@ -55,7 +55,7 @@ export function Card({ children, style }: { children: ReactNode; style?: ViewSty
 
 export function StatusPill({ status }: { status: RecordingStatus }) {
   const t = useTheme();
-  const busy = status !== 'ready' && status !== 'failed';
+  const busy = !['ready', 'failed', 'scheduled', 'cancelled'].includes(status);
   const color = status === 'failed' ? t.danger : status === 'ready' ? t.accent : t.warn;
   return (
     <View style={[styles.pill, { backgroundColor: status === 'ready' ? t.accentSoft : status === 'failed' ? t.warnSoft : t.warnSoft }]}>

@@ -15,17 +15,19 @@ export type CreateOp = Base & {
   kind: 'create';
   title: string;
   template: Template;
-  source: 'mic' | 'import';
+  source: 'mic' | 'import' | 'link';
   consentAt: string | null;
   consentMethod?: ConsentMethod;
   projectId?: string | null;
   calendarEventKey?: string | null;
+  customTemplateId?: string | null;
   createdAt: string;
 };
 export type SegmentOp = Base & { kind: 'segment'; idx: number; localUri: string; ext: string; durationMs: number };
 export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
+export type LinkOp = Base & { kind: 'link'; url: string };
 export type PhotoOp = Base & { kind: 'photo'; photoId: string; localUri: string; takenMs: number | null; width: number; height: number };
-export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp;
+export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp | LinkOp;
 type NewOp<T> = Omit<T, 'attempts' | 'nextAt'>;
 
 const KEY = 'sync.queue.v1';
@@ -65,7 +67,7 @@ export async function pendingOps(): Promise<Op[]> {
   return [...(await load())];
 }
 
-export async function enqueue(op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp>) {
+export async function enqueue(op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp> | NewOp<LinkOp>) {
   const q = await load();
   q.push({ ...op, attempts: 0, nextAt: 0 } as Op);
   await save();
@@ -155,6 +157,7 @@ async function perform(op: Op, userId: string, accessToken: string) {
         consent_method: op.consentMethod ?? (op.consentAt ? 'told_everyone' : 'not_confirmed'),
         project_id: op.projectId ?? null,
         calendar_event_key: op.calendarEventKey ?? null,
+        custom_template_id: op.customTemplateId ?? null,
         created_at: op.createdAt,
       },
       { onConflict: 'id', ignoreDuplicates: true },
@@ -181,6 +184,15 @@ async function perform(op: Op, userId: string, accessToken: string) {
       const file = new File(op.localUri);
       if (file.exists) file.delete();
     }
+    return;
+  }
+
+  if (op.kind === 'link') {
+    // The audio stays where it is; the transcriber downloads it from the link.
+    const { error } = await supabase
+      .from('recording_segments')
+      .upsert({ recording_id: op.recordingId, user_id: userId, idx: 1, storage_path: null, source_url: op.url, duration_ms: 0 }, { onConflict: 'recording_id,idx' });
+    if (error) throw new Error(error.message);
     return;
   }
 

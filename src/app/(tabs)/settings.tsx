@@ -176,8 +176,20 @@ export default function SettingsScreen() {
 
       <Card style={{ gap: space.sm }}>
         <T weight="600">Task trackers</T>
-        <T muted size={14}>Send confirmed action items to Asana, Linear or Jira.</T>
+        <T muted size={14}>Send confirmed action items to Asana, Linear, Jira or Procore.</T>
         <Button label="Manage connections" kind="secondary" onPress={() => router.push('/integrations')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Summary templates</T>
+        <T muted size={14}>Your own note formats (e.g. OAC meetings, 1:1s), for you or your whole team.</T>
+        <Button label="Manage templates" kind="secondary" onPress={() => router.push('/templates')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Privacy & data</T>
+        <T muted size={14}>Where you record (for consent warnings), how long to keep audio and recordings, delete your account.</T>
+        <Button label="Open" kind="secondary" onPress={() => router.push('/privacy')} />
       </Card>
 
       <Card style={{ gap: space.sm }}>

@@ -1,8 +1,8 @@
 export type Template = 'general' | 'meeting' | 'lecture' | 'phone_call' | 'site_walk' | 'sales_call' | 'interview';
 
-export type RecordingStatus = 'recording' | 'uploading' | 'transcribing' | 'summarizing' | 'ready' | 'failed';
+export type RecordingStatus = 'scheduled' | 'recording' | 'uploading' | 'transcribing' | 'summarizing' | 'ready' | 'failed' | 'cancelled';
 
-export type ConsentMethod = 'told_everyone' | 'in_invite' | 'solo' | 'not_confirmed';
+export type ConsentMethod = 'told_everyone' | 'in_invite' | 'solo' | 'consent_link' | 'bot_announced' | 'not_confirmed';
 
 export type Project = {
   id: string;
@@ -27,8 +27,10 @@ export type Recording = {
   consent_confirmed_at?: string | null;
   title: string;
   template: Template;
-  source: 'mic' | 'import';
+  source: 'mic' | 'import' | 'link' | 'bot';
   status: RecordingStatus;
+  custom_template_id?: string | null;
+  audio_deleted_at?: string | null;
   duration_ms: number;
   error: string | null;
   created_at: string;
@@ -96,6 +98,8 @@ export const CONSENT_LABELS: Record<ConsentMethod, string> = {
   told_everyone: 'Told everyone at the start',
   in_invite: 'Notice was in the invite or agenda',
   solo: 'Only my own voice (notes to self)',
+  consent_link: 'Everyone agreed through the consent link',
+  bot_announced: 'Notetaker announced itself in the meeting',
   not_confirmed: 'Not confirmed',
 };
 
@@ -132,6 +136,8 @@ export const TEMPLATE_LABELS: Record<Template, string> = {
 };
 
 export const STATUS_LABELS: Record<RecordingStatus, string> = {
+  scheduled: 'Notetaker scheduled',
+  cancelled: 'Cancelled',
   recording: 'Recording',
   uploading: 'Uploading',
   transcribing: 'Transcribing',
@@ -157,3 +163,11 @@ export type CalendarEvent = {
   match: { project_id: string; how: 'linked' | 'title' } | null;
 };
 export const CAL_LABELS: Record<CalProvider, string> = { google: 'Google Calendar', microsoft: 'Microsoft 365 / Outlook' };
+
+export type SummaryTemplate = { id: string; name: string; instructions: string; base: Template; workspace_id: string | null; user_id: string };
+
+export type ShareLink = { id: string; token: string; include_transcript: boolean; created_at: string; expires_at: string | null; revoked_at: string | null; views: number };
+
+export type ConsentResponse = { id: string; name: string; email: string | null; decision: 'agree' | 'decline'; created_at: string };
+
+export type MeetingBot = { status: string; status_detail: string | null; meeting_url: string; join_at: string | null };

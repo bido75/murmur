@@ -1,18 +1,20 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActionMenu } from '@/components/ActionMenu';
 import { ProjectPicker } from '@/components/ProjectPicker';
 import { Banner, Button, Card, T } from '@/components/ui';
-import { getSettings, newRecording, openProjectTasks } from '@/lib/api';
-import { confirm, isWeb, notify } from '@/lib/dialog';
+import { attachConsentRequest, createConsentRequest, getSettings, listTemplates, newRecording, openProjectTasks } from '@/lib/api';
+import { APP_URL } from '@/lib/config';
+import { consentAdvice, STATES } from '@/lib/shared';
+import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock } from '@/lib/format';
 import { useSegmentedRecorder } from '@/lib/recorder';
 import { radius, space, useTheme } from '@/lib/theme';
-import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentMethod, type Task, type Template } from '@/lib/types';
+import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentMethod, type SummaryTemplate, type Task, type Template } from '@/lib/types';
 
 // White text stays readable on it in light and dark themes.
 const PAUSE_GRAY = '#3A3F3B';
@@ -36,14 +38,39 @@ export default function Record() {
   const [photos, setPhotos] = useState<{ id: string; uri: string }[]>([]);
   const [shooting, setShooting] = useState(false);
   const [micMenu, setMicMenu] = useState(false);
+  const [custom, setCustom] = useState<SummaryTemplate[]>([]);
+  const [customId, setCustomId] = useState<string | null>(null);
+  const [myState, setMyState] = useState<string | null>(null);
+  const [otherState, setOtherState] = useState<string | null>(null);
+  const [otherQuery, setOtherQuery] = useState('');
+  const [consentToken, setConsentToken] = useState<string | null>(null);
 
   useEffect(() => {
     getSettings().then((s) => {
       setTemplate(s.defaultTemplate);
       setNeedConsent(s.consentReminder);
       setField(s.fieldMode);
+      setMyState(s.myState);
     });
+    listTemplates().then(setCustom).catch(() => setCustom([]));
   }, []);
+
+  const isCall = template === 'phone_call';
+  const advice = consentAdvice(myState, isCall ? [otherState] : [], isCall ? 'phone' : 'in_person');
+  const otherMatches = otherQuery.trim() ? STATES.filter((x) => x.name.toLowerCase().startsWith(otherQuery.trim().toLowerCase())).slice(0, 5) : [];
+
+  async function sendConsentLink() {
+    try {
+      const base = APP_URL || (isWeb ? window.location.origin : '');
+      if (!base) throw new Error('Set EXPO_PUBLIC_APP_URL so the link has somewhere to open.');
+      const name = params.title || TEMPLATE_LABELS[template];
+      const token = consentToken ?? (await createConsentRequest(name));
+      setConsentToken(token);
+      await shareOrCopy(`I'd like to record "${name}" for accurate notes. Please let me know if that's OK: ${base}/c/${token}`, 'Consent link copied');
+    } catch (e) {
+      notify("Couldn't make a consent link", (e as Error).message);
+    }
+  }
 
   const tap = () => {
     if (!isWeb) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -85,9 +112,13 @@ export default function Record() {
         projectId,
         title: params.title || undefined,
         calendarEventKey: params.eventKey || null,
+        customTemplateId: customId,
       });
       setRecordingId(id);
       await rec.start(id);
+      // Responses to the consent link show on the recording. Needs a connection; retried by nothing,
+      // so a failure here only means responses aren't linked (they're still saved).
+      if (consentToken) setTimeout(() => void attachConsentRequest(consentToken, id).catch(() => {}), 4000);
     } catch (e) {
       notify("Couldn't start recording", (e as Error).message);
     } finally {
@@ -119,16 +150,30 @@ export default function Record() {
             <T muted size={13} weight="600">WHAT IS IT?</T>
             <View style={styles.chips}>
               {(Object.keys(TEMPLATE_LABELS) as Template[]).map((k) => {
-                const on = k === template;
+                const on = k === template && !customId;
                 return (
                   <Pressable
                     key={k}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: on }}
-                    onPress={() => setTemplate(k)}
+                    onPress={() => { setTemplate(k); setCustomId(null); }}
                     style={[styles.chip, { borderColor: on ? t.accent : t.border, backgroundColor: on ? t.accentSoft : t.surface }]}
                   >
                     <T size={15} weight={on ? '600' : '400'} style={{ color: on ? t.accent : t.ink }}>{TEMPLATE_LABELS[k]}</T>
+                  </Pressable>
+                );
+              })}
+              {custom.map((c) => {
+                const on = c.id === customId;
+                return (
+                  <Pressable
+                    key={c.id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    onPress={() => { setTemplate(c.base); setCustomId(c.id); }}
+                    style={[styles.chip, { borderColor: on ? t.accent : t.border, backgroundColor: on ? t.accentSoft : t.surface, borderStyle: 'dashed' }]}
+                  >
+                    <T size={15} weight={on ? '600' : '400'} style={{ color: on ? t.accent : t.ink }}>{c.name}</T>
                   </Pressable>
                 );
               })}
@@ -154,13 +199,36 @@ export default function Record() {
           )}
 
           {needConsent && (
-            <Card style={{ gap: space.md }}>
+            <Card style={{ gap: space.md, borderColor: advice.level === 'everyone' ? t.danger : t.border }}>
               <T weight="600">Let people know</T>
-              <T muted size={14}>
-                Many places require everyone’s permission to record, and some US states require it from every person on a call. You can say:
-              </T>
+              {isCall && (
+                <View style={{ gap: space.xs }}>
+                  <T size={14}>Where is the other person?</T>
+                  <TextInput
+                    value={otherState ? STATES.find((x) => x.code === otherState)?.name ?? 'Outside the US' : otherQuery}
+                    onChangeText={(v) => { setOtherState(null); setOtherQuery(v); }}
+                    placeholder="Type a US state"
+                    placeholderTextColor={t.muted}
+                    style={{ borderWidth: 1, borderColor: t.border, borderRadius: radius.md, padding: space.sm, color: t.ink, fontSize: 15 }}
+                    accessibilityLabel="Other person's state"
+                  />
+                  {otherMatches.map((x) => (
+                    <Pressable key={x.code} onPress={() => { setOtherState(x.code); setOtherQuery(''); }}>
+                      <T size={14} style={{ color: t.accent }}>{x.name}</T>
+                    </Pressable>
+                  ))}
+                  {!otherState && <Pressable onPress={() => setOtherState('OTHER')}><T size={14} style={{ color: t.accent }}>Outside the US / not sure</T></Pressable>}
+                </View>
+              )}
+              <View style={{ gap: 2 }}>
+                <T size={15} weight="600" style={{ color: advice.level === 'everyone' ? t.danger : t.ink }}>{advice.title}</T>
+                <T muted size={14}>{advice.body}</T>
+                {!myState && <T muted size={13}>Set where you usually record in Settings → Privacy & data for a precise warning.</T>}
+              </View>
+              <T muted size={14}>You can say:</T>
               <T size={15} style={{ fontStyle: 'italic' }}>“{NOTICE}”</T>
-              {(['told_everyone', 'in_invite', 'solo'] as ConsentMethod[]).map((m) => {
+              <Button label={consentToken ? 'Share the consent link again' : 'Send a consent link'} kind="ghost" onPress={sendConsentLink} />
+              {(['told_everyone', 'in_invite', ...(consentToken ? ['consent_link'] : []), 'solo'] as ConsentMethod[]).map((m) => {
                 const on = consent === m;
                 return (
                   <Pressable key={m} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setConsent(m)} style={styles.checkRow}>

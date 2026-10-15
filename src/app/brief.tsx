@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react';
 import { Linking, ScrollView, View } from 'react-native';
 import { ProjectPicker } from '@/components/ProjectPicker';
 import { Button, Card, T } from '@/components/ui';
-import { getBrief, linkEventToProject } from '@/lib/api';
+import { botAvailable, createConsentRequest, getBrief, linkEventToProject } from '@/lib/api';
 import { dayLabel, timeRange } from '@/lib/calendarUi';
-import { notify } from '@/lib/dialog';
+import { isWeb, notify, shareOrCopy } from '@/lib/dialog';
+import { APP_URL } from '@/lib/config';
 import { shortDate } from '@/lib/format';
 import { space, useTheme } from '@/lib/theme';
 
@@ -16,6 +17,22 @@ export default function BriefScreen() {
   const p = useLocalSearchParams<{ key: string; title: string; start: string; end: string; url?: string; who?: string; projectId?: string }>();
   const [projectId, setProjectId] = useState<string | null>(p.projectId || null);
   const [brief, setBrief] = useState<{ projectId: string; data: Brief } | null>(null);
+  const [hasBot, setHasBot] = useState(false);
+  useEffect(() => {
+    botAvailable().then(setHasBot);
+  }, []);
+
+  /** A link attendees open to agree (or not) to being recorded; paste it into the invite. */
+  async function consentLink() {
+    try {
+      const base = APP_URL || (isWeb ? window.location.origin : '');
+      if (!base) throw new Error('Set EXPO_PUBLIC_APP_URL so the link has somewhere to open.');
+      const token = await createConsentRequest(p.title);
+      await shareOrCopy(`${p.title}: I'd like to record this meeting for accurate notes. Please let me know if that's OK: ${base}/c/${token}`, 'Consent link copied');
+    } catch (e) {
+      notify("Couldn't make a consent link", (e as Error).message);
+    }
+  }
 
   useEffect(() => {
     if (!projectId) return;
@@ -52,6 +69,17 @@ export default function BriefScreen() {
           style={{ flex: 1 }}
         />
         {p.url ? <Button label="Join" kind="secondary" onPress={() => void Linking.openURL(p.url!)} style={{ flex: 1 }} /> : null}
+      </View>
+      <View style={{ flexDirection: 'row', gap: space.md }}>
+        {p.url && hasBot ? (
+          <Button
+            label="Send notetaker instead"
+            kind="secondary"
+            onPress={() => router.push({ pathname: '/notetaker', params: { url: p.url!, start: p.start, title: p.title, key: p.key, ...(projectId ? { projectId } : {}) } })}
+            style={{ flex: 1 }}
+          />
+        ) : null}
+        <Button label="Get consent link" kind="ghost" onPress={consentLink} style={{ flex: 1 }} />
       </View>
 
       <View style={{ gap: space.sm }}>

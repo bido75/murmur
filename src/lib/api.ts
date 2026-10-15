@@ -5,19 +5,22 @@ import * as Sharing from 'expo-sharing';
 import { isWeb } from './dialog';
 import { downloadWeb } from './export';
 import { uuid } from './format';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import { supabase } from './supabase';
 import { enqueue, keepFile, pendingOps, pendingPhotos, processRecording, type CreateOp } from './sync';
-import type { CalendarEvent, CalProvider, ConsentMethod, Integration, Invite, Member, Photo, Project, Provider, Recording, Role, Summary, Task, Template, Transcript, Workspace } from './types';
+import type { CalendarEvent, CalProvider, ConsentMethod, ConsentResponse, Integration, Invite, MeetingBot, Member, Photo, Project, Provider, Recording, Role, ShareLink, Summary, SummaryTemplate, Task, Template, Transcript, Workspace } from './types';
+import { normalizeMediaLink, titleFromLink } from './shared';
 
 /** Register a new recording locally; it syncs to the server when there's a connection. */
 export async function newRecording(opts: {
   template: Template;
-  source: 'mic' | 'import';
+  source: 'mic' | 'import' | 'link';
   consentAt: string | null;
   consentMethod?: ConsentMethod;
   projectId?: string | null;
   calendarEventKey?: string | null;
   title?: string;
+  customTemplateId?: string | null;
 }) {
   const recordingId = uuid();
   await enqueue({
@@ -30,8 +33,19 @@ export async function newRecording(opts: {
     consentMethod: opts.consentMethod,
     projectId: opts.projectId ?? null,
     calendarEventKey: opts.calendarEventKey ?? null,
+    customTemplateId: opts.customTemplateId ?? null,
     createdAt: new Date().toISOString(),
   });
+  return recordingId;
+}
+
+/** Import audio or video from a link (Dropbox, Google Drive, OneDrive or a direct file link). */
+export async function importFromLink(link: string, template: Template, projectId: string | null = null, customTemplateId: string | null = null): Promise<string> {
+  const check = normalizeMediaLink(link);
+  if (!check.ok) throw new Error(check.reason);
+  const recordingId = await newRecording({ template, source: 'link', consentAt: null, title: titleFromLink(check.url), projectId, customTemplateId });
+  await enqueue({ kind: 'link', recordingId, url: check.url });
+  await enqueue({ kind: 'finalize', recordingId, durationMs: 0 });
   return recordingId;
 }
 
@@ -82,7 +96,7 @@ export async function getRecording(id: string) {
     supabase.from('transcripts').select('utterances, speaker_names').eq('recording_id', id).maybeSingle(),
     supabase.from('summaries').select('overview, key_points, decisions, open_questions, task_updates, site_log, site_log_external').eq('recording_id', id).maybeSingle(),
     supabase.from('tasks').select('*').eq('recording_id', id).neq('status', 'dismissed').order('created_at'),
-    supabase.from('recording_segments').select('idx, storage_path, duration_ms').eq('recording_id', id).order('idx'),
+    supabase.from('recording_segments').select('idx, storage_path, source_url, duration_ms').eq('recording_id', id).order('idx'),
     listPhotos(id),
   ]);
   return {
@@ -91,7 +105,7 @@ export async function getRecording(id: string) {
     transcript: (tr.data ?? null) as Transcript | null,
     summary: (sum.data ?? null) as Summary | null,
     tasks: (tasks.data ?? []) as Task[],
-    segments: (segs.data ?? []) as { idx: number; storage_path: string; duration_ms: number }[],
+    segments: (segs.data ?? []) as { idx: number; storage_path: string | null; source_url: string | null; duration_ms: number }[],
   };
 }
 
@@ -125,6 +139,160 @@ export async function deletePhoto(photo: Photo) {
   if (error) throw new Error(error.message);
 }
 
+// ---------- Search ----------
+
+export type SearchHit = { recording_id: string; title: string; created_at: string; project_id: string | null; template: Template; snippet: string | null; matched: 'transcript' | 'title' | 'notes' };
+
+export async function searchRecordings(q: string): Promise<SearchHit[]> {
+  if (q.trim().length < 2) return [];
+  const { data, error } = await supabase.rpc('search_recordings', { q: q.trim(), max_results: 30 });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SearchHit[];
+}
+
+export async function searchTasks(q: string): Promise<(Task & { recordings: { title: string } | null })[]> {
+  const term = q.trim().replace(/[%_\\,()]/g, ' ').trim();
+  if (term.length < 2) return [];
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*, recordings!tasks_recording_id_fkey(title)')
+    .ilike('text', `%${term}%`)
+    .neq('status', 'dismissed')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as (Task & { recordings: { title: string } | null })[];
+}
+
+// ---------- Sharing ----------
+
+export async function listShareLinks(recordingId: string): Promise<ShareLink[]> {
+  const { data, error } = await supabase
+    .from('share_links')
+    .select('id, token, include_transcript, created_at, expires_at, revoked_at, views')
+    .eq('recording_id', recordingId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ShareLink[];
+}
+
+export async function createShareLink(recordingId: string, withTranscript: boolean, validDays: number | null) {
+  return rpc<string>('create_share_link', { rec: recordingId, with_transcript: withTranscript, valid_days: validDays });
+}
+
+export async function revokeShareLink(id: string) {
+  const { error } = await supabase.from('share_links').update({ revoked_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export function shareUrl(token: string, appUrl: string): string {
+  return `${appUrl}/s/${token}`;
+}
+
+export async function emailAvailable(): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('share/email-available', { method: 'GET' });
+  return !error && Boolean(data?.available);
+}
+
+export function sendRecap(recordingId: string, to: string, note: string) {
+  return callFn<{ sent: number; link: string | null }>('share/recap', { recording_id: recordingId, to, note: note.trim() || null });
+}
+
+export function exportDocx(recordingId: string, includeTranscript: boolean) {
+  return callFn<{ url: string; filename: string }>('share/docx', { recording_id: recordingId, include_transcript: includeTranscript });
+}
+
+/** Public pages (no sign-in): shared notes and consent links. */
+export async function publicCall<T>(path: string, init: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${path}`, {
+    method: init.method ?? 'GET',
+    headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+  return data as T;
+}
+
+// ---------- Consent links ----------
+
+export const createConsentRequest = (title: string, recordingId: string | null = null) =>
+  rpc<string>('create_consent_request', { req_title: title, rec: recordingId });
+
+export async function attachConsentRequest(token: string, recordingId: string) {
+  const { error } = await supabase.from('consent_requests').update({ recording_id: recordingId }).eq('token', token);
+  if (error) throw new Error(error.message);
+}
+
+export async function consentResponses(recordingId: string): Promise<ConsentResponse[]> {
+  const { data: reqs } = await supabase.from('consent_requests').select('id').eq('recording_id', recordingId);
+  const ids = (reqs ?? []).map((r) => r.id);
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from('consent_responses').select('id, name, email, decision, created_at').in('request_id', ids).order('created_at');
+  if (error) return [];
+  return (data ?? []) as ConsentResponse[];
+}
+
+// ---------- Templates ----------
+
+export async function listTemplates(): Promise<SummaryTemplate[]> {
+  const { data, error } = await supabase.from('summary_templates').select('id, name, instructions, base, workspace_id, user_id').order('name');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SummaryTemplate[];
+}
+
+export async function saveTemplate(t: { id?: string; name: string; instructions: string; base: Template; workspace_id: string | null }) {
+  const row = { name: t.name.trim(), instructions: t.instructions.trim(), base: t.base, workspace_id: t.workspace_id };
+  const { error } = t.id ? await supabase.from('summary_templates').update(row).eq('id', t.id) : await supabase.from('summary_templates').insert(row);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteTemplate(id: string) {
+  const { error } = await supabase.from('summary_templates').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ---------- Privacy ----------
+
+export type Retention = { audio_retention_days: number | null; recording_retention_days: number | null };
+
+export async function getRetention(): Promise<Retention> {
+  const { data } = await supabase.from('user_settings').select('audio_retention_days, recording_retention_days').maybeSingle();
+  return (data as Retention | null) ?? { audio_retention_days: null, recording_retention_days: null };
+}
+
+export async function saveRetention(r: Retention) {
+  const me = await currentUserId();
+  const { error } = await supabase.from('user_settings').upsert({ user_id: me, ...r }, { onConflict: 'user_id' });
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteAccount() {
+  await callFn<{ deleted: boolean }>('account/delete', { confirm: 'DELETE' });
+  await AsyncStorage.clear().catch(() => {});
+  await supabase.auth.signOut().catch(() => {});
+}
+
+// ---------- Meeting bot ----------
+
+export async function botAvailable(): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('bot/available', { method: 'GET' });
+  return !error && Boolean(data?.available);
+}
+
+export function scheduleBot(o: { meetingUrl: string; joinAt: string | null; title?: string; projectId?: string | null; eventKey?: string | null }) {
+  return callFn<{ recording_id: string }>('bot/schedule', { meeting_url: o.meetingUrl, join_at: o.joinAt, title: o.title, project_id: o.projectId ?? null, event_key: o.eventKey ?? null });
+}
+
+export function cancelBot(recordingId: string) {
+  return callFn<{ ok: boolean }>('bot/cancel', { recording_id: recordingId });
+}
+
+export async function getBot(recordingId: string): Promise<MeetingBot | null> {
+  const { data } = await supabase.from('meeting_bots').select('status, status_detail, meeting_url, join_at').eq('recording_id', recordingId).maybeSingle();
+  return (data as MeetingBot | null) ?? null;
+}
+
 export async function retryProcessing(id: string) {
   await processRecording(id);
 }
@@ -139,7 +307,7 @@ export async function deleteRecording(id: string) {
     supabase.from('recording_segments').select('storage_path').eq('recording_id', id),
     supabase.from('recording_photos').select('storage_path').eq('recording_id', id),
   ]);
-  const paths = (segs ?? []).map((s) => s.storage_path);
+  const paths = (segs ?? []).map((s) => s.storage_path).filter((p): p is string => !!p);
   if (paths.length) await supabase.storage.from('audio').remove(paths);
   const photoPaths = (photos ?? []).map((p) => p.storage_path);
   if (photoPaths.length) await supabase.storage.from('photos').remove(photoPaths);
@@ -174,9 +342,10 @@ export async function ask(question: string, recordingId?: string): Promise<{ ans
 }
 
 // Local settings
-export type Settings = { consentReminder: boolean; defaultTemplate: Template; fieldMode: boolean };
+/** myState: a US state code, 'OTHER' for outside the US, or null when not set. */
+export type Settings = { consentReminder: boolean; defaultTemplate: Template; fieldMode: boolean; myState: string | null };
 const SETTINGS_KEY = 'settings.v1';
-const DEFAULT_SETTINGS: Settings = { consentReminder: true, defaultTemplate: 'meeting', fieldMode: false };
+const DEFAULT_SETTINGS: Settings = { consentReminder: true, defaultTemplate: 'meeting', fieldMode: false, myState: null };
 
 export async function getSettings(): Promise<Settings> {
   try {
@@ -369,9 +538,10 @@ export async function saveDeck(url: string, filename: string) {
   if (dest.exists) dest.delete();
   const file = await File.createDownloadTask(url, dest).downloadAsync();
   if (!file) throw new Error('Download was interrupted');
+  const word = filename.toLowerCase().endsWith('.docx');
   await Sharing.shareAsync(file.uri, {
-    mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    UTI: 'org.openxmlformats.presentationml.presentation',
+    mimeType: word ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    UTI: word ? 'org.openxmlformats.wordprocessingml.document' : 'org.openxmlformats.presentationml.presentation',
   });
 }
 
