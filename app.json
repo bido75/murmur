@@ -1,13 +1,14 @@
 {
   "expo": {
-    "name": "murmur",
+    "name": "Murmur",
     "slug": "murmur",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.murmur"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,10 +17,26 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.example.murmur"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Murmur uses the microphone to record conversations you choose to capture.",
+          "enableBackgroundRecording": true
+        }
+      ],
+      "expo-sharing"
+    ],
+    "scheme": "murmur",
+    "experiments": {
+      "typedRoutes": false
     }
   }
 }
