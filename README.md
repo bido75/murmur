@@ -182,4 +182,11 @@ src/lib/                 recorder, sync queue, API, theme, types
 src/components/          UI kit, TaskRow
 supabase/migrations/     schema + security rules
 supabase/functions/      process-recording, ask, shared logic + tests
+desktop/                 Mac/Windows recorder (Electron), see desktop/README.md
 ```
+
+## Desktop app
+
+`desktop/` records online meetings on Mac and Windows with no bot in the call (mic + system
+audio), using the same account and backend. Build and test steps, and what still needs a real
+Mac/Windows check, are in [desktop/README.md](desktop/README.md).

@@ -1,0 +1,26 @@
+appId: com.example.murmur.desktop
+productName: Murmur
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+mac:
+  category: public.app-category.productivity
+  target: [dmg, zip]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Murmur records your side of the conversation with the microphone.
+    NSScreenCaptureUsageDescription: Murmur records the other people on your call from your computer's audio. No video is kept.
+    LSUIElement: false
+  extraResources:
+    - from: native/macos/build/SystemAudioCapture
+      to: SystemAudioCapture
+  minimumSystemVersion: '13.0'
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  perMachine: false
