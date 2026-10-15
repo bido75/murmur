@@ -109,3 +109,21 @@ export const STATUS_LABELS: Record<RecordingStatus, string> = {
   ready: 'Ready',
   failed: 'Failed',
 };
+
+export type CalProvider = 'google' | 'microsoft';
+export type CalendarEvent = {
+  key: string;
+  id: string;
+  provider: CalProvider;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  meetingUrl: string | null;
+  platform: 'zoom' | 'meet' | 'teams' | 'webex' | null;
+  attendees: { name: string | null; email: string }[];
+  location: string | null;
+  recurring: boolean;
+  match: { project_id: string; how: 'linked' | 'title' } | null;
+};
+export const CAL_LABELS: Record<CalProvider, string> = { google: 'Google Calendar', microsoft: 'Microsoft 365 / Outlook' };

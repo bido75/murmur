@@ -69,10 +69,14 @@ export default function RootLayout() {
           <Stack.Screen name="team/[id]" options={{ title: '' }} />
           <Stack.Screen name="join" options={{ title: 'Join a team' }} />
           <Stack.Screen name="api-access" options={{ title: 'Claude & ChatGPT' }} />
+          <Stack.Screen name="upcoming" options={{ title: 'Upcoming meetings' }} />
+          <Stack.Screen name="brief" options={{ title: 'Brief' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
+        {/* Reachable signed in or out: it shows its own sign-in form. */}
+        <Stack.Screen name="oauth/authorize" options={{ headerShown: false }} />
       </Stack>
       </View>
       </View>

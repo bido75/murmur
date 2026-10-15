@@ -47,7 +47,17 @@ An AI note taker in the same category as Wave: record meetings, calls, lectures 
 | Personal API tokens: stored as a hash, shown once, revocable, last-used date | `create_api_token()` |
 | **Security rules tested on real Postgres**: outsiders see nothing; teammates see only team projects; the MCP server's scope matches the app's exactly | `supabase/tests/` (`npm run test:db`) |
 
-Still to come: calendar sync and briefs from calendar events, desktop bot-free capture, optional meeting bot, sign-in (OAuth) for Claude.ai / ChatGPT web connectors, phone-call recording, field-mode offline transcription, Procore.
+### Phase 2, batch 3
+
+| Feature | Where |
+| --- | --- |
+| **Claude.ai / ChatGPT connectors with sign-in** (OAuth 2.1): dynamic client registration, PKCE, single-use 10-minute codes, 1-hour access tokens bound to your MCP URL, 30-day refresh tokens rotated on every use with reuse detection, revocation | `supabase/functions/oauth`, `_shared/oauth.ts`, `src/app/oauth/authorize.tsx` |
+| "Connected apps" list with disconnect | AI access screen |
+| **Calendar sync** for Google Calendar and Microsoft 365: connect in Settings, refresh tokens kept server-side only | `supabase/functions/calendar`, `_shared/calendar.ts` |
+| **Upcoming meetings + briefs**: next meeting on the home screen; each brief shows open tasks and last meeting's decisions and open questions for that project; one tap to record with title and project filled in | `src/app/upcoming.tsx`, `src/app/brief.tsx` |
+| Meetings matched to projects automatically by name, or once per recurring series by you | `matchProject()`, `calendar_links` |
+
+Still to come: desktop bot-free capture app (Mac/Windows), optional meeting bot, phone-call recording, field-mode offline transcription, Procore, emailed team invites.
 
 ## Setup
 
@@ -79,7 +89,9 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    supabase functions deploy integrations
    supabase functions deploy push-tasks
    supabase functions deploy make-deck
-   supabase functions deploy mcp --no-verify-jwt   # authenticates with its own API tokens
+   supabase functions deploy mcp --no-verify-jwt       # its own tokens (API + OAuth)
+   supabase functions deploy oauth --no-verify-jwt     # AI-connector sign-in
+   supabase functions deploy calendar --no-verify-jwt  # provider redirects carry no session
    ```
    Optional: `supabase secrets set APP_URL=https://your-web-app.example.com` so tasks sent to trackers link back to the recording.
 6. **Run on a phone.** Background recording needs a development build (Expo Go won't keep recording when locked):
@@ -87,10 +99,28 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    npx expo run:ios        # or: npx expo run:android
    # or in the cloud: npx eas-cli@latest build --profile development
    ```
-7. **Web app** (optional): build static files and host them anywhere (Vercel, Netlify, EAS Hosting, S3).
+7. **Web app** (needed for Claude.ai/ChatGPT connectors and the calendar return page). On Vercel:
    ```bash
-   npx expo export --platform web     # output in dist/
+   node --env-file=.env scripts/hosting-config.mjs   # writes vercel.json with the rewrites below
+   npx vercel --prod                                 # or connect the repo in the Vercel dashboard
+   supabase secrets set APP_URL=https://your-app.example.com
    ```
+   Set `EXPO_PUBLIC_APP_URL` to the same address in `.env`. The rewrites put `/mcp`, `/oauth/token|register|revoke` and the
+   `/.well-known/oauth-*` discovery documents on your app's domain, which is what MCP connectors require. Other hosts: copy the
+   rewrites from `vercel.json` into their equivalent (Netlify `_redirects`, Cloudflare Pages `_redirects`).
+
+   Then in Claude: Settings → Connectors → Add custom connector → `https://your-app.example.com/mcp`. ChatGPT: add it as a
+   connector in developer mode. You'll be asked to sign in and approve.
+8. **Calendar** (optional). Register an app with each provider you want and set the secrets:
+   - **Google**: Google Cloud Console → APIs & Services → enable *Google Calendar API* → OAuth consent screen (scope
+     `calendar.readonly`) → Credentials → *OAuth client ID* (Web application). Authorized redirect URI:
+     `https://YOUR-PROJECT.supabase.co/functions/v1/calendar/callback`.
+     `supabase secrets set GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...`
+     Google requires app verification before the public can use calendar scopes; test users work right away.
+   - **Microsoft**: Azure portal → Microsoft Entra ID → App registrations → New (accounts in any org + personal) → Web
+     redirect URI as above → API permissions: *Calendars.Read*, *User.Read*, *offline_access* → Certificates & secrets → new
+     client secret. `supabase secrets set MICROSOFT_CLIENT_ID=... MICROSOFT_CLIENT_SECRET=...`
+   - Optional: `supabase secrets set APP_SCHEME=murmur` if you rename the app's URL scheme.
    Browser recordings upload during the session; if the tab is closed before upload finishes, that audio is lost (phones keep it on disk).
 
 ## Checks
@@ -118,6 +148,9 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Open the web build, sign in, record 30 seconds in the browser, and check notes appear.
 - [ ] Two accounts: create a team, invite the second account, accept the code, record into a team project. The second account sees it; a third account sees nothing.
 - [ ] Create an API token, add it to Claude Code with the copied command, and ask "what tasks are open on Riverside Lofts?"
+- [ ] Deploy the web app, add `https://your-app/mcp` as a custom connector in Claude.ai, sign in and Allow, then ask Claude about a recording. Disconnect it in the app and confirm Claude loses access.
+- [ ] Test the OAuth flow with the MCP Inspector too: `npx @modelcontextprotocol/inspector` → Streamable HTTP → your `/mcp` URL.
+- [ ] Connect Google Calendar (as a test user), open Upcoming, link a recurring meeting to a project, open its brief, tap Record.
 - [ ] A meeting where someone floats an idea ("we could…") and someone commits ("I'll send it Thursday"): the first should land in To review, the second in Open with the right owner.
 
 ## Known limits
@@ -130,7 +163,7 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - **Tracker APIs** (Linear GraphQL, Asana REST, Jira Cloud REST v3) were written against their public APIs from memory and typechecked, not run against live accounts. Test each with a real token; error messages from the provider are shown in the app.
 - **Carry-over only closes a task on a verified quote.** A wrong "done" is still possible if someone says it's done when it isn't; the task shows the quote and can be reopened with one tap.
 - **MCP scope**: the AI tool sees your newest 1,000 readable recordings. Older ones aren't searchable through it yet.
-- **Claude.ai / ChatGPT web connectors** need an OAuth sign-in flow, not tokens. Use Claude Code, Cursor or another client that accepts headers for now.
+- **OAuth and calendar were tested in pieces, not end to end against Claude.ai, Google or Microsoft.** The protocol logic, the database rules and the discovery chain are tested; the provider APIs and Claude's connector are not. Use the device checklist and the MCP Inspector before announcing it.
 - **Team invites aren't emailed**: the admin gets a code to send however they like. Add an email provider (e.g. Resend) to send them automatically.
 - **App Store**: Apple requires in-app account deletion before release; not built yet.
 - **Recording law**: the notice reminder helps but isn't legal advice. Get counsel to review before launch, especially for phone calls.

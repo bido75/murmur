@@ -17,7 +17,7 @@ export default function Record() {
   const t = useTheme();
   const rec = useSegmentedRecorder();
   const [template, setTemplate] = useState<Template>('meeting');
-  const params = useLocalSearchParams<{ projectId?: string }>();
+  const params = useLocalSearchParams<{ projectId?: string; title?: string; eventKey?: string }>();
   const [projectId, setProjectId] = useState<string | null>(params.projectId ?? null);
   const [briefFor, setBriefFor] = useState<{ projectId: string; tasks: Task[] } | null>(null);
   const brief = projectId && briefFor?.projectId === projectId ? briefFor.tasks : [];
@@ -51,6 +51,8 @@ export default function Record() {
         consentAt: consented ? new Date().toISOString() : null,
         consentMethod: consent ?? 'not_confirmed',
         projectId,
+        title: params.title || undefined,
+        calendarEventKey: params.eventKey || null,
       });
       setRecordingId(id);
       await rec.start(id);
@@ -76,7 +78,7 @@ export default function Record() {
       <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
         <ScrollView contentContainerStyle={{ padding: space.xl, gap: space.xl }}>
           <View style={styles.headerRow}>
-            <T size={28} weight="700">New recording</T>
+            <T size={28} weight="700" numberOfLines={2} style={{ flex: 1 }}>{params.title || 'New recording'}</T>
             <Button label="Cancel" kind="ghost" onPress={() => router.back()} />
           </View>
 

@@ -7,7 +7,7 @@ import { downloadWeb } from './export';
 import { uuid } from './format';
 import { supabase } from './supabase';
 import { enqueue, keepFile, pendingOps, processRecording, type CreateOp } from './sync';
-import type { ConsentMethod, Integration, Invite, Member, Project, Provider, Recording, Role, Summary, Task, Template, Transcript, Workspace } from './types';
+import type { CalendarEvent, CalProvider, ConsentMethod, Integration, Invite, Member, Project, Provider, Recording, Role, Summary, Task, Template, Transcript, Workspace } from './types';
 
 /** Register a new recording locally; it syncs to the server when there's a connection. */
 export async function newRecording(opts: {
@@ -16,6 +16,7 @@ export async function newRecording(opts: {
   consentAt: string | null;
   consentMethod?: ConsentMethod;
   projectId?: string | null;
+  calendarEventKey?: string | null;
   title?: string;
 }) {
   const recordingId = uuid();
@@ -28,6 +29,7 @@ export async function newRecording(opts: {
     consentAt: opts.consentAt,
     consentMethod: opts.consentMethod,
     projectId: opts.projectId ?? null,
+    calendarEventKey: opts.calendarEventKey ?? null,
     createdAt: new Date().toISOString(),
   });
   return recordingId;
@@ -381,4 +383,69 @@ export const createApiToken = (name: string) => rpc<string>('create_api_token', 
 export async function revokeApiToken(id: string) {
   const { error } = await supabase.from('api_tokens').delete().eq('id', id);
   if (error) throw new Error(error.message);
+}
+
+// ---------- Connected AI apps (OAuth) ----------
+
+export type ConnectedApp = { client_id: string; client_name: string; connected_at: string; last_used_at: string };
+export const listConnectedApps = () => rpc<ConnectedApp[]>('my_connected_apps', {});
+export const disconnectApp = (clientId: string) => rpc<void>('disconnect_app', { p_client_id: clientId });
+
+// ---------- Calendar ----------
+
+export async function calendarProviders(): Promise<CalProvider[]> {
+  const { data, error } = await supabase.functions.invoke('calendar/providers', { method: 'GET' });
+  if (error) return [];
+  return (data?.providers ?? []) as CalProvider[];
+}
+
+export async function listCalendarConnections(): Promise<{ provider: CalProvider; account_email: string | null }[]> {
+  const { data, error } = await supabase.from('calendar_connections').select('provider, account_email');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { provider: CalProvider; account_email: string | null }[];
+}
+
+/** Returns the provider sign-in URL to open in the browser. */
+export async function startCalendarConnect(provider: CalProvider, returnTo: string): Promise<string> {
+  return (await callFn<{ url: string }>('calendar/start', { provider, return_to: returnTo })).url;
+}
+
+export async function disconnectCalendar(provider: CalProvider) {
+  const { error } = await supabase.from('calendar_connections').delete().eq('provider', provider);
+  if (error) throw new Error(error.message);
+}
+
+export async function upcomingEvents(days = 7) {
+  return callFn<{ connected: { provider: CalProvider; email: string | null }[]; problems: string[]; events: CalendarEvent[] }>('calendar/events', { days });
+}
+
+export async function linkEventToProject(eventKey: string, projectId: string | null) {
+  const me = await currentUserId();
+  if (!projectId) {
+    const { error } = await supabase.from('calendar_links').delete().eq('event_key', eventKey);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const { error } = await supabase.from('calendar_links').upsert({ user_id: me, event_key: eventKey, project_id: projectId }, { onConflict: 'user_id,event_key' });
+  if (error) throw new Error(error.message);
+}
+
+/** What to know before the next meeting in a project: open tasks and the last meeting's notes. */
+export async function getBrief(projectId: string) {
+  const [openTasks, { data: last }] = await Promise.all([
+    openProjectTasks(projectId),
+    supabase
+      .from('recordings')
+      .select('id, title, created_at, summaries(overview, decisions, open_questions)')
+      .eq('project_id', projectId)
+      .eq('status', 'ready')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const summary = last ? one((last as { summaries: unknown }).summaries as Summary | Summary[] | null) : null;
+  return {
+    openTasks,
+    last: last ? { id: last.id as string, title: last.title as string, created_at: last.created_at as string, summary } : null,
+  };
 }

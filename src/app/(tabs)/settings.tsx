@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
 import { Button, Card, T } from '@/components/ui';
-import { createWorkspace, getSettings, listWorkspaces, saveSettings, type Settings } from '@/lib/api';
+import {
+  calendarProviders, createWorkspace, disconnectCalendar, getSettings, listCalendarConnections, listWorkspaces, saveSettings,
+  startCalendarConnect, type Settings,
+} from '@/lib/api';
+import { calendarReturnUrl } from '@/lib/calendarUi';
 import { APP_NAME } from '@/lib/config';
-import { confirm, notify } from '@/lib/dialog';
+import { confirm, isWeb, notify } from '@/lib/dialog';
 import { supabase } from '@/lib/supabase';
 import { flush, pendingOps } from '@/lib/sync';
 import { radius, space, useTheme } from '@/lib/theme';
-import { TEMPLATE_LABELS, type Template, type Workspace } from '@/lib/types';
+import { CAL_LABELS, TEMPLATE_LABELS, type CalProvider, type Template, type Workspace } from '@/lib/types';
 
 export default function SettingsScreen() {
   const t = useTheme();
@@ -17,13 +21,33 @@ export default function SettingsScreen() {
   const [pending, setPending] = useState(0);
   const [teams, setTeams] = useState<Workspace[]>([]);
   const [teamName, setTeamName] = useState('');
+  const [calProviders, setCalProviders] = useState<CalProvider[]>([]);
+  const [calendars, setCalendars] = useState<{ provider: CalProvider; account_email: string | null }[]>([]);
 
   useEffect(() => {
     getSettings().then(setSettings);
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
     pendingOps().then((ops) => setPending(ops.filter((o) => o.kind === 'segment').length));
     listWorkspaces().then(setTeams).catch(() => setTeams([]));
+    calendarProviders().then(setCalProviders);
+    listCalendarConnections().then(setCalendars).catch(() => setCalendars([]));
   }, []);
+
+  async function connectCalendar(provider: CalProvider) {
+    try {
+      const url = await startCalendarConnect(provider, calendarReturnUrl());
+      if (isWeb) window.location.assign(url);
+      else await Linking.openURL(url);
+    } catch (e) {
+      notify("Couldn't start calendar sign-in", (e as Error).message);
+    }
+  }
+
+  async function removeCalendar(provider: CalProvider) {
+    if (!(await confirm(`Disconnect ${CAL_LABELS[provider]}?`, 'Upcoming meetings and briefs from it will stop showing.', 'Disconnect', true))) return;
+    await disconnectCalendar(provider).catch((e) => notify("Couldn't disconnect", (e as Error).message));
+    setCalendars(await listCalendarConnections().catch(() => []));
+  }
 
   async function addTeam() {
     try {
@@ -79,6 +103,29 @@ export default function SettingsScreen() {
             );
           })}
         </View>
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Calendar</T>
+        <T muted size={14}>See upcoming meetings with a brief: what&apos;s still open and what was decided last time.</T>
+        {calendars.map((c) => (
+          <View key={c.provider} style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+            <View style={{ flex: 1 }}>
+              <T>{CAL_LABELS[c.provider]}</T>
+              {c.account_email ? <T muted size={13}>{c.account_email}</T> : null}
+            </View>
+            <Button label="Disconnect" kind="ghost" onPress={() => void removeCalendar(c.provider)} />
+          </View>
+        ))}
+        {calProviders
+          .filter((p) => !calendars.some((c) => c.provider === p))
+          .map((p) => (
+            <Button key={p} label={`Connect ${CAL_LABELS[p]}`} kind="secondary" onPress={() => void connectCalendar(p)} />
+          ))}
+        {calendars.length > 0 && <Button label="Upcoming meetings" kind="ghost" onPress={() => router.push('/upcoming')} />}
+        {calProviders.length === 0 && calendars.length === 0 && (
+          <T muted size={13}>Calendar sign-in isn&apos;t set up on the server yet (see README: Google/Microsoft app registration).</T>
+        )}
       </Card>
 
       <Card style={{ gap: space.sm }}>

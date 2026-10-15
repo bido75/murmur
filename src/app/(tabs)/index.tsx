@@ -2,18 +2,29 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Banner, Button, Card, Empty, StatusPill, T } from '@/components/ui';
-import { getSettings, importAudio, listRecordings, localOnlyRecordings } from '@/lib/api';
+import { getSettings, importAudio, listRecordings, localOnlyRecordings, upcomingEvents } from '@/lib/api';
+import { briefParams, dayLabel, timeRange } from '@/lib/calendarUi';
 import { minutes, shortDate } from '@/lib/format';
 import { subscribe } from '@/lib/sync';
 import { notify } from '@/lib/dialog';
 import { radius, space, useTheme } from '@/lib/theme';
-import { TEMPLATE_LABELS, type Recording } from '@/lib/types';
+import { TEMPLATE_LABELS, type CalendarEvent, type Recording } from '@/lib/types';
 
 export default function Recordings() {
   const t = useTheme();
   const [items, setItems] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [next, setNext] = useState<CalendarEvent | null>(null);
+
+  // The next meeting in the coming 24 hours, if a calendar is connected.
+  useFocusEffect(
+    useCallback(() => {
+      upcomingEvents(1)
+        .then((r) => setNext(r.events.find((e) => new Date(e.start).getTime() - Date.now() < 24 * 3600_000) ?? null))
+        .catch(() => setNext(null));
+    }, []),
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,7 +70,20 @@ export default function Recordings() {
         keyExtractor={(r) => r.id}
         contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 140 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={t.muted} />}
-        ListHeaderComponent={offline ? <Banner text="You're offline. Recordings will upload when you're back online." /> : null}
+        ListHeaderComponent={
+          <View style={{ gap: space.md }}>
+            {offline ? <Banner text="You're offline. Recordings will upload when you're back online." /> : null}
+            {next ? (
+              <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/brief', params: briefParams(next) })}>
+                <Card style={{ gap: 4, borderColor: t.accent }}>
+                  <T muted size={12} weight="600">NEXT MEETING · {dayLabel(next.start).toUpperCase()} {timeRange(next)}</T>
+                  <T weight="600" numberOfLines={2}>{next.title}</T>
+                  <T size={13} style={{ color: t.accent }}>Open brief →</T>
+                </Card>
+              </Pressable>
+            ) : null}
+          </View>
+        }
         ListEmptyComponent={loading ? null : <Empty title="No recordings yet" body="Tap Record to capture a meeting, call, lecture or site walk." />}
         renderItem={({ item }) => (
           <Pressable

@@ -19,6 +19,7 @@ export type CreateOp = Base & {
   consentAt: string | null;
   consentMethod?: ConsentMethod;
   projectId?: string | null;
+  calendarEventKey?: string | null;
   createdAt: string;
 };
 export type SegmentOp = Base & { kind: 'segment'; idx: number; localUri: string; ext: string; durationMs: number };
@@ -135,6 +136,7 @@ async function perform(op: Op, userId: string, accessToken: string) {
         consent_confirmed_at: op.consentAt,
         consent_method: op.consentMethod ?? (op.consentAt ? 'told_everyone' : 'not_confirmed'),
         project_id: op.projectId ?? null,
+        calendar_event_key: op.calendarEventKey ?? null,
         created_at: op.createdAt,
       },
       { onConflict: 'id', ignoreDuplicates: true },

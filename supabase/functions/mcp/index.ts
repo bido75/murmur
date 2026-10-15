@@ -6,6 +6,8 @@
 // teams they belong to.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { handle, type RecordingInfo, type RpcRequest, type Source, type TaskInfo } from '../_shared/mcp.ts';
+import { protectedResourceMetadata, resourceMetadataUrl } from '../_shared/oauth.ts';
+import { oauthConfig } from '../_shared/oauth_config.ts';
 import { adminClient } from '../_shared/services.ts';
 import { formatTranscript, type Utterance } from '../_shared/verify.ts';
 
@@ -30,18 +32,28 @@ function reply(body: unknown, status = 200, extra: Record<string, string> = {}) 
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  const cfg = oauthConfig();
+
+  // RFC 9728 protected resource metadata: tells clients which server issues tokens for us.
+  if (req.method === 'GET' && new URL(req.url).pathname.endsWith('/.well-known/oauth-protected-resource')) {
+    return reply(protectedResourceMetadata(cfg.mcp, cfg.issuer));
+  }
   // Streamable HTTP: we don't offer a server-to-client event stream.
   if (req.method !== 'POST') return reply({ error: 'Use POST' }, 405, { Allow: 'POST' });
 
+  const unauthorized = (message: string) =>
+    reply({ error: message }, 401, {
+      'WWW-Authenticate': cfg.enabled
+        ? `Bearer resource_metadata="${resourceMetadataUrl(cfg.mcp)}"`
+        : 'Bearer',
+    });
+
   const auth = req.headers.get('Authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  if (!token.startsWith('mur_')) {
-    return reply({ error: 'Missing or invalid API token' }, 401, { 'WWW-Authenticate': 'Bearer' });
-  }
+  if (!token) return unauthorized('Missing access token');
   const db = adminClient();
-  const { data: tok } = await db.from('api_tokens').select('id, user_id').eq('token_hash', await sha256(token)).maybeSingle();
-  if (!tok) return reply({ error: 'Invalid or revoked API token' }, 401, { 'WWW-Authenticate': 'Bearer' });
-  void db.from('api_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', tok.id);
+  const userId = await authenticate(db, token, cfg.mcp);
+  if (!userId) return unauthorized('Invalid, expired or revoked token');
 
   let body: RpcRequest | RpcRequest[];
   try {
@@ -50,7 +62,7 @@ Deno.serve(async (req) => {
     return reply({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, 400);
   }
 
-  const src = await makeSource(db, tok.user_id);
+  const src = await makeSource(db, userId);
   if (Array.isArray(body)) {
     const out = (await Promise.all(body.map((m) => handle(m, src, SERVER_NAME)))).filter(Boolean);
     return out.length ? reply(out) : reply(null, 202);
@@ -58,6 +70,33 @@ Deno.serve(async (req) => {
   const res = await handle(body, src, SERVER_NAME);
   return res ? reply(res) : reply(null, 202);
 });
+
+/**
+ * Two kinds of token:
+ * - personal API tokens (mur_...) made in the app's settings, for header-based clients
+ * - OAuth access tokens (mat_...) from the sign-in flow, which must have been issued for
+ *   this exact MCP URL (audience check) and not be expired
+ */
+async function authenticate(db: SupabaseClient, token: string, mcp: string): Promise<string | null> {
+  const hash = await sha256(token);
+  if (token.startsWith('mur_')) {
+    const { data } = await db.from('api_tokens').select('id, user_id').eq('token_hash', hash).maybeSingle();
+    if (!data) return null;
+    void db.from('api_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', data.id);
+    return data.user_id;
+  }
+  if (token.startsWith('mat_')) {
+    const { data } = await db
+      .from('oauth_tokens')
+      .select('user_id, resource, expires_at')
+      .eq('token_hash', hash)
+      .eq('kind', 'access')
+      .maybeSingle();
+    if (!data || new Date(data.expires_at).getTime() <= Date.now() || data.resource !== mcp) return null;
+    return data.user_id;
+  }
+  return null;
+}
 
 /** Everything the user can read, worked out once per request by the same SQL rules the app uses. */
 async function makeSource(db: SupabaseClient, uid: string): Promise<Source> {
