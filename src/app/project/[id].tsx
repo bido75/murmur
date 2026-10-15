@@ -5,10 +5,10 @@ import { ActionMenu } from '@/components/ActionMenu';
 import { SendToTracker } from '@/components/SendToTracker';
 import { TaskRow } from '@/components/TaskRow';
 import { Button, Card, Empty, StatusPill, T } from '@/components/ui';
-import { getProject, updateProject, updateTask } from '@/lib/api';
+import { getProject, parseVocabulary, setProjectVocabulary, updateProject, updateTask } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
 import { minutes, shortDate } from '@/lib/format';
-import { space, useTheme } from '@/lib/theme';
+import { radius, space, useTheme } from '@/lib/theme';
 import { TEMPLATE_LABELS, type Task } from '@/lib/types';
 
 type Data = Awaited<ReturnType<typeof getProject>>;
@@ -19,12 +19,16 @@ export default function ProjectDetail() {
   const [data, setData] = useState<Data | null>(null);
   const [name, setName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [words, setWords] = useState<string | null>(null); // null until loaded
 
   const load = useCallback(async () => {
     try {
       const d = await getProject(id);
       setData(d);
-      if (d.project) setName((n) => n || d.project!.name);
+      if (d.project) {
+        setName((n) => n || d.project!.name);
+        setWords((w) => w ?? (d.project!.vocabulary ?? []).join(', '));
+      }
     } catch (e) {
       notify("Couldn't load project", (e as Error).message);
     }
@@ -43,6 +47,19 @@ export default function ProjectDetail() {
   }
 
   const project = data?.project;
+
+  async function saveWords() {
+    if (!project || words == null) return;
+    const list = parseVocabulary(words);
+    if (list.join('|') === (project.vocabulary ?? []).join('|')) return;
+    try {
+      await setProjectVocabulary(project.id, list);
+      setWords(list.join(', '));
+      setData((d) => (d && d.project ? { ...d, project: { ...d.project, vocabulary: list } } : d));
+    } catch (e) {
+      notify("Couldn't save the words", (e as Error).message);
+    }
+  }
 
   return (
     <>
@@ -91,6 +108,26 @@ export default function ProjectDetail() {
                 />
               ))
             )}
+          </View>
+
+          <View style={{ gap: space.sm }}>
+            <T muted size={13} weight="600">WORDS TO LISTEN FOR</T>
+            <T muted size={14}>
+              Names, companies, products and site terms the transcriber should expect (e.g. Hilti, Apex Electric, level 3 riser). Separate with commas.
+              Used for new recordings in this project.
+            </T>
+            <TextInput
+              value={words ?? ''}
+              onChangeText={setWords}
+              onEndEditing={() => void saveWords()}
+              onBlur={() => void saveWords()}
+              placeholder="Hilti, Apex Electric, level 3 riser"
+              placeholderTextColor={t.muted}
+              multiline
+              autoCapitalize="none"
+              style={{ borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, color: t.ink, borderRadius: radius.md, padding: space.md, fontSize: 16, minHeight: 64 }}
+              accessibilityLabel="Words to listen for"
+            />
           </View>
 
           <View style={{ gap: space.md }}>

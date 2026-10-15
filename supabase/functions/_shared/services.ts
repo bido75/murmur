@@ -51,20 +51,31 @@ export class HttpError extends Error {
 type DeepgramUtterance = { start: number; end: number; speaker?: number; transcript: string };
 
 /** Transcribe one audio URL with speaker labels. Times come back in ms, relative to the file. */
-export async function transcribe(audioUrl: string): Promise<{ utterances: Utterance[]; durationMs: number; language: string | null }> {
+export async function transcribe(audioUrl: string, keyterms: string[] = []): Promise<{ utterances: Utterance[]; durationMs: number; language: string | null }> {
+  const model = env('DEEPGRAM_MODEL', 'nova-3');
   const params = new URLSearchParams({
-    model: env('DEEPGRAM_MODEL', 'nova-3'),
+    model,
     smart_format: 'true',
     punctuate: 'true',
     diarize: 'true',
     utterances: 'true',
     detect_language: 'true',
   });
-  const res = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {
-    method: 'POST',
-    headers: { Authorization: `Token ${env('DEEPGRAM_API_KEY')}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: audioUrl }),
-  });
+  const send = (p: URLSearchParams) =>
+    fetch(`https://api.deepgram.com/v1/listen?${p}`, {
+      method: 'POST',
+      headers: { Authorization: `Token ${env('DEEPGRAM_API_KEY')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: audioUrl }),
+    });
+  // Project words, names and site jargon ("keyterm prompting", nova-3 only; one param per term).
+  const hinted = new URLSearchParams(params);
+  if (model.startsWith('nova-3')) for (const term of keyterms) hinted.append('keyterm', term);
+  let res = await send(hinted);
+  // Hints are a bonus: if Deepgram rejects them, transcribe without rather than fail.
+  if (res.status === 400 && hinted.has('keyterm')) {
+    console.warn('Deepgram rejected keyterms, retrying without', (await res.text()).slice(0, 200));
+    res = await send(params);
+  }
   if (!res.ok) throw new Error(`Transcription failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
   const raw: DeepgramUtterance[] = body?.results?.utterances ?? [];

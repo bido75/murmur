@@ -24,7 +24,9 @@ export type CreateOp = Base & {
 };
 export type SegmentOp = Base & { kind: 'segment'; idx: number; localUri: string; ext: string; durationMs: number };
 export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
-export type Op = CreateOp | SegmentOp | FinalizeOp;
+export type PhotoOp = Base & { kind: 'photo'; photoId: string; localUri: string; takenMs: number | null; width: number; height: number };
+export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp;
+type NewOp<T> = Omit<T, 'attempts' | 'nextAt'>;
 
 const KEY = 'sync.queue.v1';
 let queue: Op[] | null = null;
@@ -63,7 +65,7 @@ export async function pendingOps(): Promise<Op[]> {
   return [...(await load())];
 }
 
-export async function enqueue(op: Omit<CreateOp, 'attempts' | 'nextAt'> | Omit<SegmentOp, 'attempts' | 'nextAt'> | Omit<FinalizeOp, 'attempts' | 'nextAt'>) {
+export async function enqueue(op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp>) {
   const q = await load();
   q.push({ ...op, attempts: 0, nextAt: 0 } as Op);
   await save();
@@ -80,6 +82,22 @@ export function keepFile(sourceUri: string, recordingId: string, idx: number, ex
   if (dest.exists) dest.delete();
   new File(sourceUri).moveSync(dest);
   return dest.uri;
+}
+
+/** Move a photo into the pending folder so it survives restarts (web: stays a blob URL). */
+export function keepPhoto(sourceUri: string, recordingId: string, photoId: string): string {
+  if (isWeb) return sourceUri;
+  const dir = pendingDir();
+  if (!dir.exists) dir.create({ intermediates: true });
+  const dest = new File(dir, `${recordingId}-photo-${photoId}.jpg`);
+  if (dest.exists) dest.delete();
+  new File(sourceUri).moveSync(dest);
+  return dest.uri;
+}
+
+/** Photos still waiting to upload for a recording, so the app can show them right away. */
+export async function pendingPhotos(recordingId: string): Promise<PhotoOp[]> {
+  return (await load()).filter((o): o is PhotoOp => o.kind === 'photo' && o.recordingId === recordingId);
 }
 
 /** Process whatever is ready. Safe to call often; only one run at a time. */
@@ -166,6 +184,21 @@ async function perform(op: Op, userId: string, accessToken: string) {
     return;
   }
 
+  if (op.kind === 'photo') {
+    const path = `${userId}/${op.recordingId}/${op.photoId}.jpg`;
+    await uploadFile('photos', op.localUri, path, 'image/jpeg', accessToken, 'This browser photo was lost when the page reloaded.');
+    const { error } = await supabase.from('recording_photos').upsert(
+      { id: op.photoId, recording_id: op.recordingId, user_id: userId, storage_path: path, taken_ms: op.takenMs, width: op.width, height: op.height },
+      { onConflict: 'id', ignoreDuplicates: true },
+    );
+    if (error) throw new Error(error.message);
+    if (!isWeb) {
+      const file = new File(op.localUri);
+      if (file.exists) file.delete();
+    }
+    return;
+  }
+
   // finalize
   const { error } = await supabase
     .from('recordings')
@@ -173,6 +206,37 @@ async function perform(op: Op, userId: string, accessToken: string) {
     .eq('id', op.recordingId);
   if (error) throw new Error(error.message);
   await processRecording(op.recordingId);
+}
+
+/** Upload a local file (native: background upload; web: blob) to a private bucket. */
+async function uploadFile(bucket: string, localUri: string, path: string, mime: string, accessToken: string, lostMessage: string) {
+  if (isWeb) {
+    let blob: Blob;
+    try {
+      blob = await (await fetch(localUri)).blob();
+    } catch {
+      throw new LostAudioError(lostMessage);
+    }
+    const { error } = await supabase.storage.from(bucket).upload(path, blob, { upsert: true, contentType: mime });
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const file = new File(localUri);
+  if (!file.exists) {
+    // Uploaded on an earlier attempt, then removed locally; check it's on the server.
+    const folder = path.split('/').slice(0, -1).join('/');
+    const { data } = await supabase.storage.from(bucket).list(folder);
+    if (!data?.some((f) => path.endsWith(f.name))) throw new LostAudioError('The file is missing from this device.');
+    return;
+  }
+  const result = await file.upload(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    httpMethod: 'POST',
+    uploadType: UploadType.BINARY_CONTENT,
+    mimeType: mime,
+    sessionType: 'background',
+    headers: { Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY, 'x-upsert': 'true', 'content-type': mime },
+  });
+  if (result.status < 200 || result.status >= 300) throw new Error(`Upload failed (${result.status}) ${result.body.slice(0, 120)}`);
 }
 
 /** The audio no longer exists anywhere; retrying can't help, so the op is dropped. */

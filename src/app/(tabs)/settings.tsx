@@ -86,6 +86,21 @@ export default function SettingsScreen() {
       </Card>
 
       <Card style={{ gap: space.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+          <View style={{ flex: 1 }}>
+            <T weight="600">Field mode</T>
+            <T muted size={14}>Big buttons you can hit with gloves on, a large photo button, and site walks as the default type.</T>
+          </View>
+          <Switch
+            value={settings.fieldMode}
+            onValueChange={(v) => update(v ? { fieldMode: true, defaultTemplate: 'site_walk' } : { fieldMode: false })}
+            trackColor={{ true: t.accent, false: t.border }}
+            accessibilityLabel="Field mode"
+          />
+        </View>
+      </Card>
+
+      <Card style={{ gap: space.md }}>
         <T weight="600">Default type</T>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
           {(Object.keys(TEMPLATE_LABELS) as Template[]).map((k) => {

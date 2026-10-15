@@ -1,4 +1,5 @@
 // Prompts and the structured-output schema for summaries. Pure data, testable anywhere.
+import { SITE_LOG_RULES, SITE_LOG_SCHEMA, type RawSiteLog } from './field.ts';
 
 export const TEMPLATES = {
   general: 'A general conversation or voice note.',
@@ -34,6 +35,7 @@ export function systemPrompt(template: string): string {
     'If a list of open tasks from earlier recordings is given:',
     '- Report in task_updates only the ones actually discussed: status "done" if someone says it is finished, "in_progress" or "blocked" otherwise, with a word-for-word quote. Leave the rest out.',
     '- Do not add an open task again as a new action item.',
+    ...(template === 'site_walk' ? [SITE_LOG_RULES] : []),
   ].join('\n');
 }
 
@@ -100,6 +102,19 @@ export const NOTES_TOOL = {
   },
 } as const;
 
+/** The notes tool for a template: site walks also fill in a daily site log. */
+export function notesTool(template: string) {
+  if (template !== 'site_walk') return NOTES_TOOL;
+  return {
+    ...NOTES_TOOL,
+    input_schema: {
+      ...NOTES_TOOL.input_schema,
+      properties: { ...NOTES_TOOL.input_schema.properties, site_log: SITE_LOG_SCHEMA },
+      required: [...NOTES_TOOL.input_schema.required, 'site_log'],
+    },
+  };
+}
+
 export type NotesOutput = {
   title: string;
   overview: string;
@@ -115,6 +130,7 @@ export type NotesOutput = {
   }[];
   open_questions: string[];
   task_updates?: { ref: string; status: 'done' | 'in_progress' | 'blocked'; note: string | null; quote: string }[];
+  site_log?: RawSiteLog | null;
 };
 
 export const ASK_SYSTEM = [

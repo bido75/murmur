@@ -3,7 +3,9 @@
 // POST { action: 'set_target', provider, target: {id, name} }   → choose where tasks go
 // Tokens are stored where the app can never read them back.
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
-import { listTargets, PROVIDERS, verifyToken, type Config, type Provider, type Target } from '../_shared/trackers.ts';
+import { listTargets, PROVIDERS, TOKEN_PROVIDERS, verifyToken, type Config, type Provider, type Target } from '../_shared/trackers.ts';
+import { listTargets as procoreTargets } from '../_shared/procore.ts';
+import { env as procoreEnv, loadProcore, procoreAccess } from '../_shared/procore_db.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -15,6 +17,7 @@ Deno.serve(async (req) => {
     const admin = adminClient();
 
     if (body.action === 'connect') {
+      if (!TOKEN_PROVIDERS.includes(provider)) throw new HttpError(400, 'Procore connects by signing in, not with a token.');
       const token = String(body.token ?? '').trim();
       if (!token) throw new HttpError(400, 'Paste a token first');
       const config: Config = {};
@@ -36,6 +39,10 @@ Deno.serve(async (req) => {
     if (!row) throw new HttpError(404, 'Not connected');
 
     if (body.action === 'targets') {
+      if (provider === 'procore') {
+        const full = (await loadProcore(userId))!;
+        return json({ targets: await procoreTargets(procoreEnv(), await procoreAccess(userId, full)) });
+      }
       const targets = await listTargets(provider, row.secret, row.config as Config);
       return json({ targets });
     }

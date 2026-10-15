@@ -1,7 +1,7 @@
 // Task tracker adapters (personal-token auth). Each one can: check a token, list where
 // tasks can go, and create a task. Request building is kept pure where possible.
 
-export type Provider = 'asana' | 'linear' | 'jira';
+export type Provider = 'asana' | 'linear' | 'jira' | 'procore';
 export type Target = { id: string; name: string };
 export type Created = { id: string; key?: string; url: string };
 export type IssueInput = {
@@ -12,7 +12,9 @@ export type IssueInput = {
 /** Non-secret settings saved alongside the token. */
 export type Config = { account?: string; target?: Target; site?: string; email?: string; workspace?: string };
 
-export const PROVIDERS: Provider[] = ['asana', 'linear', 'jira'];
+export const PROVIDERS: Provider[] = ['asana', 'linear', 'jira', 'procore'];
+/** Connected by pasting a token. Procore connects by signing in (OAuth); see procore.ts. */
+export const TOKEN_PROVIDERS: Provider[] = ['asana', 'linear', 'jira'];
 
 async function check(res: Response, what: string) {
   if (!res.ok) {

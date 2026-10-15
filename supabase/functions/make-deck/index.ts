@@ -2,10 +2,11 @@
 // Builds a .pptx from a recording's (or a whole project's) verified notes.
 import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, sanitizeSlides, type DeckData, type DeckKind } from '../_shared/deck.ts';
 import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 
 type Rec = { id: string; title: string; created_at: string };
-type Sum = { recording_id: string; overview: string; key_points: string[]; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
-type TaskRow = { text: string; owner: string | null; due_text: string | null; status: string; needs_review: boolean; recording_id: string };
+type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
+type TaskRow = { text: string; owner: string | null; due_text: string | null; status: string; needs_review: boolean; recording_id: string; quote: string | null; photo_ids: string[] | null };
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -39,8 +40,8 @@ Deno.serve(async (req) => {
 
     const ids = recs.map((r) => r.id);
     const [{ data: sums }, { data: tasks }] = await Promise.all([
-      client.from('summaries').select('recording_id, overview, key_points, decisions, open_questions').in('recording_id', ids),
-      client.from('tasks').select('text, owner, due_text, status, needs_review, recording_id').in('recording_id', ids).neq('status', 'dismissed').eq('needs_review', false).order('created_at'),
+      client.from('summaries').select('recording_id, overview, key_points, decisions, open_questions, site_log').in('recording_id', ids),
+      client.from('tasks').select('text, owner, due_text, status, needs_review, recording_id, quote, photo_ids').in('recording_id', ids).neq('status', 'dismissed').eq('needs_review', false).order('created_at'),
     ]);
 
     const material = recs
@@ -78,6 +79,12 @@ Deno.serve(async (req) => {
       questions: ((sums ?? []) as Sum[]).flatMap((s) => s.open_questions),
     };
 
+    if (k === 'site_report') {
+      const logs = ((sums ?? []) as Sum[]).map((x) => ({ recording_id: x.recording_id, site_log: x.site_log }));
+      deck.safety = logs.flatMap((l) => (l.site_log?.issues ?? []).filter((i) => i.verified && i.category === 'safety').map((i) => ({ text: i.text, location: i.location })));
+      deck.photos = await deckPhotos(client, ids, logs, (tasks ?? []) as TaskRow[], Object.fromEntries(recs.map((r) => [r.id, r.title])));
+    }
+
     const bytes = await buildPptx(deck);
     const safe = deck.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'deck';
     const filename = `${safe}.pptx`;
@@ -95,3 +102,35 @@ Deno.serve(async (req) => {
     return json({ error: (e as Error).message }, status);
   }
 });
+
+/** Photos for a site report: chosen and captioned from the notes, read through RLS, downloaded server-side. */
+// deno-lint-ignore no-explicit-any
+async function deckPhotos(client: any, ids: string[], logs: { recording_id: string; site_log: SiteLog | null }[], tasks: TaskRow[], titles: Record<string, string>) {
+  const { data } = await client
+    .from('recording_photos')
+    .select('id, recording_id, taken_ms, caption, width, height, storage_path')
+    .in('recording_id', ids)
+    .limit(200);
+  const chosen = captionPhotos((data ?? []) as PhotoRow[], logs, tasks, titles, 10);
+  const admin = adminClient();
+  const out = [];
+  for (const p of chosen) {
+    const { data: blob } = await admin.storage.from('photos').download(p.storage_path);
+    if (!blob) continue;
+    out.push({
+      dataUri: `data:image/jpeg;base64,${encodeBase64(new Uint8Array(await blob.arrayBuffer()))}`,
+      width: p.width,
+      height: p.height,
+      caption: p.title,
+      detail: p.detail,
+      quote: p.quote,
+    });
+  }
+  return out;
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}

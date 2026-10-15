@@ -1,17 +1,19 @@
 import { useAudioPlayer } from 'expo-audio';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { ActionMenu, type MenuAction } from '@/components/ActionMenu';
 import { SendToTracker } from '@/components/SendToTracker';
+import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { ask, audioUrl, currentUserId, deleteRecording, getRecording, listProjects, renameRecording, retryProcessing, setRecordingProject, updateTask } from '@/lib/api';
-import { confirm, notify } from '@/lib/dialog';
+import { ask, audioUrl, currentUserId, deletePhoto, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
+import { confirm, isWeb, notify } from '@/lib/dialog';
+import { queuePhoto, takePhoto } from '@/lib/photos';
 import { shareText, sharePdf } from '@/lib/export';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
-import { CONSENT_LABELS, TEMPLATE_LABELS, type Project, type Task } from '@/lib/types';
+import { CONSENT_LABELS, TEMPLATE_LABELS, type Integration, type Photo, type Project, type Task } from '@/lib/types';
 
 type Data = Awaited<ReturnType<typeof getRecording>>;
 type Tab = 'notes' | 'transcript' | 'tasks' | 'ask';
@@ -26,8 +28,11 @@ export default function RecordingDetail() {
   const [loadedSegment, setLoadedSegment] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ title?: string; actions: MenuAction[] } | null>(null);
   const [me, setMe] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<Photo | null>(null);
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
   useEffect(() => {
     currentUserId().then(setMe);
+    listIntegrations().then(setIntegrations).catch(() => setIntegrations([]));
   }, []);
 
   const load = useCallback(
@@ -114,6 +119,39 @@ export default function RecordingDetail() {
     });
   }
 
+  async function addPhoto(source: 'camera' | 'library') {
+    const rec = data?.recording;
+    if (!rec) return;
+    try {
+      const shot = await takePhoto(source);
+      if (!shot) return;
+      await queuePhoto(rec.id, shot, null);
+      await load();
+    } catch (e) {
+      notify("Couldn't add the photo", (e as Error).message);
+    }
+  }
+
+  const procore = integrations.find((i) => i.provider === 'procore');
+
+  async function sendLog() {
+    const rec = data?.recording;
+    if (!rec) return;
+    if (!procore?.config.target) {
+      notify('Choose a Procore project first', 'Go to Settings → Task trackers → Procore and pick the project.');
+      return;
+    }
+    const ok = await confirm('Add to Procore daily log?', `The site log (verified entries only) is added as a note in ${procore.config.target.name}'s daily log for the day it was recorded.`, 'Add');
+    if (!ok) return;
+    try {
+      const res = await sendSiteLogToProcore(rec.id, rec.created_at);
+      await load();
+      notify(res.already ? 'Already in Procore' : 'Added to Procore', 'Open it from the site log.');
+    } catch (e) {
+      notify("Couldn't send to Procore", (e as Error).message);
+    }
+  }
+
   function openMenu() {
     const rec = data?.recording;
     if (!rec) return;
@@ -122,9 +160,11 @@ export default function RecordingDetail() {
     const actions: MenuAction[] = [
       { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
       { label: 'Share as text', onPress: guard(() => shareText(rec, data.summary, data.tasks)) },
-      { label: 'Share as PDF', onPress: guard(() => sharePdf(rec, data.summary, data.tasks)) },
+      { label: 'Share as PDF', onPress: guard(() => sharePdf(rec, data.summary, data.tasks, data.photos)) },
     ];
     if (isOwner) {
+      if (!isWeb) actions.push({ label: 'Take a photo', onPress: () => void addPhoto('camera') });
+      actions.push({ label: 'Add a photo from library', onPress: () => void addPhoto('library') });
       actions.push(
         { label: 'Move to project', onPress: () => void chooseProject() },
         { label: 'Re-run notes', onPress: guard(async () => { await retryProcessing(rec.id); await load(); }) },
@@ -195,9 +235,30 @@ export default function RecordingDetail() {
             />
           </View>
 
-          {tab === 'notes' && <Notes data={data} playAt={playAt} />}
+          {tab === 'notes' && (
+            <Notes
+              data={data}
+              playAt={playAt}
+              onOpenPhoto={setViewing}
+              procore={procore?.config.target ? { target: procore.config.target.name, onSend: sendLog } : null}
+            />
+          )}
+          <PhotoViewer
+            photo={viewing}
+            onClose={() => setViewing(null)}
+            onPlay={data.segments.length ? playAt : undefined}
+            canEdit={!rec.user_id || rec.user_id === me}
+            onCaption={(p, c) => void setPhotoCaption(p.id, c).then(load).catch((e) => notify("Couldn't save caption", (e as Error).message))}
+            onDelete={async (p) => {
+              const ok = await confirm('Delete this photo?', 'It is removed from the recording and any reports made later.', 'Delete', true);
+              if (!ok) return;
+              setViewing(null);
+              await deletePhoto(p).catch((e) => notify("Couldn't delete", (e as Error).message));
+              await load();
+            }}
+          />
           <ActionMenu visible={!!menu} title={menu?.title} actions={menu?.actions ?? []} onClose={() => setMenu(null)} />
-          {tab === 'transcript' && <TranscriptView data={data} playAt={playAt} />}
+          {tab === 'transcript' && <TranscriptView data={data} playAt={playAt} onOpenPhoto={setViewing} />}
           {tab === 'tasks' && (
             <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}>
               {data.tasks.some((x) => x.status === 'open' && !x.needs_review) && <SendToTracker tasks={data.tasks} onDone={load} />}
@@ -224,13 +285,46 @@ export default function RecordingDetail() {
   );
 }
 
-function Notes({ data, playAt }: { data: Data; playAt: (ms: number) => void }) {
+function Notes({ data, playAt, onOpenPhoto, procore }: {
+  data: Data;
+  playAt: (ms: number) => void;
+  onOpenPhoto: (p: Photo) => void;
+  procore: { target: string; onSend: () => void } | null;
+}) {
   const t = useTheme();
   const s = data.summary;
-  if (!s) return <Empty title="Writing your notes…" body="This usually takes a minute or two after you stop." />;
+  const photos = data.photos;
+  if (!s) {
+    return (
+      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.xl }}>
+        {photos.length > 0 && (
+          <Section title={`Photos (${photos.length})`}>
+            <PhotoStrip photos={photos} onOpen={onOpenPhoto} />
+          </Section>
+        )}
+        <Empty title="Writing your notes…" body="This usually takes a minute or two after you stop." />
+      </ScrollView>
+    );
+  }
+  const sentTo = s.site_log_external?.procore?.url;
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.xl, paddingBottom: space.xxl }}>
       {!!s.overview && <T size={17}>{s.overview}</T>}
+      {photos.length > 0 && (
+        <Section title={`Photos (${photos.length})`}>
+          <PhotoStrip photos={photos} onOpen={onOpenPhoto} />
+        </Section>
+      )}
+      {s.site_log && (
+        <Section title="Daily site log">
+          <SiteLogView log={s.site_log} photos={photos} playAt={playAt} onOpenPhoto={onOpenPhoto} />
+          {sentTo ? (
+            <Button label="Open in Procore daily log ↗" kind="ghost" onPress={() => void Linking.openURL(sentTo)} />
+          ) : procore ? (
+            <Button label={`Add to ${procore.target} daily log`} kind="secondary" onPress={procore.onSend} />
+          ) : null}
+        </Section>
+      )}
       {s.key_points.length > 0 && (
         <Section title="Key points">
           {s.key_points.map((p, i) => <T key={i}>•  {p}</T>)}
@@ -296,18 +390,49 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function TranscriptView({ data, playAt }: { data: Data; playAt: (ms: number) => void }) {
+type Line = { kind: 'u'; u: NonNullable<Data['transcript']>['utterances'][number]; prevSpeaker: number | null } | { kind: 'p'; photos: Photo[] };
+
+/** Utterances with the photos taken during them slotted in at the right moment. */
+function withPhotos(u: NonNullable<Data['transcript']>['utterances'], photos: Photo[]): Line[] {
+  const timed = photos.filter((p) => p.taken_ms != null).sort((a, b) => a.taken_ms! - b.taken_ms!);
+  const out: Line[] = [];
+  let j = 0;
+  let prev: number | null = null;
+  for (const item of u) {
+    const group: Photo[] = [];
+    while (j < timed.length && timed[j].taken_ms! < item.start_ms) group.push(timed[j++]);
+    if (group.length) {
+      out.push({ kind: 'p', photos: group });
+      prev = null; // repeat the speaker label after a photo
+    }
+    out.push({ kind: 'u', u: item, prevSpeaker: prev });
+    prev = item.speaker;
+  }
+  if (j < timed.length) out.push({ kind: 'p', photos: timed.slice(j) });
+  return out;
+}
+
+function TranscriptView({ data, playAt, onOpenPhoto }: { data: Data; playAt: (ms: number) => void; onOpenPhoto: (p: Photo) => void }) {
   const t = useTheme();
   const u = data.transcript?.utterances ?? [];
   const names = data.transcript?.speaker_names ?? {};
   if (!u.length) return <Empty title="No transcript yet" />;
+  const lines = withPhotos(u, data.photos);
   return (
     <FlatList
-      data={u}
+      data={lines}
       keyExtractor={(_, i) => String(i)}
       contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}
-      renderItem={({ item, index }) => {
-        const sameSpeaker = index > 0 && u[index - 1].speaker === item.speaker;
+      renderItem={({ item: line }) => {
+        if (line.kind === 'p') {
+          return (
+            <View style={{ paddingVertical: space.sm }}>
+              <PhotoStrip photos={line.photos} onOpen={onOpenPhoto} size={88} />
+            </View>
+          );
+        }
+        const item = line.u;
+        const sameSpeaker = line.prevSpeaker === item.speaker;
         return (
           <Pressable onPress={() => playAt(item.start_ms)} accessibilityHint="Plays audio from here" style={{ paddingVertical: 6 }}>
             {!sameSpeaker && (

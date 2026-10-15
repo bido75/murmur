@@ -156,7 +156,7 @@ async function makeSource(db: SupabaseClient, uid: string): Promise<Source> {
       const r = recById.get(recordingId);
       if (!r) return null;
       const [{ data: s }, { data: tasks }] = await Promise.all([
-        db.from('summaries').select('overview, key_points, decisions, open_questions, task_updates').eq('recording_id', recordingId).maybeSingle(),
+        db.from('summaries').select('overview, key_points, decisions, open_questions, task_updates, site_log').eq('recording_id', recordingId).maybeSingle(),
         db.from('tasks').select('id, text, owner, due_text, status, needs_review, quote').eq('recording_id', recordingId).neq('status', 'dismissed'),
       ]);
       return { recording: info(r), ...(s ?? { overview: 'Notes are not ready yet.' }), action_items: tasks ?? [] };

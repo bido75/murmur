@@ -1,15 +1,21 @@
+import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActionMenu } from '@/components/ActionMenu';
 import { ProjectPicker } from '@/components/ProjectPicker';
 import { Banner, Button, Card, T } from '@/components/ui';
 import { getSettings, newRecording, openProjectTasks } from '@/lib/api';
-import { confirm, notify } from '@/lib/dialog';
+import { confirm, isWeb, notify } from '@/lib/dialog';
+import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock } from '@/lib/format';
 import { useSegmentedRecorder } from '@/lib/recorder';
 import { radius, space, useTheme } from '@/lib/theme';
 import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentMethod, type Task, type Template } from '@/lib/types';
+
+// White text stays readable on it in light and dark themes.
+const PAUSE_GRAY = '#3A3F3B';
 
 const NOTICE = "Quick note: I'm recording this conversation so I can take accurate notes. Is everyone okay with that?";
 
@@ -26,13 +32,39 @@ export default function Record() {
   const consented = consent !== null;
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [field, setField] = useState(false);
+  const [photos, setPhotos] = useState<{ id: string; uri: string }[]>([]);
+  const [shooting, setShooting] = useState(false);
+  const [micMenu, setMicMenu] = useState(false);
 
   useEffect(() => {
     getSettings().then((s) => {
       setTemplate(s.defaultTemplate);
       setNeedConsent(s.consentReminder);
+      setField(s.fieldMode);
     });
   }, []);
+
+  const tap = () => {
+    if (!isWeb) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  };
+
+  /** Take a photo; it's pinned to the moment the shutter closed and uploads with the recording. */
+  async function photo() {
+    if (!recordingId || shooting) return;
+    tap();
+    setShooting(true);
+    try {
+      const shot = await takePhoto('camera');
+      if (!shot) return;
+      const id = await queuePhoto(recordingId, shot, rec.elapsedMs);
+      setPhotos((p) => [...p, { id, uri: shot.uri }]);
+    } catch (e) {
+      notify("Couldn't take the photo", (e as Error).message);
+    } finally {
+      setShooting(false);
+    }
+  }
 
   // The brief: what's still open in this project, so you can raise it in the meeting.
   useEffect(() => {
@@ -64,6 +96,7 @@ export default function Record() {
   }
 
   async function confirmStop() {
+    tap();
     const ok = await confirm('Stop recording?', 'Your notes will be ready in a minute or two.', 'Stop', true);
     if (!ok) return;
     await rec.stop();
@@ -152,37 +185,94 @@ export default function Record() {
 
   // Level meter: map roughly -60..0 dBFS to 0..1
   const level = rec.level == null ? 0 : Math.max(0, Math.min(1, (rec.level + 60) / 60));
+  const mic = rec.inputs.find((i) => i.uid === rec.inputUid);
+  const big = field; // field mode: glove-sized controls, bigger type
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
-      <View style={styles.live}>
+      <View style={[styles.live, big && { gap: space.lg }]}>
         <View style={{ alignItems: 'center', gap: space.sm }}>
           <View style={[styles.liveDot, { backgroundColor: rec.phase === 'recording' ? t.record : t.muted }]} />
-          <T muted size={15}>{rec.phase === 'paused' ? 'Paused' : rec.phase === 'stopping' ? 'Saving…' : `Recording · ${TEMPLATE_LABELS[template]}`}</T>
+          <T muted size={big ? 18 : 15}>{rec.phase === 'paused' ? 'Paused' : rec.phase === 'stopping' ? 'Saving…' : `Recording · ${TEMPLATE_LABELS[template]}`}</T>
         </View>
 
-        <T size={64} weight="300" style={{ fontVariant: ['tabular-nums'], textAlign: 'center' }}>{clock(rec.elapsedMs)}</T>
+        <T size={big ? 76 : 64} weight="300" style={{ fontVariant: ['tabular-nums'], textAlign: 'center' }}>{clock(rec.elapsedMs)}</T>
 
-        <View style={[styles.meterTrack, { backgroundColor: t.border }]} accessibilityLabel="Microphone level">
-          <View style={[styles.meterFill, { width: `${level * 100}%`, backgroundColor: t.accent }]} />
+        <View style={[styles.meterTrack, { backgroundColor: t.border, height: big ? 12 : 6 }]} accessibilityLabel="Microphone level">
+          <View style={[styles.meterFill, { width: `${level * 100}%`, backgroundColor: t.accent, height: big ? 12 : 6 }]} />
         </View>
 
-        <T muted size={13} style={{ textAlign: 'center' }}>
+        <T muted size={big ? 16 : 13} style={{ textAlign: 'center' }}>
           {rec.segmentsSaved > 0 ? `${rec.segmentsSaved} part${rec.segmentsSaved > 1 ? 's' : ''} saved safely` : 'Saving as you go'}
+          {photos.length ? ` · ${photos.length} photo${photos.length > 1 ? 's' : ''}` : ''}
         </T>
+
+        {photos.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+            {photos.map((p) => (
+              <Image key={p.id} source={{ uri: p.uri }} style={[styles.thumb, big && styles.thumbBig, { borderColor: t.border }]} resizeMode="cover" accessibilityLabel="Photo taken during this recording" />
+            ))}
+          </ScrollView>
+        )}
+
+        {rec.inputs.length > 1 && (
+          <Pressable onPress={() => setMicMenu(true)} accessibilityRole="button" accessibilityLabel="Choose microphone" style={[styles.micRow, { borderColor: t.border }]}>
+            <T size={big ? 17 : 14}>Mic: {mic?.name ?? 'Default'}</T>
+            <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>Change</T>
+          </Pressable>
+        )}
 
         {rec.warning && <Banner text={rec.warning} action={{ label: 'Restart mic', onPress: () => void rec.restartMic() }} />}
       </View>
 
-      <View style={styles.controls}>
-        {rec.phase === 'paused' ? (
-          <Button label="Resume" kind="secondary" onPress={rec.resume} style={{ flex: 1 }} />
-        ) : (
-          <Button label="Pause" kind="secondary" onPress={rec.pause} disabled={rec.phase !== 'recording'} style={{ flex: 1 }} />
-        )}
-        <Button label="Stop" kind="danger" onPress={confirmStop} disabled={rec.phase === 'stopping'} style={{ flex: 1 }} />
-      </View>
+      {big ? (
+        <View style={styles.fieldControls}>
+          <BigButton label={shooting ? 'Opening camera…' : 'Take photo'} color={t.accent} onPress={photo} disabled={rec.phase === 'stopping' || shooting} />
+          <View style={{ flexDirection: 'row', gap: space.md }}>
+            {rec.phase === 'paused' ? (
+              <BigButton label="Resume" color={PAUSE_GRAY} onPress={() => { tap(); rec.resume(); }} style={{ flex: 1 }} />
+            ) : (
+              <BigButton label="Pause" color={PAUSE_GRAY} onPress={() => { tap(); rec.pause(); }} disabled={rec.phase !== 'recording'} style={{ flex: 1 }} />
+            )}
+            <BigButton label="Stop" color={t.danger} onPress={confirmStop} disabled={rec.phase === 'stopping'} style={{ flex: 1 }} />
+          </View>
+        </View>
+      ) : (
+        <View style={{ padding: space.xl, gap: space.md }}>
+          <Button label={shooting ? 'Opening camera…' : 'Take photo'} kind="secondary" onPress={photo} disabled={rec.phase === 'stopping' || shooting} />
+          <View style={styles.controls}>
+            {rec.phase === 'paused' ? (
+              <Button label="Resume" kind="secondary" onPress={rec.resume} style={{ flex: 1 }} />
+            ) : (
+              <Button label="Pause" kind="secondary" onPress={rec.pause} disabled={rec.phase !== 'recording'} style={{ flex: 1 }} />
+            )}
+            <Button label="Stop" kind="danger" onPress={confirmStop} disabled={rec.phase === 'stopping'} style={{ flex: 1 }} />
+          </View>
+        </View>
+      )}
+
+      <ActionMenu
+        visible={micMenu}
+        title="Record from"
+        onClose={() => setMicMenu(false)}
+        actions={rec.inputs.map((i) => ({ label: i.uid === rec.inputUid ? `${i.name} ✓` : i.name, onPress: () => void rec.chooseInput(i.uid) }))}
+      />
     </SafeAreaView>
+  );
+}
+
+/** Glove-sized button for field mode: at least 88 pt tall, big label, haptic on press. */
+function BigButton({ label, color, onPress, disabled, style }: { label: string; color: string; onPress: () => void; disabled?: boolean; style?: object }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [styles.bigButton, { backgroundColor: color, opacity: disabled ? 0.45 : pressed ? 0.8 : 1 }, style]}
+    >
+      <Text style={styles.bigLabel}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -197,5 +287,11 @@ const styles = StyleSheet.create({
   liveDot: { width: 14, height: 14, borderRadius: 7 },
   meterTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   meterFill: { height: 6, borderRadius: 3 },
-  controls: { flexDirection: 'row', gap: space.md, padding: space.xl },
+  controls: { flexDirection: 'row', gap: space.md },
+  fieldControls: { gap: space.md, padding: space.lg },
+  bigButton: { minHeight: 88, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
+  bigLabel: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
+  thumb: { width: 56, height: 56, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth },
+  thumbBig: { width: 72, height: 72 },
+  micRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: space.sm },
 });

@@ -26,6 +26,14 @@
     "plugins": [
       "expo-router",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Murmur adds photos you choose to your recordings.",
+          "cameraPermission": "Murmur takes site photos during recordings and pins them to the moment they were taken.",
+          "microphonePermission": "Murmur uses the microphone to record conversations you choose to capture."
+        }
+      ],
+      [
         "expo-audio",
         {
           "microphonePermission": "Murmur uses the microphone to record conversations you choose to capture.",

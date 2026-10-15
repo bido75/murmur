@@ -11,6 +11,7 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
+  type RecordingInput,
   type RecordingOptions,
 } from 'expo-audio';
 import { File } from 'expo-file-system';
@@ -29,6 +30,7 @@ const OPTIONS: RecordingOptions = {
 // Browsers record WebM/Opus via MediaRecorder; phones record AAC in .m4a.
 const EXT = isWeb ? 'webm' : 'm4a';
 const ACTIVE_KEY = 'recorder.active.v1';
+const INPUT_KEY = 'recorder.input.v1'; // the mic the user picked last (e.g. a Bluetooth lapel mic)
 const KEEP_AWAKE_TAG = 'recording';
 
 type Active = { recordingId: string; segIdx: number; doneMs: number; currentUri: string | null };
@@ -76,16 +78,36 @@ export function useSegmentedRecorder() {
   const silenceSince = useRef<number | null>(null);
   const lastProgress = useRef({ ms: 0, at: 0 });
   const [doneMs, setDoneMs] = useState(0);
+  const [inputs, setInputs] = useState<RecordingInput[]>([]);
+  const [inputUid, setInputUid] = useState<string | null>(null);
+  const preferredInput = useRef<string | null>(null);
+
+  /** Each new file re-prepares the recorder, so re-apply the chosen mic every time. */
+  const applyInput = useCallback(async () => {
+    if (isWeb) return;
+    try {
+      const list = recorder.getAvailableInputs();
+      setInputs(list);
+      preferredInput.current ??= await AsyncStorage.getItem(INPUT_KEY);
+      const want = list.find((i) => i.uid === preferredInput.current);
+      if (want) recorder.setInput(want.uid);
+      const current = await recorder.getCurrentInput().catch(() => null);
+      setInputUid(current?.uid ?? want?.uid ?? null);
+    } catch {
+      // Input listing isn't available on every device; the default mic is used.
+    }
+  }, [recorder]);
 
   const beginSegment = useCallback(async () => {
     await recorder.prepareToRecordAsync();
+    await applyInput();
     recorder.record();
     lastProgress.current = { ms: 0, at: Date.now() };
     if (session.current) {
       session.current.currentUri = recorder.uri;
       await saveActive(session.current);
     }
-  }, [recorder]);
+  }, [recorder, applyInput]);
 
   const finishSegment = useCallback(async () => {
     const s = session.current;
@@ -137,7 +159,8 @@ export function useSegmentedRecorder() {
       setWarning(null);
       silenceSince.current = null;
       await beginSegment();
-      await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+      // Keeping the screen on is a nice-to-have; browsers may refuse it (hidden tab, no permission).
+      await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
       setPhase('recording');
     },
     [beginSegment],
@@ -168,7 +191,9 @@ export function useSegmentedRecorder() {
     } finally {
       session.current = null;
       busy.current = false;
-      deactivateKeepAwake(KEEP_AWAKE_TAG);
+      void Promise.resolve()
+        .then(() => deactivateKeepAwake(KEEP_AWAKE_TAG))
+        .catch(() => {});
       await setAudioModeAsync({ allowsRecording: false, allowsBackgroundRecording: false });
       setPhase('idle');
     }
@@ -218,6 +243,21 @@ export function useSegmentedRecorder() {
     };
   }, []);
 
+  /** Switch microphones mid-recording (e.g. to a Bluetooth lapel mic). Remembered for next time. */
+  const chooseInput = useCallback(
+    async (uid: string) => {
+      preferredInput.current = uid;
+      await AsyncStorage.setItem(INPUT_KEY, uid);
+      try {
+        recorder.setInput(uid);
+        setInputUid(uid);
+      } catch (e) {
+        setWarning(`Couldn't switch microphone: ${(e as Error).message}`);
+      }
+    },
+    [recorder],
+  );
+
   const elapsedMs = phase === 'idle' ? 0 : doneMs + state.durationMillis;
 
   return {
@@ -231,5 +271,8 @@ export function useSegmentedRecorder() {
     resume,
     stop,
     restartMic: rotate,
+    inputs,
+    inputUid,
+    chooseInput,
   };
 }

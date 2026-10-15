@@ -57,7 +57,21 @@ An AI note taker in the same category as Wave: record meetings, calls, lectures 
 | **Upcoming meetings + briefs**: next meeting on the home screen; each brief shows open tasks and last meeting's decisions and open questions for that project; one tap to record with title and project filled in | `src/app/upcoming.tsx`, `src/app/brief.tsx` |
 | Meetings matched to projects automatically by name, or once per recurring series by you | `matchProject()`, `calendar_links` |
 
-Still to come: desktop bot-free capture app (Mac/Windows), optional meeting bot, phone-call recording, field-mode offline transcription, Procore, emailed team invites.
+### Field mode and Procore
+
+| Feature | Where |
+| --- | --- |
+| **Photos pinned to the moment**: tap *Take photo* while recording; the photo uploads with the recording (offline-safe) and shows in the transcript where it was taken | `src/lib/photos.ts`, `sync.ts` (photo ops), `record.tsx` |
+| Photos are **linked to what was being said**: the nearest site-log entry or task said up to 15 s after or 45 s before the photo, never a guess by the AI | `assignPhotos()` in `_shared/field.ts` (+ tests) |
+| **Daily site log** from site walks: weather, manpower, work completed, safety, issues by location, inspections, deliveries, delays. Every entry carries its quote; entries whose quote isn't in the transcript are shown dimmed and left out of exports | `verifySiteLog()`, `src/components/SiteLog.tsx` |
+| **Field mode** (Settings): glove-sized buttons, big photo button, haptics, site walk as the default | `record.tsx` |
+| **Words to listen for** per project (names, companies, products, site terms), plus names you gave speakers before, sent to Deepgram as key terms; falls back to plain transcription if rejected | project screen, `buildKeyterms()`, `transcribe()` |
+| **Choose the microphone** while recording (e.g. a Bluetooth lapel mic); remembered for next time | `recorder.ts` |
+| Site-report decks get a **Safety** slide and **photo slides** captioned with what was said | `make-deck`, `captionPhotos()` |
+| PDFs include the site log and photos | `src/lib/export.ts` |
+| **Procore**: sign in with Procore, pick a project; tasks become **punch items with their photos**; a site walk's log goes into the project's **Daily Log** (Notes) for that date, once | `supabase/functions/procore`, `_shared/procore.ts` (+ tests), `push-tasks` |
+
+Still to come: phone-call recording, optional meeting bot, on-device transcription for no-signal sites, emailed team invites.
 
 ## Setup
 
@@ -92,6 +106,7 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    supabase functions deploy mcp --no-verify-jwt       # its own tokens (API + OAuth)
    supabase functions deploy oauth --no-verify-jwt     # AI-connector sign-in
    supabase functions deploy calendar --no-verify-jwt  # provider redirects carry no session
+   supabase functions deploy procore --no-verify-jwt   # same, for Procore's sign-in redirect
    ```
    Optional: `supabase secrets set APP_URL=https://your-web-app.example.com` so tasks sent to trackers link back to the recording.
 6. **Run on a phone.** Background recording needs a development build (Expo Go won't keep recording when locked):
@@ -121,6 +136,14 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
      redirect URI as above → API permissions: *Calendars.Read*, *User.Read*, *offline_access* → Certificates & secrets → new
      client secret. `supabase secrets set MICROSOFT_CLIENT_ID=... MICROSOFT_CLIENT_SECRET=...`
    - Optional: `supabase secrets set APP_SCHEME=murmur` if you rename the app's URL scheme.
+9. **Procore** (optional). At [developers.procore.com](https://developers.procore.com) create an app, add a *Web Server*
+   (authorization code) OAuth grant with redirect URI `https://YOUR-PROJECT.supabase.co/functions/v1/procore/callback`, then:
+   `supabase secrets set PROCORE_CLIENT_ID=... PROCORE_CLIENT_SECRET=...`
+   - Test against a Procore **sandbox** first: `supabase secrets set PROCORE_LOGIN_URL=https://sandbox.procore.com PROCORE_API_URL=https://sandbox.procore.com`
+     (remove both for production).
+   - Each Procore company must install your app (company admin → App Management) before its users can connect.
+   - Users need Punch List (create) and Daily Log (Notes, create) permission in the chosen project.
+   - Selling it to other Procore customers means listing on the Procore App Marketplace, which has its own review.
    Browser recordings upload during the session; if the tab is closed before upload finishes, that audio is lost (phones keep it on disk).
 
 ## Checks
@@ -152,8 +175,21 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Test the OAuth flow with the MCP Inspector too: `npx @modelcontextprotocol/inspector` → Streamable HTTP → your `/mcp` URL.
 - [ ] Connect Google Calendar (as a test user), open Upcoming, link a recurring meeting to a project, open its brief, tap Record.
 - [ ] A meeting where someone floats an idea ("we could…") and someone commits ("I'll send it Thursday"): the first should land in To review, the second in Open with the right owner.
+- [ ] Field mode on, site walk: say "the guardrail on the east stair is loose", take a photo, keep walking. The log shows it under Safety with that photo; the transcript shows the photo at that moment.
+- [ ] Take a photo mid-recording on iPhone and on Android: recording keeps going (timer, "parts saved"). If you see "Recording stopped by the system", tap Restart mic and note the phone model.
+- [ ] Airplane mode: record, take 3 photos, stop. Turn the network back on: audio and photos upload, notes link the photos.
+- [ ] Pair a Bluetooth headset or lapel mic, start recording, switch to it under "Mic". Check the audio came from it.
+- [ ] Add your project's names and terms under "Words to listen for", record them being said, and compare the transcript with a recording made before.
+- [ ] Procore sandbox: connect, pick a project, send a task with a photo (punch item has the photo attached), then "Add to daily log" (Notes entry on the right date). Sending again doesn't duplicate.
+- [ ] Make a site-report deck from a site walk with photos; check the Safety and photo slides.
 
 ## Known limits
+
+- **Procore** was built from Procore's public REST docs and tested with a fake server, not a real Procore company. Check the punch item and daily log links open the right page (Procore's web URLs change; set `PROCORE_APP_URL` if needed) and that photo attachments arrive.
+- **Procore token renewal**: Procore issues a new refresh token on every renewal. Two Procore actions started at the same second could race and force a reconnect; rare, and the app says so when it happens.
+- **No on-device transcription yet**: with no signal you still record and take photos; transcription runs when the phone is back online.
+- **Noise**: Deepgram is given the audio as recorded. Phone noise suppression often hurts transcription, so it isn't switched on; a lapel mic and the project's words to listen for help most.
+- **Photos added afterwards** (from the library) attach to the recording but aren't linked to entries, since there's no moment to match.
 
 - **Model names**: defaults are `claude-sonnet-5-5` and Deepgram `nova-3`. Check both against the providers' current docs; change via secrets without redeploying the app.
 - **Speaker labels** are assigned per 5-minute part, so "Speaker 1" in one part may be "Speaker 2" in the next. Fix later by joining parts server-side before transcription.

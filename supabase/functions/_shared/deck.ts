@@ -44,7 +44,25 @@ export type DeckData = {
   decisions: { text: string; quote: string | null }[];
   tasks: { text: string; owner: string | null; due: string | null; status: 'open' | 'done' }[];
   questions: string[];
+  /** Site reports: safety items from the verified site log, shown on their own slide. */
+  safety?: { text: string; location: string | null }[];
+  /** Site reports: photos with what was said when they were taken. */
+  photos?: DeckPhoto[];
 };
+
+export type DeckPhoto = { dataUri: string; width: number | null; height: number | null; caption: string; detail: string | null; quote: string | null };
+
+/** Fit an image of w×h inside a box, keeping its shape, centered. */
+export function fitImage(w: number | null, h: number | null, box: { x: number; y: number; w: number; h: number }) {
+  const ratio = w && h && w > 0 && h > 0 ? w / h : 4 / 3;
+  let iw = box.w;
+  let ih = iw / ratio;
+  if (ih > box.h) {
+    ih = box.h;
+    iw = ih * ratio;
+  }
+  return { x: box.x + (box.w - iw) / 2, y: box.y + (box.h - ih) / 2, w: iw, h: ih };
+}
 
 export const DECK_TOOL = {
   name: 'write_deck',
@@ -162,6 +180,28 @@ export async function buildPptx(d: DeckData): Promise<Uint8Array> {
         bullets(s, col.bullets, x, 2.25, colW, 4.5, 18);
       });
     }
+  }
+
+  // Safety, straight from the verified site log
+  if (d.safety?.length) {
+    for (const [i, page] of chunk(d.safety, 6).entries()) {
+      const s = p.addSlide({ masterName: 'BODY' });
+      heading(s, i === 0 ? 'Safety items' : 'Safety items (continued)');
+      s.addShape(p.ShapeType.rect, { x: 0.6, y: 1.45, w: 0.12, h: 5.3, fill: { color: 'C2412D' }, line: { color: 'C2412D' } });
+      bullets(s, page.map((x) => (x.location ? `${x.text} (${x.location})` : x.text)), 0.95, 1.55, W - 1.55, 5.2);
+    }
+  }
+
+  // Photos with what was being said when they were taken
+  for (const ph of (d.photos ?? []).slice(0, 12)) {
+    const s = p.addSlide({ masterName: 'BODY' });
+    const box = fitImage(ph.width, ph.height, { x: 0.6, y: 0.5, w: 7.9, h: 6.2 });
+    s.addImage({ data: ph.dataUri, ...box });
+    const x = 8.9;
+    const w = W - x - 0.6;
+    s.addText(ph.caption, { x, y: 0.6, w, h: 1.25, fontFace: FONT, fontSize: 22, bold: true, color: C.ink, valign: 'top', fit: 'shrink' });
+    if (ph.detail) s.addText(ph.detail, { x, y: 1.9, w, h: 0.5, fontFace: FONT, fontSize: 15, color: C.accent, bold: true, valign: 'top' });
+    if (ph.quote) s.addText(`“${ph.quote}”`, { x, y: 2.45, w, h: 4.0, fontFace: FONT, fontSize: 15, italic: true, color: C.muted, valign: 'top', fit: 'shrink' });
   }
 
   // Decisions, straight from the verified notes

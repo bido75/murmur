@@ -1,7 +1,8 @@
 // POST { recording_id } — transcribes every segment, writes notes and verified tasks.
 // Returns 202 immediately; the work continues in the background and the app polls status.
 import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser, transcribe } from '../_shared/services.ts';
-import { NOTES_TOOL, systemPrompt, userMessage, type NotesOutput } from '../_shared/prompts.ts';
+import { notesTool, systemPrompt, userMessage, type NotesOutput } from '../_shared/prompts.ts';
+import { assignPhotos, attachPhotosToLog, buildKeyterms, siteLogIsEmpty, verifySiteLog, type PhotoMark } from '../_shared/field.ts';
 import {
   dropRepeats,
   findQuote,
@@ -52,6 +53,9 @@ async function run(recordingId: string, userId: string, template: string, curren
     if (error) throw error;
     if (!segments?.length) throw new Error('No audio was uploaded for this recording');
 
+    // 0. Hints for the transcriber: the project's words, its name and people's names.
+    const keyterms = await keytermsFor(projectId, template);
+
     // 1. Transcribe each segment and place it on the recording's timeline.
     let offset = 0;
     let language: string | null = null;
@@ -59,7 +63,7 @@ async function run(recordingId: string, userId: string, template: string, curren
     for (const seg of segments) {
       const { data: signed, error: signErr } = await admin.storage.from('audio').createSignedUrl(seg.storage_path, 60 * 60);
       if (signErr || !signed) throw new Error(`Could not read audio segment ${seg.idx}`);
-      const result = await transcribe(signed.signedUrl);
+      const result = await transcribe(signed.signedUrl, keyterms);
       all.push(...offsetUtterances(result.utterances, offset));
       language = language ?? result.language;
       offset += result.durationMs || seg.duration_ms;
@@ -87,11 +91,18 @@ async function run(recordingId: string, userId: string, template: string, curren
     const notes = await claudeStructured<NotesOutput>(
       systemPrompt(template),
       [{ role: 'user', content: userMessage(formatTranscript(all), refs) }],
-      NOTES_TOOL,
+      notesTool(template),
     );
 
     // 4. Check every task, decision and update against the transcript before saving.
     const tasks = dropRepeats(verifyActionItems(notes.action_items ?? [], all), openTasks.map((t) => t.text));
+
+    // Photos taken while recording are linked to what was being said when they were taken.
+    const { data: photoRows } = await admin.from('recording_photos').select('id, taken_ms').eq('recording_id', recordingId);
+    const photos = (photoRows ?? []) as PhotoMark[];
+    const taskPhotos = assignPhotos(tasks, photos);
+    let siteLog = template === 'site_walk' ? attachPhotosToLog(verifySiteLog(notes.site_log, all), photos) : null;
+    if (siteLogIsEmpty(siteLog)) siteLog = null;
     const updates = verifyTaskUpdates(notes.task_updates ?? [], refs, all);
     for (const u of updates.filter((x) => x.verified)) {
       const patch =
@@ -115,13 +126,14 @@ async function run(recordingId: string, userId: string, template: string, curren
       decisions,
       open_questions: notes.open_questions ?? [],
       task_updates: updates,
+      site_log: siteLog,
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });
 
     // Reprocessing replaces this recording's AI tasks.
     await admin.from('tasks').delete().eq('recording_id', recordingId);
     if (tasks.length) {
-      await admin.from('tasks').insert(tasks.map((t) => ({ ...t, recording_id: recordingId, user_id: userId })));
+      await admin.from('tasks').insert(tasks.map((t, i) => ({ ...t, photo_ids: taskPhotos[i], recording_id: recordingId, user_id: userId })));
     }
 
     const update: Record<string, unknown> = { status: 'ready' };
@@ -151,4 +163,19 @@ async function openProjectTasks(projectId: string, recordingId: string): Promise
     .order('created_at', { ascending: false })
     .limit(40);
   return (data ?? []) as { id: string; text: string }[];
+}
+
+/** Words to listen for: the project's vocabulary and name, plus names people gave speakers before. */
+async function keytermsFor(projectId: string | null, template: string): Promise<string[]> {
+  if (!projectId) return buildKeyterms({ template });
+  const admin = adminClient();
+  const { data: project } = await admin.from('projects').select('name, vocabulary').eq('id', projectId).maybeSingle();
+  const { data: recs } = await admin.from('recordings').select('id').eq('project_id', projectId).order('created_at', { ascending: false }).limit(20);
+  const ids = (recs ?? []).map((r: { id: string }) => r.id);
+  const names: string[] = [];
+  if (ids.length) {
+    const { data: ts } = await admin.from('transcripts').select('speaker_names').in('recording_id', ids);
+    for (const t of (ts ?? []) as { speaker_names: Record<string, string> | null }[]) names.push(...Object.values(t.speaker_names ?? {}));
+  }
+  return buildKeyterms({ vocabulary: project?.vocabulary ?? [], projectName: project?.name ?? null, names, template });
 }

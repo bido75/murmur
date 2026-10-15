@@ -8,6 +8,7 @@ export type Project = {
   id: string;
   name: string;
   archived: boolean;
+  vocabulary?: string[];
   created_at: string;
   workspace_id?: string | null;
   workspaces?: { name: string } | null;
@@ -55,13 +56,41 @@ export type Summary = {
   decisions: Decision[];
   open_questions: string[];
   task_updates?: TaskUpdate[];
+  site_log?: SiteLog | null;
+  site_log_external?: { procore?: { id: string; url: string } } | null;
 };
 
-export type Provider = 'asana' | 'linear' | 'jira';
+type Proof = { quote: string; quote_ms: number | null; verified: boolean; photo_ids: string[] };
+export type SiteCategory = 'safety' | 'quality' | 'schedule' | 'other';
+export type SiteLog = {
+  weather: ({ text: string } & Proof) | null;
+  manpower: ({ company_or_trade: string; count: number | null } & Proof)[];
+  work_completed: ({ text: string; location: string | null } & Proof)[];
+  issues: ({ text: string; location: string | null; category: SiteCategory } & Proof)[];
+  deliveries: ({ text: string } & Proof)[];
+  inspections: ({ text: string; result: string | null } & Proof)[];
+  delays: ({ text: string } & Proof)[];
+};
+
+export type Photo = {
+  id: string;
+  recording_id: string;
+  storage_path: string;
+  taken_ms: number | null;
+  caption: string | null;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+  /** Signed URL, or a local file while the photo waits to upload. */
+  url?: string | null;
+  pending?: boolean;
+};
+
+export type Provider = 'asana' | 'linear' | 'jira' | 'procore';
 export type External = Partial<Record<Provider, { id: string; key: string | null; url: string }>>;
 export type Integration = { provider: Provider; config: { account?: string; target?: { id: string; name: string }; site?: string; email?: string } };
 
-export const PROVIDER_LABELS: Record<Provider, string> = { asana: 'Asana', linear: 'Linear', jira: 'Jira' };
+export const PROVIDER_LABELS: Record<Provider, string> = { asana: 'Asana', linear: 'Linear', jira: 'Jira', procore: 'Procore' };
 
 export const CONSENT_LABELS: Record<ConsentMethod, string> = {
   told_everyone: 'Told everyone at the start',
@@ -89,6 +118,7 @@ export type Task = {
   progress_note?: string | null;
   completion_quote?: string | null;
   completed_by_recording_id?: string | null;
+  photo_ids?: string[];
 };
 
 export const TEMPLATE_LABELS: Record<Template, string> = {

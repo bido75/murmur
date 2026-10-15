@@ -6,8 +6,8 @@ import { isWeb } from './dialog';
 import { downloadWeb } from './export';
 import { uuid } from './format';
 import { supabase } from './supabase';
-import { enqueue, keepFile, pendingOps, processRecording, type CreateOp } from './sync';
-import type { CalendarEvent, CalProvider, ConsentMethod, Integration, Invite, Member, Project, Provider, Recording, Role, Summary, Task, Template, Transcript, Workspace } from './types';
+import { enqueue, keepFile, pendingOps, pendingPhotos, processRecording, type CreateOp } from './sync';
+import type { CalendarEvent, CalProvider, ConsentMethod, Integration, Invite, Member, Photo, Project, Provider, Recording, Role, Summary, Task, Template, Transcript, Workspace } from './types';
 
 /** Register a new recording locally; it syncs to the server when there's a connection. */
 export async function newRecording(opts: {
@@ -77,20 +77,52 @@ export async function listRecordings(): Promise<Recording[]> {
 }
 
 export async function getRecording(id: string) {
-  const [rec, tr, sum, tasks, segs] = await Promise.all([
+  const [rec, tr, sum, tasks, segs, photos] = await Promise.all([
     supabase.from('recordings').select('*').eq('id', id).maybeSingle(),
     supabase.from('transcripts').select('utterances, speaker_names').eq('recording_id', id).maybeSingle(),
-    supabase.from('summaries').select('overview, key_points, decisions, open_questions, task_updates').eq('recording_id', id).maybeSingle(),
+    supabase.from('summaries').select('overview, key_points, decisions, open_questions, task_updates, site_log, site_log_external').eq('recording_id', id).maybeSingle(),
     supabase.from('tasks').select('*').eq('recording_id', id).neq('status', 'dismissed').order('created_at'),
     supabase.from('recording_segments').select('idx, storage_path, duration_ms').eq('recording_id', id).order('idx'),
+    listPhotos(id),
   ]);
   return {
+    photos,
     recording: (rec.data ?? null) as Recording | null,
     transcript: (tr.data ?? null) as Transcript | null,
     summary: (sum.data ?? null) as Summary | null,
     tasks: (tasks.data ?? []) as Task[],
     segments: (segs.data ?? []) as { idx: number; storage_path: string; duration_ms: number }[],
   };
+}
+
+/** A recording's photos: uploaded ones (signed URLs) plus any still waiting on this device. */
+export async function listPhotos(recordingId: string): Promise<Photo[]> {
+  const [{ data }, waiting] = await Promise.all([
+    supabase.from('recording_photos').select('id, recording_id, storage_path, taken_ms, caption, width, height, created_at').eq('recording_id', recordingId),
+    pendingPhotos(recordingId),
+  ]);
+  const rows = (data ?? []) as Photo[];
+  if (rows.length) {
+    const { data: signed } = await supabase.storage.from('photos').createSignedUrls(rows.map((r) => r.storage_path), 60 * 60);
+    const byPath = new Map((signed ?? []).map((x) => [x.path, x.signedUrl]));
+    rows.forEach((r) => (r.url = byPath.get(r.storage_path) ?? null));
+  }
+  const have = new Set(rows.map((r) => r.id));
+  const local: Photo[] = waiting
+    .filter((w) => !have.has(w.photoId))
+    .map((w) => ({ id: w.photoId, recording_id: recordingId, storage_path: '', taken_ms: w.takenMs, caption: null, width: w.width, height: w.height, created_at: new Date().toISOString(), url: w.localUri, pending: true }));
+  return [...rows, ...local].sort((a, b) => (a.taken_ms ?? Number.MAX_SAFE_INTEGER) - (b.taken_ms ?? Number.MAX_SAFE_INTEGER) || a.created_at.localeCompare(b.created_at));
+}
+
+export async function setPhotoCaption(id: string, caption: string | null) {
+  const { error } = await supabase.from('recording_photos').update({ caption: caption?.trim() || null }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deletePhoto(photo: Photo) {
+  if (photo.storage_path) await supabase.storage.from('photos').remove([photo.storage_path]);
+  const { error } = await supabase.from('recording_photos').delete().eq('id', photo.id);
+  if (error) throw new Error(error.message);
 }
 
 export async function retryProcessing(id: string) {
@@ -103,9 +135,14 @@ export async function renameRecording(id: string, title: string) {
 }
 
 export async function deleteRecording(id: string) {
-  const { data: segs } = await supabase.from('recording_segments').select('storage_path').eq('recording_id', id);
+  const [{ data: segs }, { data: photos }] = await Promise.all([
+    supabase.from('recording_segments').select('storage_path').eq('recording_id', id),
+    supabase.from('recording_photos').select('storage_path').eq('recording_id', id),
+  ]);
   const paths = (segs ?? []).map((s) => s.storage_path);
   if (paths.length) await supabase.storage.from('audio').remove(paths);
+  const photoPaths = (photos ?? []).map((p) => p.storage_path);
+  if (photoPaths.length) await supabase.storage.from('photos').remove(photoPaths);
   const { error } = await supabase.from('recordings').delete().eq('id', id);
   if (error) throw new Error(error.message);
 }
@@ -137,9 +174,9 @@ export async function ask(question: string, recordingId?: string): Promise<{ ans
 }
 
 // Local settings
-export type Settings = { consentReminder: boolean; defaultTemplate: Template };
+export type Settings = { consentReminder: boolean; defaultTemplate: Template; fieldMode: boolean };
 const SETTINGS_KEY = 'settings.v1';
-const DEFAULT_SETTINGS: Settings = { consentReminder: true, defaultTemplate: 'meeting' };
+const DEFAULT_SETTINGS: Settings = { consentReminder: true, defaultTemplate: 'meeting', fieldMode: false };
 
 export async function getSettings(): Promise<Settings> {
   try {
@@ -186,6 +223,24 @@ export async function updateProject(id: string, patch: Partial<Pick<Project, 'na
   if (error) throw new Error(error.message);
 }
 
+/** Words to listen for: split on commas or new lines, trimmed, deduplicated, at most 100. */
+export function parseVocabulary(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of text.split(/[,\n]/)) {
+    const w = raw.replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!w || seen.has(w.toLowerCase())) continue;
+    seen.add(w.toLowerCase());
+    out.push(w);
+  }
+  return out.slice(0, 100);
+}
+
+export async function setProjectVocabulary(id: string, words: string[]) {
+  const { error } = await supabase.from('projects').update({ vocabulary: words }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
 export async function setRecordingProject(recordingId: string, projectId: string | null) {
   const { error } = await supabase.from('recordings').update({ project_id: projectId }).eq('id', recordingId);
   if (error) throw new Error(error.message);
@@ -209,7 +264,7 @@ export async function openProjectTasks(projectId: string): Promise<TaskWithSourc
 
 export async function getProject(id: string) {
   const [proj, recs, tasks] = await Promise.all([
-    supabase.from('projects').select('id, name, archived, created_at, workspace_id, workspaces(name)').eq('id', id).maybeSingle(),
+    supabase.from('projects').select('id, name, archived, created_at, workspace_id, vocabulary, workspaces(name)').eq('id', id).maybeSingle(),
     supabase.from('recordings').select('id, title, template, source, status, duration_ms, error, created_at, project_id').eq('project_id', id).order('created_at', { ascending: false }),
     openProjectTasks(id),
   ]);
@@ -264,6 +319,25 @@ export type PushResult = { task_id: string; ok: boolean; url?: string; key?: str
 
 export async function pushTasks(taskIds: string[], provider: Provider): Promise<PushResult[]> {
   return (await callFn<{ results: PushResult[] }>('push-tasks', { task_ids: taskIds, provider })).results;
+}
+
+// ---------- Procore ----------
+
+export async function procoreAvailable(): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('procore/available', { method: 'GET' });
+  return !error && Boolean(data?.available);
+}
+
+/** Returns Procore's sign-in URL to open in the browser. */
+export async function startProcoreConnect(returnTo: string): Promise<string> {
+  return (await callFn<{ url: string }>('procore/start', { return_to: returnTo })).url;
+}
+
+/** Add the recording's site log to the chosen Procore project's daily log, dated the day it was recorded. */
+export async function sendSiteLogToProcore(recordingId: string, recordedAt: string): Promise<{ url: string; already?: boolean }> {
+  const d = new Date(recordedAt);
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return callFn<{ url: string; already?: boolean }>('procore/daily-log', { recording_id: recordingId, date: local });
 }
 
 // ---------- Decks ----------

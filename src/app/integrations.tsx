@@ -1,13 +1,15 @@
+import * as ExpoLinking from 'expo-linking';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Linking, ScrollView, TextInput, View } from 'react-native';
 import { ActionMenu } from '@/components/ActionMenu';
 import { Button, Card, T } from '@/components/ui';
-import { connectIntegration, disconnectIntegration, integrationTargets, listIntegrations, setIntegrationTarget } from '@/lib/api';
-import { confirm, notify } from '@/lib/dialog';
+import { connectIntegration, disconnectIntegration, integrationTargets, listIntegrations, procoreAvailable, setIntegrationTarget, startProcoreConnect } from '@/lib/api';
+import { confirm, isWeb, notify } from '@/lib/dialog';
 import { radius, space, useTheme } from '@/lib/theme';
 import { PROVIDER_LABELS, type Integration, type Provider } from '@/lib/types';
 
-const HELP: Record<Provider, { where: string; url: string }> = {
+const HELP: Record<Exclude<Provider, 'procore'>, { where: string; url: string }> = {
   linear: { where: 'Linear → Settings → Security & access → Personal API keys', url: 'https://linear.app/settings/account/security' },
   asana: { where: 'Asana developer console → Personal access tokens', url: 'https://app.asana.com/0/my-apps' },
   jira: { where: 'Atlassian account → Security → API tokens', url: 'https://id.atlassian.com/manage-profile/security/api-tokens' },
@@ -15,6 +17,8 @@ const HELP: Record<Provider, { where: string; url: string }> = {
 
 export default function Integrations() {
   const [items, setItems] = useState<Integration[]>([]);
+  const [hasProcore, setHasProcore] = useState(false);
+  const params = useLocalSearchParams<{ procore?: string }>();
 
   const load = useCallback(async () => {
     try {
@@ -28,7 +32,14 @@ export default function Integrations() {
     listIntegrations()
       .then(setItems)
       .catch((e) => notify("Couldn't load connections", (e as Error).message));
+    procoreAvailable().then(setHasProcore);
   }, []);
+
+  // Back from Procore's sign-in page.
+  useEffect(() => {
+    if (params.procore === 'connected') notify('Procore connected', 'Now choose which Procore project punch items and daily logs go to.');
+    if (params.procore === 'failed') notify("Couldn't connect Procore", 'Please try again. If it keeps failing, check the app is installed for your Procore company.');
+  }, [params.procore]);
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
@@ -36,6 +47,9 @@ export default function Integrations() {
         Send action items to the tracker your team already uses. Tokens are stored on the server and never shown again in the app. Only tasks you’ve
         confirmed are sent, each with the quote it came from.
       </T>
+      {(hasProcore || items.some((i) => i.provider === 'procore')) && (
+        <ProviderCard provider="procore" integration={items.find((i) => i.provider === 'procore')} onChange={load} />
+      )}
       {(['linear', 'asana', 'jira'] as Provider[]).map((p) => (
         <ProviderCard key={p} provider={p} integration={items.find((i) => i.provider === p)} onChange={load} />
       ))}
@@ -80,8 +94,22 @@ function ProviderCard({ provider, integration, onChange }: { provider: Provider;
     }
   }
 
+  async function connectProcore() {
+    setBusy(true);
+    try {
+      const back = isWeb ? `${window.location.origin}/integrations` : ExpoLinking.createURL('integrations');
+      const url = await startProcoreConnect(back);
+      if (isWeb) window.location.assign(url);
+      else await Linking.openURL(url);
+    } catch (e) {
+      notify("Couldn't start Procore sign-in", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function disconnect() {
-    const ok = await confirm(`Disconnect ${PROVIDER_LABELS[provider]}?`, 'The saved token is deleted. Tasks already sent stay in your tracker.', 'Disconnect', true);
+    const ok = await confirm(`Disconnect ${PROVIDER_LABELS[provider]}?`, 'The saved connection is deleted. Items already sent stay where they are.', 'Disconnect', true);
     if (!ok) return;
     await disconnectIntegration(provider).catch((e) => notify("Couldn't disconnect", (e as Error).message));
     onChange();
@@ -90,6 +118,9 @@ function ProviderCard({ provider, integration, onChange }: { provider: Provider;
   return (
     <Card style={{ gap: space.md }}>
       <T size={18} weight="700">{PROVIDER_LABELS[provider]}</T>
+      {provider === 'procore' && (
+        <T muted size={14}>Tasks become punch items (with the photo taken when they were said). Site walks can add their daily log to the project’s Daily Log.</T>
+      )}
       {integration ? (
         <>
           <T muted size={14}>Connected as {integration.config.account ?? 'your account'}</T>
@@ -101,6 +132,8 @@ function ProviderCard({ provider, integration, onChange }: { provider: Provider;
             <Button label="Disconnect" kind="ghost" onPress={disconnect} style={{ flex: 1 }} />
           </View>
         </>
+      ) : provider === 'procore' ? (
+        <Button label="Connect with Procore" onPress={connectProcore} loading={busy} />
       ) : (
         <>
           <T muted size={14}>Create a token in {HELP[provider].where}.</T>
@@ -122,7 +155,7 @@ function ProviderCard({ provider, integration, onChange }: { provider: Provider;
       )}
       <ActionMenu
         visible={!!targets}
-        title={provider === 'linear' ? 'Send tasks to which team?' : 'Send tasks to which project?'}
+        title={provider === 'linear' ? 'Send tasks to which team?' : provider === 'procore' ? 'Which Procore project?' : 'Send tasks to which project?'}
         onClose={() => setTargets(null)}
         actions={(targets ?? []).map((tg) => ({
           label: tg.name,
