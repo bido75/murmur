@@ -4,10 +4,23 @@ export type RecordingStatus = 'recording' | 'uploading' | 'transcribing' | 'summ
 
 export type ConsentMethod = 'told_everyone' | 'in_invite' | 'solo' | 'not_confirmed';
 
-export type Project = { id: string; name: string; archived: boolean; created_at: string };
+export type Project = {
+  id: string;
+  name: string;
+  archived: boolean;
+  created_at: string;
+  workspace_id?: string | null;
+  workspaces?: { name: string } | null;
+};
+
+export type Role = 'owner' | 'admin' | 'member';
+export type Workspace = { id: string; name: string; role: Role };
+export type Member = { user_id: string; role: Role; email: string | null; joined_at: string };
+export type Invite = { id: string; email: string; role: Role; code: string; created_at: string; expires_at: string };
 
 export type Recording = {
   id: string;
+  user_id?: string;
   project_id?: string | null;
   consent_method?: ConsentMethod;
   consent_confirmed_at?: string | null;

@@ -3,17 +3,18 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View, type TextStyle, t
 import { radius, space, useTheme } from '@/lib/theme';
 import { STATUS_LABELS, type RecordingStatus } from '@/lib/types';
 
-export function T({ children, style, muted, size = 16, weight = '400', numberOfLines }: {
+export function T({ children, style, muted, size = 16, weight = '400', numberOfLines, selectable }: {
   children: ReactNode;
   style?: TextStyle;
   muted?: boolean;
   size?: number;
   weight?: TextStyle['fontWeight'];
   numberOfLines?: number;
+  selectable?: boolean;
 }) {
   const t = useTheme();
   return (
-    <Text numberOfLines={numberOfLines} style={[{ color: muted ? t.muted : t.ink, fontSize: size, fontWeight: weight, lineHeight: size * 1.4 }, style]}>
+    <Text numberOfLines={numberOfLines} selectable={selectable} style={[{ color: muted ? t.muted : t.ink, fontSize: size, fontWeight: weight, lineHeight: size * 1.4 }, style]}>
       {children}
     </Text>
   );

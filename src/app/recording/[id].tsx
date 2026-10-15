@@ -6,7 +6,7 @@ import { ActionMenu, type MenuAction } from '@/components/ActionMenu';
 import { SendToTracker } from '@/components/SendToTracker';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { ask, audioUrl, deleteRecording, getRecording, listProjects, renameRecording, retryProcessing, setRecordingProject, updateTask } from '@/lib/api';
+import { ask, audioUrl, currentUserId, deleteRecording, getRecording, listProjects, renameRecording, retryProcessing, setRecordingProject, updateTask } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
 import { shareText, sharePdf } from '@/lib/export';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
@@ -25,6 +25,10 @@ export default function RecordingDetail() {
   const player = useAudioPlayer(null);
   const [loadedSegment, setLoadedSegment] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ title?: string; actions: MenuAction[] } | null>(null);
+  const [me, setMe] = useState<string | null>(null);
+  useEffect(() => {
+    currentUserId().then(setMe);
+  }, []);
 
   const load = useCallback(
     () =>
@@ -113,12 +117,15 @@ export default function RecordingDetail() {
   function openMenu() {
     const rec = data?.recording;
     if (!rec) return;
-    setMenu({
-      title: rec.title,
-      actions: [
-        { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
-        { label: 'Share as text', onPress: guard(() => shareText(rec, data.summary, data.tasks)) },
-        { label: 'Share as PDF', onPress: guard(() => sharePdf(rec, data.summary, data.tasks)) },
+    // Teammates can read and export a shared recording; only its creator can change it.
+    const isOwner = !rec.user_id || rec.user_id === me;
+    const actions: MenuAction[] = [
+      { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
+      { label: 'Share as text', onPress: guard(() => shareText(rec, data.summary, data.tasks)) },
+      { label: 'Share as PDF', onPress: guard(() => sharePdf(rec, data.summary, data.tasks)) },
+    ];
+    if (isOwner) {
+      actions.push(
         { label: 'Move to project', onPress: () => void chooseProject() },
         { label: 'Re-run notes', onPress: guard(async () => { await retryProcessing(rec.id); await load(); }) },
         {
@@ -131,8 +138,9 @@ export default function RecordingDetail() {
             router.back();
           }),
         },
-      ],
-    });
+      );
+    }
+    setMenu({ title: rec.title, actions });
   }
 
   const rec = data?.recording;
@@ -157,6 +165,7 @@ export default function RecordingDetail() {
           <View style={{ paddingHorizontal: space.lg, gap: space.sm, paddingBottom: space.md }}>
             <TextInput
               value={title}
+              editable={!rec.user_id || rec.user_id === me}
               onChangeText={setTitle}
               onEndEditing={() => title.trim() && title !== rec.title && void renameRecording(rec.id, title.trim())}
               style={{ color: t.ink, fontSize: 24, fontWeight: '700' }}
@@ -169,7 +178,10 @@ export default function RecordingDetail() {
             </T>
             {rec.status !== 'ready' && <StatusPill status={rec.status} />}
             {rec.status === 'failed' && (
-              <Banner text={rec.error ?? 'Processing failed.'} action={{ label: 'Retry', onPress: () => void retryProcessing(rec.id).then(load) }} />
+              <Banner
+                text={rec.error ?? 'Processing failed.'}
+                action={rec.user_id === me ? { label: 'Retry', onPress: () => void retryProcessing(rec.id).then(load) } : undefined}
+              />
             )}
             <Segmented<Tab>
               value={tab}

@@ -25,6 +25,8 @@ Deno.serve(async (req) => {
     // Ownership check through RLS: the caller can only see their own rows.
     const { data: rec, error } = await client.from('recordings').select('*').eq('id', recording_id).single();
     if (error || !rec) throw new HttpError(404, 'Recording not found');
+    // Teammates can read shared recordings, but only the person who made one can re-run it.
+    if (rec.user_id !== userId) throw new HttpError(403, 'Only the person who made this recording can re-run its notes');
     if (rec.status === 'transcribing' || rec.status === 'summarizing') {
       return json({ status: rec.status }, 202);
     }
@@ -96,7 +98,9 @@ async function run(recordingId: string, userId: string, template: string, curren
         u.status === 'done'
           ? { status: 'done', completed_by_recording_id: recordingId, completion_quote: u.quote, completion_ms: u.quote_ms, progress_note: u.note }
           : { progress_note: [u.status === 'blocked' ? 'Blocked' : 'In progress', u.note].filter(Boolean).join(': ') };
-      await admin.from('tasks').update(patch).eq('id', u.task_id).eq('user_id', userId).eq('status', 'open');
+      // u.task_id came from this project's own open tasks (see openProjectTasks), so it may
+      // belong to a teammate's recording in the same project.
+      await admin.from('tasks').update(patch).eq('id', u.task_id).eq('status', 'open');
     }
     const decisions = (notes.decisions ?? []).map((d) => {
       const m = findQuote(d.quote, all);

@@ -36,7 +36,18 @@ An AI note taker in the same category as Wave: record meetings, calls, lectures 
 | **Consent log**: told everyone / in the invite / only my voice, with the time, shown on the recording and in exports | `record.tsx`, `recordings.consent_method` |
 | Menus and confirmations that work the same on iOS, Android and web | `src/components/ActionMenu.tsx`, `src/lib/dialog.ts` |
 
-Still to come: calendar sync and pre-meeting briefs from calendar events, desktop bot-free capture, optional meeting bot, Teams workspaces, MCP server for Claude/ChatGPT, phone-call recording, field-mode offline transcription, Procore.
+### Phase 2, batch 2
+
+| Feature | Where |
+| --- | --- |
+| **Teams**: create a team, invite by email + code, roles (owner/admin/member), leave/remove | `src/app/team/[id].tsx`, `src/app/join.tsx`, Settings |
+| **Team projects**: everyone in the team sees the project's recordings, transcripts, notes and tasks, can play the audio, tick and send tasks, and add their own recordings. Only a recording's creator can rename, move, re-run or delete it | migration `…020000_teams_and_api.sql` |
+| Invites only work for the email they were sent to, once, within 14 days | `accept_invite()` |
+| **MCP server** so Claude Code, Cursor and other MCP clients can search recordings, read notes and transcripts, list tasks and mark them done | `supabase/functions/mcp`, `_shared/mcp.ts`, `src/app/api-access.tsx` |
+| Personal API tokens: stored as a hash, shown once, revocable, last-used date | `create_api_token()` |
+| **Security rules tested on real Postgres**: outsiders see nothing; teammates see only team projects; the MCP server's scope matches the app's exactly | `supabase/tests/` (`npm run test:db`) |
+
+Still to come: calendar sync and briefs from calendar events, desktop bot-free capture, optional meeting bot, sign-in (OAuth) for Claude.ai / ChatGPT web connectors, phone-call recording, field-mode offline transcription, Procore.
 
 ## Setup
 
@@ -68,6 +79,7 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    supabase functions deploy integrations
    supabase functions deploy push-tasks
    supabase functions deploy make-deck
+   supabase functions deploy mcp --no-verify-jwt   # authenticates with its own API tokens
    ```
    Optional: `supabase secrets set APP_URL=https://your-web-app.example.com` so tasks sent to trackers link back to the recording.
 6. **Run on a phone.** Background recording needs a development build (Expo Go won't keep recording when locked):
@@ -85,7 +97,8 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
 
 ```bash
 npm run typecheck   # TypeScript, app code
-npm test            # action-item verification tests (Node)
+npm run lint        # Expo / React hooks rules
+npm test            # logic tests + database security tests (PGlite, no Docker needed)
 cd supabase/functions && deno check */index.ts && deno test --allow-all _shared/
 ```
 
@@ -103,6 +116,8 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Connect Linear (or Asana/Jira), pick a team/project, and send tasks from a recording. Check the issue has the quote and link.
 - [ ] Make a site report deck from a project and open it in PowerPoint/Keynote/Google Slides.
 - [ ] Open the web build, sign in, record 30 seconds in the browser, and check notes appear.
+- [ ] Two accounts: create a team, invite the second account, accept the code, record into a team project. The second account sees it; a third account sees nothing.
+- [ ] Create an API token, add it to Claude Code with the copied command, and ask "what tasks are open on Riverside Lofts?"
 - [ ] A meeting where someone floats an idea ("we could…") and someone commits ("I'll send it Thursday"): the first should land in To review, the second in Open with the right owner.
 
 ## Known limits
@@ -114,6 +129,9 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - **Upload size**: 5-minute parts are about 2.4 MB. Large imported files can hit Supabase Storage's per-file limit; raise it in Storage settings.
 - **Tracker APIs** (Linear GraphQL, Asana REST, Jira Cloud REST v3) were written against their public APIs from memory and typechecked, not run against live accounts. Test each with a real token; error messages from the provider are shown in the app.
 - **Carry-over only closes a task on a verified quote.** A wrong "done" is still possible if someone says it's done when it isn't; the task shows the quote and can be reopened with one tap.
+- **MCP scope**: the AI tool sees your newest 1,000 readable recordings. Older ones aren't searchable through it yet.
+- **Claude.ai / ChatGPT web connectors** need an OAuth sign-in flow, not tokens. Use Claude Code, Cursor or another client that accepts headers for now.
+- **Team invites aren't emailed**: the admin gets a code to send however they like. Add an email provider (e.g. Resend) to send them automatically.
 - **App Store**: Apple requires in-app account deletion before release; not built yet.
 - **Recording law**: the notice reminder helps but isn't legal advice. Get counsel to review before launch, especially for phone calls.
 

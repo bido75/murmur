@@ -46,7 +46,7 @@ export function ProjectPicker({ value, onChange }: { value: string | null; onCha
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
       {chip('none', 'No project', value === null, () => onChange(null))}
-      {projects.map((p) => chip(p.id, p.name, value === p.id, () => onChange(p.id)))}
+      {projects.map((p) => chip(p.id, p.workspaces?.name ? `${p.name} · ${p.workspaces.name}` : p.name, value === p.id, () => onChange(p.id)))}
       {adding ? (
         <TextInput
           autoFocus

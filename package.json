@@ -26,6 +26,7 @@
     "react-native-web": "~0.21.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
@@ -37,8 +38,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test supabase/functions/_shared/*.test.ts",
-    "lint": "expo lint"
+    "test": "node --experimental-strip-types --test supabase/functions/_shared/*.test.ts && node --test supabase/tests/*.test.mjs",
+    "lint": "expo lint",
+    "test:db": "node --test supabase/tests/*.test.mjs"
   },
   "private": true
 }

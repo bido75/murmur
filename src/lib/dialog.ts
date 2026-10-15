@@ -17,3 +17,18 @@ export function confirm(title: string, message: string, okLabel = 'OK', destruct
     ]),
   );
 }
+
+/** Share sheet on phones; copy to clipboard on the web. */
+export async function shareOrCopy(message: string, copiedNote = 'Copied to clipboard') {
+  if (isWeb) {
+    try {
+      await navigator.clipboard.writeText(message);
+      notify(copiedNote, message);
+    } catch {
+      notify('Copy this', message);
+    }
+    return;
+  }
+  const { Share } = await import('react-native');
+  await Share.share({ message });
+}

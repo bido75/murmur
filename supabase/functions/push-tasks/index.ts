@@ -43,7 +43,8 @@ Deno.serve(async (req) => {
           dueDate: t.due_date,
         });
         const external = { ...(t.external ?? {}), [provider]: { id: created.id, key: created.key ?? null, url: created.url } };
-        await admin.from('tasks').update({ external }).eq('id', t.id).eq('user_id', userId);
+        // The task was read through RLS above, so the caller is allowed to see (and update) it.
+        await admin.from('tasks').update({ external }).eq('id', t.id);
         results.push({ task_id: t.id, ok: true, url: created.url, key: created.key });
       } catch (e) {
         results.push({ task_id: t.id, ok: false, error: (e as Error).message });
