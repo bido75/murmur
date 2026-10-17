@@ -10,6 +10,8 @@ export const supabase = createClient(SUPABASE_URL || 'https://missing.supabase.c
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    // Single sign-on returns a one-time code to /sso-callback, exchanged there (see app/sso-callback).
+    flowType: 'pkce',
   },
 });
 

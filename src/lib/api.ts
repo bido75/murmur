@@ -982,3 +982,120 @@ export async function unlinkDevice(id: string) {
 export function sendLocalTranscript(recordingId: string, utterances: { start_ms: number; end_ms: number; speaker: number; text: string }[], durationMs: number) {
   return callFn<{ ok: true }>('ingest/local-transcript', { recording_id: recordingId, utterances, duration_ms: durationMs });
 }
+
+// ---------- Company controls (team admins) ----------
+
+export type Policy = {
+  workspace_id: string;
+  redact: string[];
+  audio_retention_days: number | null;
+  recording_retention_days: number | null;
+  allow_public_links: boolean;
+  max_link_days: number | null;
+  require_consent: boolean;
+  updated_at?: string;
+};
+
+export async function getPolicy(ws: string): Promise<Policy | null> {
+  const { data } = await supabase
+    .from('workspace_policies')
+    .select('workspace_id, redact, audio_retention_days, recording_retention_days, allow_public_links, max_link_days, require_consent, updated_at')
+    .eq('workspace_id', ws)
+    .maybeSingle();
+  return (data as Policy | null) ?? null;
+}
+
+export async function savePolicy(p: Policy) {
+  const { updated_at: _skip, ...row } = p;
+  const { error } = await supabase.from('workspace_policies').upsert(row, { onConflict: 'workspace_id' });
+  if (error) throw new Error(error.message);
+}
+
+/** The team policy for a project (members can read it), e.g. to require consent before recording. */
+export async function policyForProject(projectId: string | null): Promise<Policy | null> {
+  if (!projectId) return null;
+  const { data: p } = await supabase.from('projects').select('workspace_id').eq('id', projectId).maybeSingle();
+  return p?.workspace_id ? getPolicy(p.workspace_id as string) : null;
+}
+
+export type UsageRow = { user_id: string; email: string | null; role: string; recordings: number; minutes: number; last_recording_at: string | null };
+
+export async function workspaceUsage(ws: string, days = 30): Promise<UsageRow[]> {
+  const { data, error } = await supabase.rpc('workspace_usage', { ws, days });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as UsageRow[]).map((r) => ({ ...r, recordings: Number(r.recordings), minutes: Number(r.minutes) }));
+}
+
+export type AuditEvent = { id: number; actor_email: string | null; action: string; target_type: string | null; target_id: string | null; meta: Record<string, unknown>; created_at: string };
+
+export async function auditEvents(ws: string | null, before?: number): Promise<AuditEvent[]> {
+  let q = supabase.from('audit_events').select('id, actor_email, action, target_type, target_id, meta, created_at').order('id', { ascending: false }).limit(100);
+  q = ws ? q.eq('workspace_id', ws) : q.is('workspace_id', null);
+  if (before) q = q.lt('id', before);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AuditEvent[];
+}
+
+export type Domain = { domain: string; verify_token: string; verified_at: string | null; auto_join: boolean; sso_provider_id: string | null; sso_required: boolean };
+
+export async function listDomains(ws: string): Promise<Domain[]> {
+  const { data, error } = await supabase.from('workspace_domains').select('domain, verify_token, verified_at, auto_join, sso_provider_id, sso_required').eq('workspace_id', ws).order('created_at');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Domain[];
+}
+
+export async function addDomain(ws: string, domain: string) {
+  const { error } = await supabase.from('workspace_domains').insert({ workspace_id: ws, domain: domain.trim().toLowerCase() });
+  if (error) throw new Error(error.message.includes('duplicate') ? 'That domain is already claimed.' : error.message.includes('check') ? 'Enter a domain like acme.com' : error.message);
+}
+
+export async function removeDomain(domain: string) {
+  const { error } = await supabase.from('workspace_domains').delete().eq('domain', domain);
+  if (error) throw new Error(error.message);
+}
+
+export async function setDomainAutoJoin(domain: string, auto_join: boolean) {
+  const { error } = await supabase.from('workspace_domains').update({ auto_join }).eq('domain', domain);
+  if (error) throw new Error(error.message);
+}
+
+export function verifyDomain(domain: string) {
+  return callFn<{ verified: boolean; expected?: string }>('admin/verify-domain', { domain });
+}
+
+export async function createScimToken(ws: string): Promise<string> {
+  const { data, error } = await supabase.rpc('create_scim_token', { ws });
+  if (error) throw new Error(error.message);
+  return data as string;
+}
+
+export async function listScimTokens(ws: string): Promise<{ id: string; prefix: string; created_at: string; last_used_at: string | null }[]> {
+  const { data, error } = await supabase.from('scim_tokens').select('id, prefix, created_at, last_used_at').eq('workspace_id', ws).order('created_at');
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function revokeScimToken(id: string) {
+  const { error } = await supabase.from('scim_tokens').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export function scimBaseUrl() {
+  return `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/scim/v2`;
+}
+
+export function exportMyData() {
+  return callFn<{ url: string; recordings: number; truncated: boolean }>('export-data', {});
+}
+
+export async function ssoForEmail(email: string): Promise<{ sso: boolean; required: boolean }> {
+  const { data } = await supabase.rpc('sso_for_email', { email });
+  const r = (data as { sso: boolean; required: boolean }[] | null)?.[0];
+  return r ?? { sso: false, required: false };
+}
+
+export async function joinDomainTeams(): Promise<number> {
+  const { data } = await supabase.rpc('join_domain_teams');
+  return Number(data ?? 0);
+}

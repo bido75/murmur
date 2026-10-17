@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActionMenu } from '@/components/ActionMenu';
 import { ProjectPicker } from '@/components/ProjectPicker';
 import { Banner, Button, Card, T } from '@/components/ui';
-import { attachConsentRequest, createConsentRequest, getSettings, listTemplates, newRecording, openProjectTasks } from '@/lib/api';
+import { attachConsentRequest, createConsentRequest, getSettings, listTemplates, newRecording, openProjectTasks, policyForProject } from '@/lib/api';
 import { APP_URL } from '@/lib/config';
 import { consentAdvice, STATES } from '@/lib/shared';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
@@ -32,7 +32,10 @@ export default function Record() {
   const [projectId, setProjectId] = useState<string | null>(params.projectId ?? null);
   const [briefFor, setBriefFor] = useState<{ projectId: string; tasks: Task[] } | null>(null);
   const brief = projectId && briefFor?.projectId === projectId ? briefFor.tasks : [];
-  const [needConsent, setNeedConsent] = useState(true);
+  const [consentReminder, setNeedConsent] = useState(true);
+  // A team can require the consent choice for recordings in its projects.
+  const [teamRequires, setTeamRequires] = useState<{ projectId: string; required: boolean } | null>(null);
+  const needConsent = consentReminder || (teamRequires?.projectId === projectId && teamRequires.required);
   const [consent, setConsent] = useState<ConsentMethod | null>(null);
   const consented = consent !== null;
   const [recordingId, setRecordingId] = useState<string | null>(null);
@@ -111,6 +114,13 @@ export default function Record() {
       setShooting(false);
     }
   }
+
+  useEffect(() => {
+    if (!projectId) return;
+    policyForProject(projectId)
+      .then((p) => setTeamRequires({ projectId, required: Boolean(p?.require_consent) }))
+      .catch(() => undefined);
+  }, [projectId]);
 
   // The brief: what's still open in this project, so you can raise it in the meeting.
   useEffect(() => {

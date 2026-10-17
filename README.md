@@ -184,6 +184,43 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
     Recall charges per bot hour. Zoom bots may need Recall's Zoom app setup for recording permission in some accounts.
 13. **Share and consent links** open in the web app, so set `EXPO_PUBLIC_APP_URL` and `APP_URL` (step 7). Optional: `supabase secrets set APP_NAME=YourName`.
    Browser recordings upload during the session; if the tab is closed before upload finishes, that audio is lost (phones keep it on disk).
+14. **Live transcript, translation, connections, automations, API.**
+    ```bash
+    supabase functions deploy live          # short-lived Deepgram keys for live captions
+    supabase functions deploy translate
+    supabase functions deploy connect --no-verify-jwt     # Slack/Salesforce/Google Docs/OneNote sign-in redirects
+    supabase functions deploy export        # "Send notes to…"
+    supabase functions deploy api --no-verify-jwt         # REST API (personal tokens)
+    supabase functions deploy scheduler --no-verify-jwt   # automatic notetaker + weekly digest (CRON_SECRET)
+    ```
+    Sign-in apps (only for the ones you want to offer; the app hides the rest):
+    - Slack: create an app with the `incoming-webhook` scope, redirect URL `https://YOUR-PROJECT.supabase.co/functions/v1/connect/callback` →
+      `supabase secrets set SLACK_CLIENT_ID=... SLACK_CLIENT_SECRET=...`
+    - Salesforce: a Connected App with OAuth scopes `api refresh_token`, same callback → `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`
+      (optional `SALESFORCE_LOGIN_URL=https://test.salesforce.com` for a sandbox).
+    - Google Docs and OneNote reuse the Google and Microsoft apps from step 8: add the same callback URL, and the `drive.file` (Google) and
+      `Notes.Create` (Microsoft) permissions.
+    Token connections (Notion, HubSpot, monday.com, ClickUp, Trello, Asana, Linear, Jira) need no server setup.
+    Schedules (SQL editor, same pattern as step 11):
+    ```sql
+    select cron.schedule('murmur-autobot', '*/10 * * * *', $$ select net.http_post(url := 'https://YOUR-PROJECT.supabase.co/functions/v1/scheduler?job=autobot', headers := jsonb_build_object('x-cron-secret', 'YOUR_CRON_SECRET')); $$);
+    select cron.schedule('murmur-digest', '5 * * * *', $$ select net.http_post(url := 'https://YOUR-PROJECT.supabase.co/functions/v1/scheduler?job=digest', headers := jsonb_build_object('x-cron-secret', 'YOUR_CRON_SECRET')); $$);
+    ```
+15. **Push notifications.** Run `npx eas init` to get an EAS project id (it's written to `app.json`), then
+    `supabase secrets set EXPO_ACCESS_TOKEN=...` (Expo → Access tokens). For health data, also `PUSH_GENERIC_TEXT=1` (no titles on lock screens).
+16. **Phone calls (Twilio)** — optional. Buy a voice number, then
+    `supabase secrets set TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_PHONE_NUMBER=+1...` (optional `PHONE_ALLOWED_PREFIXES=+1,+44`,
+    default `+1`). `supabase functions deploy phone --no-verify-jwt`, and set the number's "A call comes in" webhook (HTTP POST) to
+    `https://YOUR-PROJECT.supabase.co/functions/v1/phone/voice`. Users link their mobile number and a PIN in Settings → Phone calls.
+    Recordings are copied to your storage and deleted from Twilio.
+17. **Aircall, devices, on-device transcription.**
+    `supabase functions deploy aircall --no-verify-jwt` and `supabase functions deploy ingest --no-verify-jwt` (browser extension, watches,
+    on-device transcripts). Then see `extension/README.md`, `watch/README.md`, `wear/README.md`. On-device transcription needs a development
+    build (`npx expo run:ios`); it isn't available in Expo Go.
+18. **Company controls.** `supabase functions deploy admin`, `supabase functions deploy export-data`, `supabase functions deploy scim --no-verify-jwt`.
+    SAML single sign-on and SCIM setup: `docs/security/sso.md`. The security & compliance pack is in `docs/security/`.
+19. **Desktop screen recording** needs nothing extra on Windows. On macOS, allow Murmur under System Settings → Privacy & Security →
+    Screen & System Audio Recording.
 
 ## Checks
 
@@ -231,12 +268,36 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Delete a test account that owns a team project with a teammate: teammate keeps the project; the account can't sign in.
 - [ ] Phone call with "other person in California": red warning. Send the consent link, answer it from another phone, see the answer on the recording.
 - [ ] Send the notetaker to a test Meet and Zoom call: it joins as "Notetaker", posts the notice, notes arrive after you end the call. Cancel a scheduled one.
+- [ ] Connect Slack (pick a channel), then "Send notes to… → Slack" on a recording. Do the same for Notion (share a page with the integration first), Google Docs and OneNote.
+- [ ] HubSpot/Salesforce sandbox: log a meeting with an attendee email that matches a contact; check it's on the contact. Send tasks as HubSpot/Salesforce tasks.
+- [ ] monday.com, ClickUp, Trello: connect, pick a board/list, send tasks.
+- [ ] Automation "every site walk → email me + Slack": record a site walk; both arrive. Add a webhook to webhook.site and check the X-Murmur-Signature verifies.
+- [ ] REST API: `curl` the recordings list with a personal token; mark a task done with PATCH.
+- [ ] Topic alert "change order": say it in a recording; the push opens the transcript at that moment.
+- [ ] Weekly digest on, then trigger `scheduler?job=digest` on a Monday morning in your time zone: one email.
+- [ ] Automatic notetaker on with a calendar meeting that has a Zoom link 10 minutes out: a notetaker is scheduled once.
+- [ ] Phone: link your mobile + PIN, call the Murmur number, wrong PIN twice then right PIN, dial a second phone you own. Both hear the notice; notes arrive; the recording is gone from Twilio's console.
+- [ ] Aircall sandbox: set up the webhook, make a call, check it imports once (re-sent webhooks don't duplicate).
+- [ ] Browser extension: link with a code, record a YouTube tab with your mic for 6 minutes (two parts), stop; notes arrive. Close the tab mid-recording: it finishes cleanly.
+- [ ] Apple Watch / Wear OS (after building): link, record 2 minutes with the screen off, stop out of Wi-Fi range, then reconnect: it uploads.
+- [ ] On-device transcription (iPhone dev build): download the model, record, check no audio file appears in storage and notes arrive.
+- [ ] Desktop: "Also record my screen", share a slide deck for 6 minutes, stop; "Watch screen recording" plays both parts.
+- [ ] Admin console: turn off public links → existing links say "turned off"; set link max 7 days → new links expire in 7 days; require consent → recording into a team project needs a consent choice.
+- [ ] Team retention 30 days on audio; backdate a team recording; run retention: audio gone.
+- [ ] Audit log shows: invite, role change, link made/revoked, recording deleted, policy change.
+- [ ] Verify a domain you own (TXT record) → a new account at that domain joins the team on sign-in.
+- [ ] SAML SSO with an Okta developer account (docs/security/sso.md): "Continue with single sign-on" signs in.
+- [ ] SCIM with Okta: assign a user → they appear as a member; unassign → removed; owners can't be removed.
+- [ ] Export my data: open the ZIP; notes.md, transcript.txt, tasks.csv open cleanly; audio links download.
 
 ## Known limits
 
 - **Consent rules are information, not legal advice.** The state list (13 all-party states, with phone/in-person nuances) was checked against current summaries in Oct 2026; outside the US the app always says "ask everyone first". Have counsel review before launch.
 - **Notetaker bot** uses Recall.ai and was tested with a fake server only (requests, signatures, events), not a live meeting. Bots that join without the host present can be blocked by meeting settings (waiting rooms, "only signed-in users").
-- **Retention applies to the recording owner's setting**, including recordings they made in team projects. Team-wide policies are a later step.
+- **Retention** applies the owner's setting and, for team projects, the team's policy; the shorter wins.
+- **Untested against live services:** Slack, Salesforce, HubSpot, Notion, Google Docs, OneNote, monday.com, ClickUp, Trello, Twilio, Aircall, SAML SSO, SCIM clients, the Apple Watch and Wear OS apps (not compiled here), on-device transcription (needs an iPhone build) and the browser extension's capture (popup and linking were tested). Each was built from the vendor's documentation and tested with mocked responses where possible.
+- **SSO required** hides email codes for that domain in the app but isn't yet enforced by the auth server (see docs/security/access-control.md).
+- **On-device transcription** is iOS-only for now (Android can't record the WAV format it needs without another native module).
 - **Link imports** read the file from where it is; if the link stops working later, playback in the app stops (notes stay). Very large Google Drive files show a virus-scan page instead of the file and fail with a clear error.
 - **Share pages** need the web app deployed (`APP_URL`). On phones, links open in the browser.
 

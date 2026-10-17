@@ -157,6 +157,14 @@ export default function Team() {
           </View>
         )}
 
+        {isAdmin && (
+          <Card style={{ gap: space.sm }}>
+            <T weight="600">Admin console</T>
+            <T muted size={14}>Usage, data policies (redaction, retention, public links), audit log, company domain and single sign-on, SCIM.</T>
+            <Button label="Open admin console" kind="secondary" onPress={() => router.push({ pathname: '/team/admin', params: { id } })} />
+          </Card>
+        )}
+
         <Button label="Leave team" kind="ghost" onPress={leave} />
       </ScrollView>
       <ActionMenu visible={!!menu} title={menu?.title} actions={menu?.actions ?? []} onClose={() => setMenu(null)} />

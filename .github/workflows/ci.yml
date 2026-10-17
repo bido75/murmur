@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx expo lint
+      - name: Unit and database-policy tests
+        run: npm test
+      - name: Type-check server functions
+        working-directory: supabase/functions
+        run: for f in */index.ts; do deno check "$f"; done
+      - name: Desktop app
+        working-directory: desktop
+        run: npm ci && npx tsc --noEmit -p . && npm test
+      - name: Dependency audit (high and critical)
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true

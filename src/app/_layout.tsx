@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { joinDomainTeams } from '@/lib/api';
 import { isWeb, notify } from '@/lib/dialog';
 import { recoverInterruptedRecording } from '@/lib/recorder';
 import { listenForNotificationTaps, registerForPush } from '@/lib/push';
@@ -26,6 +27,8 @@ export default function RootLayout() {
       if (s) {
         void flush();
         void registerForPush();
+        // Join teams that claim this email's verified company domain.
+        if (_event === 'SIGNED_IN') void joinDomainTeams().catch(() => undefined);
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -78,6 +81,7 @@ export default function RootLayout() {
           <Stack.Screen name="phone" options={{ title: 'Phone calls' }} />
           <Stack.Screen name="devices" options={{ title: 'Devices' }} />
           <Stack.Screen name="team/[id]" options={{ title: '' }} />
+          <Stack.Screen name="team/admin" options={{ title: 'Admin console' }} />
           <Stack.Screen name="join" options={{ title: 'Join a team' }} />
           <Stack.Screen name="api-access" options={{ title: 'Claude & ChatGPT' }} />
           <Stack.Screen name="upcoming" options={{ title: 'Upcoming meetings' }} />
@@ -96,6 +100,7 @@ export default function RootLayout() {
         <Stack.Screen name="oauth/authorize" options={{ headerShown: false }} />
         {/* Public pages for people without an account: shared notes and consent links. */}
         <Stack.Screen name="s/[token]" options={{ headerShown: false }} />
+        <Stack.Screen name="sso-callback" options={{ headerShown: false }} />
         <Stack.Screen name="c/[token]" options={{ headerShown: false }} />
       </Stack>
       </View>

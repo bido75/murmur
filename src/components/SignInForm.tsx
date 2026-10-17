@@ -1,6 +1,9 @@
-import { useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
+import { useEffect, useState } from 'react';
+import { Linking, StyleSheet, TextInput, View } from 'react-native';
 import { Banner, Button, T } from '@/components/ui';
+import { ssoForEmail } from '@/lib/api';
+import { isWeb } from '@/lib/dialog';
 import { isConfigured, supabase } from '@/lib/supabase';
 import { radius, space, useTheme } from '@/lib/theme';
 
@@ -12,6 +15,27 @@ export function SignInForm() {
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sso, setSso] = useState<{ domain: string; sso: boolean; required: boolean } | null>(null);
+  const domain = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? email.trim().split('@')[1].toLowerCase() : null;
+
+  // Company domains with single sign-on get a "Continue with SSO" button (and no code, if required).
+  useEffect(() => {
+    if (!domain) return;
+    const timer = setTimeout(() => void ssoForEmail(`x@${domain}`).then((r) => setSso({ domain, ...r })).catch(() => undefined), 400);
+    return () => clearTimeout(timer);
+  }, [domain]);
+  const ssoState = sso && sso.domain === domain ? sso : { sso: false, required: false };
+
+  async function signInSso() {
+    setBusy(true);
+    setError(null);
+    const redirectTo = isWeb ? `${window.location.origin}/sso-callback` : ExpoLinking.createURL('sso-callback');
+    const { data, error } = await supabase.auth.signInWithSSO({ domain: domain!, options: { redirectTo } });
+    setBusy(false);
+    if (error || !data?.url) return setError(error?.message ?? 'Single sign-on isn’t available for this domain.');
+    if (isWeb) window.location.assign(data.url);
+    else await Linking.openURL(data.url);
+  }
 
   async function sendCode() {
     setBusy(true);
@@ -52,7 +76,12 @@ export function SignInForm() {
               onChangeText={setEmail}
               accessibilityLabel="Email address"
             />
-            <Button label="Email me a sign-in code" onPress={sendCode} loading={busy} disabled={!email.includes('@')} />
+            {ssoState.sso && <Button label="Continue with single sign-on" onPress={signInSso} loading={busy} />}
+            {ssoState.required ? (
+              <T muted size={14}>Your company signs in with single sign-on.</T>
+            ) : (
+              <Button label="Email me a sign-in code" kind={ssoState.sso ? 'ghost' : 'primary'} onPress={sendCode} loading={busy} disabled={!email.includes('@')} />
+            )}
           </View>
         ) : (
           <View style={{ gap: space.md }}>

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Linking, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Button, Card, T } from '@/components/ui';
 import { localSttSupported, MODEL_MB, deleteModel, downloadModel, modelReady } from '@/lib/localStt';
 import { ToggleRow } from '@/components/ToggleRow';
-import { deleteAccount, getRetention, getSettings, getTranscriptionSettings, saveRetention, saveSettings, saveTranscriptionSettings, type Retention, type Settings, type Transcription } from '@/lib/api';
+import { auditEvents, exportMyData, type AuditEvent, deleteAccount, getRetention, getSettings, getTranscriptionSettings, saveRetention, saveSettings, saveTranscriptionSettings, type Retention, type Settings, type Transcription } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
 import { LANGUAGES, STATES } from '@/lib/shared';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -168,6 +168,9 @@ export default function Privacy() {
         <T size={14}>• Shared links can be turned off at any time.</T>
       </Card>
 
+      <ExportCard />
+      <ActivityCard />
+
       <Card style={{ gap: space.md, borderColor: t.danger }}>
         <T size={18} weight="700" style={{ color: t.danger }}>Delete account</T>
         <T muted size={14}>
@@ -242,6 +245,68 @@ function OnDeviceCard({ settings, onChange }: { settings: Settings; onChange: (s
       ) : (
         <Button label={`Download the speech model (${MODEL_MB} MB)`} kind="secondary" onPress={download} loading={busy} />
       )}
+    </Card>
+  );
+}
+
+function ExportCard() {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try {
+      const r = await exportMyData();
+      if (await confirm('Your export is ready', `${r.recordings} recording${r.recordings === 1 ? '' : 's'}${r.truncated ? ' (the oldest 2,000)' : ''}: notes, transcripts, tasks and audio links. The download link works for 24 hours.`, 'Download')) {
+        await Linking.openURL(r.url);
+      }
+    } catch (e) {
+      notify("Couldn't export", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card style={{ gap: space.md }}>
+      <T size={18} weight="700">Export my data</T>
+      <T muted size={14}>A ZIP of everything you recorded — notes, transcripts and tasks as readable files and JSON, plus download links for the audio.</T>
+      <Button label="Make my export" kind="secondary" onPress={run} loading={busy} />
+    </Card>
+  );
+}
+
+const PERSONAL: Record<string, string> = {
+  'api_token.added': 'Created an API token',
+  'api_token.removed': 'Revoked an API token',
+  'device.added': 'Linked a device',
+  'device.removed': 'Unlinked a device',
+  'connection.added': 'Connected an app',
+  'connection.removed': 'Disconnected an app',
+  'share_link.created': 'Made a public link',
+  'share_link.revoked': 'Turned off a public link',
+  'recording.deleted': 'Deleted a recording',
+  'data.exported': 'Exported data',
+  'team.deleted': 'Deleted a team',
+};
+
+function ActivityCard() {
+  const t = useTheme();
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  useEffect(() => {
+    auditEvents(null).then((e) => setEvents(e.slice(0, 15))).catch(() => setEvents([]));
+  }, []);
+  if (!events.length) return null;
+  return (
+    <Card style={{ gap: space.xs }}>
+      <T size={18} weight="700">Security activity</T>
+      {events.map((e) => {
+        const m = e.meta as Record<string, string>;
+        const what = m.name ?? m.provider ?? m.title ?? null;
+        return (
+          <View key={e.id} style={{ paddingVertical: space.xs, borderTopWidth: 1, borderTopColor: t.border }}>
+            <T size={15}>{PERSONAL[e.action] ?? e.action}{what ? `: ${what}` : ''}</T>
+            <T muted size={12}>{new Date(e.created_at).toLocaleString()}</T>
+          </View>
+        );
+      })}
     </Card>
   );
 }
