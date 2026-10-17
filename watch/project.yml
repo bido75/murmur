@@ -1,0 +1,32 @@
+# XcodeGen spec: `brew install xcodegen && xcodegen` creates MurmurWatch.xcodeproj.
+name: MurmurWatch
+options:
+  bundleIdPrefix: com.murmur
+  deploymentTarget:
+    watchOS: "10.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+targets:
+  MurmurWatch:
+    type: application
+    platform: watchOS
+    sources: [MurmurWatch]
+    info:
+      path: MurmurWatch/Info.plist
+      properties:
+        CFBundleDisplayName: Murmur
+        WKApplication: true
+        WKWatchOnly: true
+        NSMicrophoneUsageDescription: Murmur records meetings and site walks you start, to make notes and tasks.
+        WKBackgroundModes: [audio]
+        MurmurServerURL: $(MURMUR_SERVER_URL)
+        MurmurAnonKey: $(MURMUR_ANON_KEY)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.murmur.app.watch
+        # Set these in Config.xcconfig or the build settings (your Supabase URL and publishable key).
+        MURMUR_SERVER_URL: ""
+        MURMUR_ANON_KEY: ""

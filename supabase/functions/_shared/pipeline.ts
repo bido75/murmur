@@ -21,7 +21,7 @@ export async function runPipeline(recordingId: string) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
-    .select('user_id, template, title, project_id, custom_template_id, audio_deleted_at, user_notes')
+    .select('user_id, template, title, project_id, custom_template_id, audio_deleted_at, user_notes, transcribed_on_device')
     .eq('id', recordingId)
     .single();
   if (!rec) return;
@@ -34,13 +34,13 @@ export async function runPipeline(recordingId: string) {
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
     custom = (t?.instructions as string | undefined) ?? null;
   }
-  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at), (rec.user_notes as string | null) ?? null);
+  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null);
 }
 
 async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null) {
   const admin = adminClient();
   try {
-    // Corrected transcripts (and ones whose audio retention removed) are reused, not re-transcribed.
+    // Corrected transcripts (and ones whose audio retention removed, or made on the phone) are reused, not re-transcribed.
     const { data: existing } = await admin.from('transcripts').select('utterances, speaker_names, edited_at').eq('recording_id', recordingId).maybeSingle();
     const speakerNames = ((existing?.speaker_names as Record<string, string> | null) ?? {}) as Record<string, string>;
     const reuse = Boolean((existing?.edited_at || audioDeleted) && (existing?.utterances as Utterance[] | null)?.length);

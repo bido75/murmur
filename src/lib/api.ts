@@ -436,9 +436,9 @@ export async function ask(question: string, recordingId?: string): Promise<{ ans
 
 // Local settings
 /** myState: a US state code, 'OTHER' for outside the US, or null when not set. */
-export type Settings = { consentReminder: boolean; defaultTemplate: Template; fieldMode: boolean; myState: string | null };
+export type Settings = { consentReminder: boolean; defaultTemplate: Template; fieldMode: boolean; myState: string | null; onDevice: boolean };
 const SETTINGS_KEY = 'settings.v1';
-const DEFAULT_SETTINGS: Settings = { consentReminder: true, defaultTemplate: 'meeting', fieldMode: false, myState: null };
+const DEFAULT_SETTINGS: Settings = { consentReminder: true, defaultTemplate: 'meeting', fieldMode: false, myState: null, onDevice: false };
 
 export async function getSettings(): Promise<Settings> {
   try {
@@ -925,4 +925,60 @@ export async function saveRoutines(r: Partial<Routines>) {
   const me = await currentUserId();
   const { error } = await supabase.from('user_settings').upsert({ user_id: me, ...r }, { onConflict: 'user_id' });
   if (error) throw new Error(error.message);
+}
+
+// ---------- Phone calls (Murmur number) and Aircall ----------
+
+export async function phoneInfo(): Promise<{ number: string | null; allowed: string[] }> {
+  const { data, error } = await supabase.functions.invoke('phone/info', { method: 'GET' });
+  return error || !data ? { number: null, allowed: ['+1'] } : (data as { number: string | null; allowed: string[] });
+}
+
+export async function getPhoneLink(): Promise<{ phone_e164: string; locked_until: string | null } | null> {
+  const { data } = await supabase.from('phone_links').select('phone_e164, locked_until').maybeSingle();
+  return (data as { phone_e164: string; locked_until: string | null } | null) ?? null;
+}
+
+export async function setPhoneLink(phone: string, pin: string) {
+  const { error } = await supabase.rpc('set_phone_link', { phone, pin });
+  if (error) throw new Error(error.message);
+}
+
+export async function removePhoneLink() {
+  const { error } = await supabase.from('phone_links').delete().not('user_id', 'is', null);
+  if (error) throw new Error(error.message);
+}
+
+export async function aircallSetup(): Promise<string> {
+  return (await callFn<{ webhook_url: string }>('aircall/setup', {})).webhook_url;
+}
+
+export function aircallConnect(opts: { api_id: string; api_token: string; webhook_token: string; only_mine: boolean }) {
+  return callFn<{ ok: true; account: string }>('aircall/connect', opts);
+}
+
+// ---------- Linked devices (browser extension, watches) ----------
+
+export type Device = { id: string; name: string; kind: 'extension' | 'watch' | 'wear' | 'desktop' | 'other'; prefix: string; created_at: string; last_used_at: string | null };
+
+export async function createDeviceCode(): Promise<string> {
+  const { data, error } = await supabase.rpc('create_device_link');
+  if (error) throw new Error(error.message);
+  return data as string;
+}
+
+export async function listDevices(): Promise<Device[]> {
+  const { data, error } = await supabase.from('device_tokens').select('id, name, kind, prefix, created_at, last_used_at').order('created_at');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Device[];
+}
+
+export async function unlinkDevice(id: string) {
+  const { error } = await supabase.from('device_tokens').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+/** Hand a transcript made on this phone to the server (no audio is uploaded). */
+export function sendLocalTranscript(recordingId: string, utterances: { start_ms: number; end_ms: number; speaker: number; text: string }[], durationMs: number) {
+  return callFn<{ ok: true }>('ingest/local-transcript', { recording_id: recordingId, utterances, duration_ms: durationMs });
 }

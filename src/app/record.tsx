@@ -12,6 +12,7 @@ import { consentAdvice, STATES } from '@/lib/shared';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { enqueue } from '@/lib/sync';
+import { localSttSupported, modelReady } from '@/lib/localStt';
 import { startLive, type LiveLine } from '@/lib/live';
 import { clock } from '@/lib/format';
 import { useSegmentedRecorder } from '@/lib/recorder';
@@ -37,6 +38,7 @@ export default function Record() {
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [field, setField] = useState(false);
+  const [onDevice, setOnDevice] = useState(false);
   const [photos, setPhotos] = useState<{ id: string; uri: string }[]>([]);
   const [shooting, setShooting] = useState(false);
   const [micMenu, setMicMenu] = useState(false);
@@ -66,6 +68,7 @@ export default function Record() {
       setTemplate(s.defaultTemplate);
       setNeedConsent(s.consentReminder);
       setField(s.fieldMode);
+      setOnDevice(s.onDevice && localSttSupported() && modelReady());
       setMyState(s.myState);
     });
     listTemplates().then(setCustom).catch(() => setCustom([]));
@@ -131,7 +134,7 @@ export default function Record() {
         customTemplateId: customId,
       });
       setRecordingId(id);
-      await rec.start(id);
+      await rec.start(id, { local: onDevice });
       // Responses to the consent link show on the recording. Needs a connection; retried by nothing,
       // so a failure here only means responses aren't linked (they're still saved).
       if (consentToken) setTimeout(() => void attachConsentRequest(consentToken, id).catch(() => {}), 4000);
@@ -292,6 +295,7 @@ export default function Record() {
         <T muted size={big ? 16 : 13} style={{ textAlign: 'center' }}>
           {rec.segmentsSaved > 0 ? `${rec.segmentsSaved} part${rec.segmentsSaved > 1 ? 's' : ''} saved safely` : 'Saving as you go'}
           {photos.length ? ` · ${photos.length} photo${photos.length > 1 ? 's' : ''}` : ''}
+          {onDevice ? ' · transcribed on this phone' : ''}
         </T>
 
         {photos.length > 0 && (

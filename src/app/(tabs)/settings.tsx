@@ -181,6 +181,18 @@ export default function SettingsScreen() {
       </Card>
 
       <Card style={{ gap: space.sm }}>
+        <T weight="600">Phone calls</T>
+        <T muted size={14}>Record calls through your Murmur number, or import calls from Aircall.</T>
+        <Button label="Set up" kind="secondary" onPress={() => router.push('/phone')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Devices</T>
+        <T muted size={14}>Link the browser extension, an Apple Watch or a Wear OS watch.</T>
+        <Button label="Manage devices" kind="secondary" onPress={() => router.push('/devices')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
         <T weight="600">Automations</T>
         <T muted size={14}>When notes are ready: post to Slack, email the recap, send tasks, save to Notion, or call Zapier.</T>
         <Button label="Manage automations" kind="secondary" onPress={() => router.push('/automations')} />

@@ -29,7 +29,7 @@ type State = {
   recent: { id: string; title: string; status: string; created_at: string }[];
   pending: number;
   meeting: string | null;
-  form: { title: string; projectId: string; template: string; system: boolean; consent: string };
+  form: { title: string; projectId: string; template: string; system: boolean; screen: boolean; consent: string };
   warning: string | null;
   level: number;
   busy: boolean;
@@ -37,7 +37,7 @@ type State = {
 
 const state: State = {
   view: 'loading', email: '', codeSent: false, error: null, projects: [], recent: [], pending: 0, meeting: null,
-  form: { title: '', projectId: '', template: 'meeting', system: true, consent: '' },
+  form: { title: '', projectId: '', template: 'meeting', system: true, screen: false, consent: '' },
   warning: null, level: -90, busy: false,
 };
 let capture: Capture | null = null;
@@ -128,6 +128,9 @@ function homeView(): Child[] {
       h('label', { class: 'row' },
         h('input', { type: 'checkbox', checked: f.system, onchange: (e: Event) => (f.system = (e.target as HTMLInputElement).checked) }),
         h('span', {}, 'Include computer audio (the other people on the call)')),
+      h('label', { class: 'row' },
+        h('input', { type: 'checkbox', checked: f.screen, onchange: (e: Event) => (f.screen = (e.target as HTMLInputElement).checked) }),
+        h('span', {}, 'Also record my screen (for demos, walkthroughs and slides)')),
       h('p', { class: 'muted' }, 'Use headphones for the cleanest recording.')),
     h('div', { class: 'card' },
       h('strong', {}, 'Let people know'),
@@ -157,7 +160,7 @@ function recordingView(): Child[] {
     h('div', { class: 'timer', id: 'timer' }, clock(capture?.elapsedMs ?? 0)),
     h('div', { class: 'meter', 'aria-label': 'Input level' }, h('div', { id: 'level', style: `width:${pct}%` })),
     h('p', { class: 'muted', style: 'text-align:center' },
-      capture?.systemAudio === 'on' ? 'Recording your mic and computer audio' : 'Recording your mic'),
+      `Recording your ${capture?.hasVideo ? 'screen, ' : ''}${capture?.systemAudio === 'on' ? 'mic and computer audio' : 'mic'}`),
     state.warning && h('div', { class: 'banner' }, state.warning),
     stopLive
       ? h('div', { class: 'live', id: 'live', 'aria-live': 'polite' }, h('p', { class: 'muted' }, 'Listening…'))
@@ -187,14 +190,15 @@ async function startRecording() {
       consentMethod: f.consent,
       consentAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
+      video: f.screen,
     });
     const id = recordingId;
     capture = new Capture(id, {
-      onSegment: (s) => enqueue({ kind: 'segment', recordingId: id, idx: s.idx, path: s.path, ext: s.ext, durationMs: s.durationMs }),
+      onSegment: (s) => enqueue({ kind: 'segment', recordingId: id, idx: s.idx, path: s.path, ext: s.ext, durationMs: s.durationMs, video: f.screen }),
       onWarning: (w) => { state.warning = w; render(); },
       onLevel: (db) => { state.level = db; },
     });
-    await capture.start(f.system);
+    await capture.start(f.system, f.screen);
     state.view = 'recording';
     state.warning = state.warning ?? null;
     await bridge().setRecording(true);

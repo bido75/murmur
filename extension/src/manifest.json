@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Murmur — record this tab",
+  "short_name": "Murmur",
+  "version": "0.1.0",
+  "description": "Record a meeting or video playing in a browser tab, with your microphone, and get notes and tasks in Murmur.",
+  "minimum_chrome_version": "116",
+  "action": { "default_popup": "popup.html", "default_title": "Murmur" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["tabCapture", "offscreen", "storage", "activeTab"],
+  "host_permissions": ["__SUPABASE_ORIGIN__/*"],
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" }
+}

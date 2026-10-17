@@ -28,10 +28,14 @@ export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
 export type LinkOp = Base & { kind: 'link'; url: string };
 export type NotesOp = Base & { kind: 'notes'; text: string };
 export type PhotoOp = Base & { kind: 'photo'; photoId: string; localUri: string; takenMs: number | null; width: number; height: number };
-export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp | LinkOp | NotesOp;
+// Transcribed on this phone: each WAV part becomes text (kept until sent), then the text is sent.
+export type LocalSegmentOp = Base & { kind: 'local_segment'; idx: number; localUri: string; offsetMs: number; durationMs: number };
+export type LocalFinalizeOp = Base & { kind: 'local_finalize'; durationMs: number };
+export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp | LinkOp | NotesOp | LocalSegmentOp | LocalFinalizeOp;
 type NewOp<T> = Omit<T, 'attempts' | 'nextAt'>;
 
 const KEY = 'sync.queue.v1';
+const LOCAL_TEXT_PREFIX = 'local-stt:';
 let queue: Op[] | null = null;
 let running: Promise<void> | null = null;
 const listeners = new Set<() => void>();
@@ -68,7 +72,9 @@ export async function pendingOps(): Promise<Op[]> {
   return [...(await load())];
 }
 
-export async function enqueue(op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp> | NewOp<LinkOp> | NewOp<NotesOp>) {
+export async function enqueue(
+  op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp> | NewOp<LinkOp> | NewOp<NotesOp> | NewOp<LocalSegmentOp> | NewOp<LocalFinalizeOp>,
+) {
   const q = await load();
   q.push({ ...op, attempts: 0, nextAt: 0 } as Op);
   await save();
@@ -185,6 +191,33 @@ async function perform(op: Op, userId: string, accessToken: string) {
       const file = new File(op.localUri);
       if (file.exists) file.delete();
     }
+    return;
+  }
+
+  if (op.kind === 'local_segment') {
+    const key = `${LOCAL_TEXT_PREFIX}${op.recordingId}:${String(op.idx).padStart(4, '0')}`;
+    if (!(await AsyncStorage.getItem(key))) {
+      const { transcribeLocal } = await import('./localStt');
+      const lang = (await supabase.from('user_settings').select('language').maybeSingle()).data?.language ?? null;
+      const utterances = await transcribeLocal(op.localUri, op.offsetMs, lang as string | null);
+      await AsyncStorage.setItem(key, JSON.stringify(utterances));
+    }
+    const file = new File(op.localUri);
+    if (file.exists) file.delete();
+    return;
+  }
+
+  if (op.kind === 'local_finalize') {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(`${LOCAL_TEXT_PREFIX}${op.recordingId}:`)).sort();
+    const parts = await AsyncStorage.multiGet(keys);
+    const utterances = parts.flatMap(([, v]) => (v ? (JSON.parse(v) as unknown[]) : []));
+    if (!utterances.length) {
+      await supabase.from('recordings').update({ status: 'failed', error: 'No speech was heard in this recording.' }).eq('id', op.recordingId);
+    } else {
+      const { data, error } = await supabase.functions.invoke('ingest/local-transcript', { body: { recording_id: op.recordingId, utterances, duration_ms: op.durationMs } });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Upload failed');
+    }
+    await AsyncStorage.multiRemove(keys);
     return;
   }
 

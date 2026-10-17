@@ -75,6 +75,8 @@ export default function RootLayout() {
           <Stack.Screen name="automations" options={{ title: 'Automations' }} />
           <Stack.Screen name="developers" options={{ title: 'Webhooks & API' }} />
           <Stack.Screen name="alerts" options={{ title: 'Alerts & digest' }} />
+          <Stack.Screen name="phone" options={{ title: 'Phone calls' }} />
+          <Stack.Screen name="devices" options={{ title: 'Devices' }} />
           <Stack.Screen name="team/[id]" options={{ title: '' }} />
           <Stack.Screen name="join" options={{ title: 'Join a team' }} />
           <Stack.Screen name="api-access" options={{ title: 'Claude & ChatGPT' }} />

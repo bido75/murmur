@@ -19,6 +19,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from './config';
 import { isWeb } from './dialog';
+import { LOCAL_RECORDING } from './localStt';
 import { enqueue, keepFile } from './sync';
 
 const OPTIONS: RecordingOptions = {
@@ -33,7 +34,8 @@ const ACTIVE_KEY = 'recorder.active.v1';
 const INPUT_KEY = 'recorder.input.v1'; // the mic the user picked last (e.g. a Bluetooth lapel mic)
 const KEEP_AWAKE_TAG = 'recording';
 
-type Active = { recordingId: string; segIdx: number; doneMs: number; currentUri: string | null };
+// local: transcribed on this phone (WAV parts, never uploaded).
+type Active = { recordingId: string; segIdx: number; doneMs: number; currentUri: string | null; local?: boolean };
 
 async function saveActive(a: Active | null) {
   if (a) await AsyncStorage.setItem(ACTIVE_KEY, JSON.stringify(a));
@@ -52,15 +54,17 @@ export async function recoverInterruptedRecording(): Promise<string | null> {
     if (a.currentUri && !isWeb) {
       const f = new File(a.currentUri);
       if (f.exists && f.size > 4096) {
-        const uri = keepFile(a.currentUri, a.recordingId, a.segIdx, EXT);
+        const ext = a.local ? 'wav' : EXT;
+        const uri = keepFile(a.currentUri, a.recordingId, a.segIdx, ext);
         // Duration unknown; the server measures it during transcription.
-        await enqueue({ kind: 'segment', recordingId: a.recordingId, idx: a.segIdx, localUri: uri, ext: EXT, durationMs: 0 });
+        if (a.local) await enqueue({ kind: 'local_segment', recordingId: a.recordingId, idx: a.segIdx, localUri: uri, offsetMs: a.doneMs, durationMs: 0 });
+        else await enqueue({ kind: 'segment', recordingId: a.recordingId, idx: a.segIdx, localUri: uri, ext, durationMs: 0 });
       }
     }
   } catch {
     // The partial file was unreadable; earlier segments are still safe.
   }
-  await enqueue({ kind: 'finalize', recordingId: a.recordingId, durationMs: a.doneMs });
+  await enqueue(a.local ? { kind: 'local_finalize', recordingId: a.recordingId, durationMs: a.doneMs } : { kind: 'finalize', recordingId: a.recordingId, durationMs: a.doneMs });
   await saveActive(null);
   return a.recordingId;
 }
@@ -99,7 +103,7 @@ export function useSegmentedRecorder() {
   }, [recorder]);
 
   const beginSegment = useCallback(async () => {
-    await recorder.prepareToRecordAsync();
+    await recorder.prepareToRecordAsync(session.current?.local ? (LOCAL_RECORDING as Partial<RecordingOptions>) : undefined);
     await applyInput();
     recorder.record();
     lastProgress.current = { ms: 0, at: Date.now() };
@@ -116,8 +120,10 @@ export function useSegmentedRecorder() {
     await recorder.stop();
     const uri = recorder.uri ?? s.currentUri;
     if (uri && durationMs > 500) {
-      const kept = keepFile(uri, s.recordingId, s.segIdx, EXT);
-      await enqueue({ kind: 'segment', recordingId: s.recordingId, idx: s.segIdx, localUri: kept, ext: EXT, durationMs });
+      const ext = s.local ? 'wav' : EXT;
+      const kept = keepFile(uri, s.recordingId, s.segIdx, ext);
+      if (s.local) await enqueue({ kind: 'local_segment', recordingId: s.recordingId, idx: s.segIdx, localUri: kept, offsetMs: s.doneMs, durationMs });
+      else await enqueue({ kind: 'segment', recordingId: s.recordingId, idx: s.segIdx, localUri: kept, ext, durationMs });
       s.doneMs += durationMs;
       s.segIdx += 1;
       setSegmentsSaved((n) => n + 1);
@@ -143,7 +149,7 @@ export function useSegmentedRecorder() {
   }, [beginSegment, finishSegment]);
 
   const start = useCallback(
-    async (recordingId: string) => {
+    async (recordingId: string, opts: { local?: boolean } = {}) => {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) throw new Error('Microphone permission is off. Turn it on in Settings to record.');
       await setAudioModeAsync({
@@ -153,7 +159,7 @@ export function useSegmentedRecorder() {
         shouldPlayInBackground: true,
         interruptionMode: 'doNotMix',
       });
-      session.current = { recordingId, segIdx: 1, doneMs: 0, currentUri: null };
+      session.current = { recordingId, segIdx: 1, doneMs: 0, currentUri: null, local: Boolean(opts.local) && !isWeb };
       setSegmentsSaved(0);
       setDoneMs(0);
       setWarning(null);
@@ -186,7 +192,7 @@ export function useSegmentedRecorder() {
     setPhase('stopping');
     try {
       await finishSegment();
-      await enqueue({ kind: 'finalize', recordingId: s.recordingId, durationMs: s.doneMs });
+      await enqueue(s.local ? { kind: 'local_finalize', recordingId: s.recordingId, durationMs: s.doneMs } : { kind: 'finalize', recordingId: s.recordingId, durationMs: s.doneMs });
       await saveActive(null);
     } finally {
       session.current = null;

@@ -92,13 +92,14 @@ function registerIpc() {
 
 // ---------- System audio ----------
 
-/** Windows: Chromium can capture system audio ("loopback") alongside a screen source. */
+/** Screen picker: the main screen, and on Windows the system audio ("loopback") with it. */
 function registerDisplayMedia() {
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen'] });
-      // We only keep the audio; the renderer stops the video track immediately.
-      callback({ video: sources[0], audio: 'loopback' });
+      // The screen (kept only for screen recordings), plus system audio where Chromium supports
+      // it (Windows "loopback"; macOS audio comes from the native helper instead).
+      callback(process.platform === 'win32' ? { video: sources[0], audio: 'loopback' } : { video: sources[0] });
     } catch {
       callback({});
     }

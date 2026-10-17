@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Button, Card, T } from '@/components/ui';
+import { localSttSupported, MODEL_MB, deleteModel, downloadModel, modelReady } from '@/lib/localStt';
+import { ToggleRow } from '@/components/ToggleRow';
 import { deleteAccount, getRetention, getSettings, getTranscriptionSettings, saveRetention, saveSettings, saveTranscriptionSettings, type Retention, type Settings, type Transcription } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
 import { LANGUAGES, STATES } from '@/lib/shared';
@@ -145,6 +147,8 @@ export default function Privacy() {
         <T muted size={12}>Removed details appear as tags like [PII]. Applies to new recordings and re-runs.</T>
       </Card>
 
+      {localSttSupported() && settings && <OnDeviceCard settings={settings} onChange={(s) => { setSettings(s); void saveSettings(s); }} />}
+
       <Card style={{ gap: space.md }}>
         <T size={18} weight="700">Keep audio for</T>
         <T muted size={14}>After this, the audio files are deleted. Transcripts, notes and tasks stay.</T>
@@ -204,5 +208,40 @@ function Options({ options, value, onChange }: { options: { label: string; days:
         );
       })}
     </View>
+  );
+}
+
+/** Transcribe on this phone: audio never leaves it; only text is sent for notes. */
+function OnDeviceCard({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
+  const [ready, setReady] = useState(modelReady());
+  const [busy, setBusy] = useState(false);
+  async function download() {
+    setBusy(true);
+    try {
+      await downloadModel();
+      setReady(true);
+      onChange({ ...settings, onDevice: true });
+    } catch (e) {
+      notify("Couldn't download", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card style={{ gap: space.md }}>
+      <T size={18} weight="700">Transcribe on this phone</T>
+      <T muted size={14}>
+        The audio never leaves your phone — only the text is sent to make notes. Slower, uses battery, no speaker names, and less accurate in noisy
+        places. Uses the transcription language above.
+      </T>
+      {ready ? (
+        <>
+          <ToggleRow label="Transcribe new recordings on this phone" value={settings.onDevice} onChange={(v) => onChange({ ...settings, onDevice: v })} />
+          <Button label="Remove the speech model" kind="ghost" onPress={() => { deleteModel(); setReady(false); onChange({ ...settings, onDevice: false }); }} />
+        </>
+      ) : (
+        <Button label={`Download the speech model (${MODEL_MB} MB)`} kind="secondary" onPress={download} loading={busy} />
+      )}
+    </Card>
   );
 }

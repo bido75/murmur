@@ -10,8 +10,9 @@ export type CreateOp = Base & {
   consentMethod: string;
   consentAt: string | null;
   createdAt: string;
+  video?: boolean;
 };
-export type SegmentOp = Base & { kind: 'segment'; idx: number; path: string; ext: string; durationMs: number };
+export type SegmentOp = Base & { kind: 'segment'; idx: number; path: string; ext: string; durationMs: number; video?: boolean };
 export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
 export type Op = CreateOp | SegmentOp | FinalizeOp;
 

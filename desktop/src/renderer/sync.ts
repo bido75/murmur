@@ -61,7 +61,8 @@ async function perform(op: Op, userId: string) {
         user_id: userId,
         title: op.title,
         template: op.template,
-        source: 'mic',
+        source: op.video ? 'screen' : 'mic',
+        has_video: Boolean(op.video),
         status: 'recording',
         project_id: op.projectId,
         consent_method: op.consentMethod,
@@ -78,7 +79,8 @@ async function perform(op: Op, userId: string) {
     const size = await bridge().fileSize(op.path);
     if (size > 0) {
       const bytes = await bridge().fileRead(op.path);
-      const { error } = await supabase.storage.from('audio').upload(path, new Blob([bytes as BlobPart], { type: 'audio/webm' }), { upsert: true, contentType: 'audio/webm' });
+      const type = op.video ? 'video/webm' : 'audio/webm';
+      const { error } = await supabase.storage.from('audio').upload(path, new Blob([bytes as BlobPart], { type }), { upsert: true, contentType: type });
       if (error) throw new Error(error.message);
     } else if (size === 0) {
       await bridge().fileDelete(op.path); // empty part (stopped instantly): nothing to send

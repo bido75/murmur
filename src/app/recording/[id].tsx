@@ -289,6 +289,24 @@ export default function RecordingDetail() {
       },
       { label: 'Share, email or export', onPress: () => router.push({ pathname: '/share', params: { id: rec.id } }) },
     ];
+    if (rec.has_video && data?.segments.some((sg) => sg.storage_path)) {
+      actions.push({
+        label: 'Watch screen recording',
+        onPress: () =>
+          setMenu({
+            title: 'Screen recording',
+            actions: data!.segments
+              .filter((sg) => sg.storage_path)
+              .map((sg, i, all) => ({
+                label: all.length > 1 ? `Part ${i + 1}` : 'Open video',
+                onPress: guard(async () => {
+                  const url = await audioUrl(sg.storage_path!);
+                  if (url) await Linking.openURL(url);
+                }),
+              })),
+          }),
+      });
+    }
     const dests = DESTINATIONS.filter((d) => integrations.some((i) => i.provider === d));
     if (rec.status === 'ready') {
       actions.push({

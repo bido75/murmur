@@ -41,3 +41,10 @@ yarn-error.*
 /android
 
 .env
+
+# Wear OS / watch build output
+wear/.gradle/
+wear/build/
+wear/app/build/
+wear/local.properties
+watch/*.xcodeproj/

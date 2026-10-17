@@ -27,7 +27,9 @@ export type Recording = {
   consent_confirmed_at?: string | null;
   title: string;
   template: Template;
-  source: 'mic' | 'import' | 'link' | 'bot';
+  source: 'mic' | 'import' | 'link' | 'bot' | 'phone' | 'aircall' | 'extension' | 'watch' | 'screen';
+  has_video?: boolean;
+  transcribed_on_device?: boolean;
   status: RecordingStatus;
   custom_template_id?: string | null;
   audio_deleted_at?: string | null;
@@ -91,13 +93,13 @@ export type Photo = {
 
 export type Provider = 'asana' | 'linear' | 'jira' | 'procore' | 'monday' | 'clickup' | 'trello' | 'hubspot' | 'salesforce';
 /** Everything that can be connected: trackers plus places notes can go. */
-export type ConnKey = Provider | 'slack' | 'notion' | 'google_docs' | 'onenote';
+export type ConnKey = Provider | 'slack' | 'notion' | 'google_docs' | 'onenote' | 'aircall';
 export type External = Partial<Record<Provider, { id: string; key: string | null; url: string }>>;
 export type Integration = { provider: ConnKey; config: { account?: string; target?: { id: string; name: string }; site?: string; email?: string; instance_url?: string } };
 
 export const PROVIDER_LABELS: Record<ConnKey, string> = {
   asana: 'Asana', linear: 'Linear', jira: 'Jira', procore: 'Procore', monday: 'Monday.com', clickup: 'ClickUp', trello: 'Trello',
-  hubspot: 'HubSpot', salesforce: 'Salesforce', slack: 'Slack', notion: 'Notion', google_docs: 'Google Docs', onenote: 'OneNote',
+  hubspot: 'HubSpot', salesforce: 'Salesforce', slack: 'Slack', notion: 'Notion', google_docs: 'Google Docs', onenote: 'OneNote', aircall: 'Aircall',
 };
 export const TRACKERS: Provider[] = ['asana', 'linear', 'jira', 'monday', 'clickup', 'trello', 'hubspot', 'salesforce', 'procore'];
 

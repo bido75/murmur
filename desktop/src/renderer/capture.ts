@@ -15,6 +15,7 @@ export type CaptureEvents = {
 };
 
 const MIME = 'audio/webm;codecs=opus';
+const VIDEO_MIME = 'video/webm;codecs=vp8,opus';
 const EXT = 'webm';
 
 export class Capture {
@@ -32,12 +33,14 @@ export class Capture {
   private offMac: (() => void) | null = null;
   private silenceSince: number | null = null;
   private rotating = false;
+  private video: MediaStreamTrack | null = null; // screen recording
   doneMs = 0;
   systemAudio: 'on' | 'unavailable' | 'denied' = 'unavailable';
 
   constructor(private recordingId: string, private events: CaptureEvents) {}
 
-  async start(withSystemAudio: boolean) {
+  /** withScreen: also record the screen (video kept for playback; audio is transcribed as usual). */
+  async start(withSystemAudio: boolean, withScreen = false) {
     if (!(await bridge().micPermission())) throw new Error('Microphone access is off. Allow it in your system settings.');
     this.ctx = new AudioContext({ sampleRate: 48000 });
     this.dest = this.ctx.createMediaStreamDestination();
@@ -49,10 +52,27 @@ export class Capture {
     this.ctx.createMediaStreamSource(mic).connect(this.dest);
     this.ctx.createMediaStreamSource(mic).connect(this.analyser);
 
-    if (withSystemAudio) await this.addSystemAudio();
+    if (withScreen) await this.addScreen(withSystemAudio);
+    if (withSystemAudio && !(withScreen && this.systemAudio === 'on')) await this.addSystemAudio();
 
     await this.openSegment();
     this.timers.push(window.setInterval(() => this.tick(), 500));
+  }
+
+  /** One screen-picker prompt gives the video and, on Windows, the computer audio too. */
+  private async addScreen(withSystemAudio: boolean) {
+    const { platform } = await bridge().info();
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: withSystemAudio && platform === 'win32' });
+    const v = s.getVideoTracks()[0];
+    if (!v) throw new Error('No screen was shared.');
+    this.video = v;
+    this.inputs.push(s);
+    if (s.getAudioTracks().length) {
+      this.ctx!.createMediaStreamSource(new MediaStream(s.getAudioTracks())).connect(this.dest!);
+      this.systemAudio = 'on';
+    }
+    // Stopping the share from the system UI ends the screen part; audio keeps recording.
+    v.addEventListener('ended', () => this.events.onWarning('Screen sharing stopped. Still recording audio.'));
   }
 
   private async addSystemAudio() {
@@ -112,7 +132,10 @@ export class Capture {
     this.segActiveMs = 0;
     this.segResumedAt = Date.now();
     await bridge().activeSet({ recordingId: this.recordingId, idx: this.segIdx, path: this.segPath, doneMs: this.doneMs });
-    const rec = new MediaRecorder(this.dest!.stream, { mimeType: MIME, audioBitsPerSecond: 64000 });
+    const withVideo = this.video && this.video.readyState === 'live';
+    const rec = withVideo
+      ? new MediaRecorder(new MediaStream([this.video!, ...this.dest!.stream.getAudioTracks()]), { mimeType: VIDEO_MIME, videoBitsPerSecond: 1_200_000, audioBitsPerSecond: 64000 })
+      : new MediaRecorder(this.dest!.stream, { mimeType: MIME, audioBitsPerSecond: 64000 });
     const path = this.segPath;
     rec.ondataavailable = (e) => {
       if (!e.data.size) return;
@@ -175,6 +198,10 @@ export class Capture {
 
   get elapsedMs(): number {
     return this.doneMs + this.segmentMs();
+  }
+
+  get hasVideo(): boolean {
+    return this.video !== null;
   }
 
   get paused(): boolean {
