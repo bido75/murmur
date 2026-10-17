@@ -7,7 +7,7 @@ import { join, resolve, sep } from 'node:path';
 import {
   app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, Notification, session, shell, systemPreferences, Tray,
 } from 'electron';
-import { detectMeeting, parsePs, parseTasklist, shouldPrompt, type MeetingApp } from '../shared/meetings';
+import { detectBrowserMeeting, detectMeeting, MEETING_LABELS, parsePs, parseTasklist, shouldPrompt, type MeetingApp } from '../shared/meetings';
 
 const APP_NAME = 'Murmur';
 let win: BrowserWindow | null = null;
@@ -154,11 +154,21 @@ function listProcesses(): Promise<string> {
   });
 }
 
+/** Titles of open windows (browsers show the active tab's title). macOS needs Screen Recording permission. */
+async function windowTitles(): Promise<string[]> {
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false });
+    return sources.map((s) => s.name);
+  } catch {
+    return [];
+  }
+}
+
 async function checkForMeeting() {
   const out = await listProcesses();
-  const now = detectMeeting(process.platform === 'win32' ? parseTasklist(out) : parsePs(out));
+  const now = detectMeeting(process.platform === 'win32' ? parseTasklist(out) : parsePs(out)) ?? detectBrowserMeeting(await windowTitles());
   if (shouldPrompt(lastMeeting, now, recording) && Notification.isSupported()) {
-    const label = now === 'zoom' ? 'Zoom' : now === 'teams' ? 'Teams' : 'Webex';
+    const label = MEETING_LABELS[now!];
     const n = new Notification({ title: `${label} meeting detected`, body: `Record it with ${APP_NAME}? No bot joins the call.` });
     n.on('click', () => {
       showWindow();

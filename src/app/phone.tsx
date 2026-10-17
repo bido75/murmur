@@ -1,9 +1,11 @@
+import * as ExpoLinking from 'expo-linking';
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, ScrollView, TextInput, View } from 'react-native';
 import { ToggleRow } from '@/components/ToggleRow';
 import { Banner, Button, Card, T } from '@/components/ui';
-import { aircallConnect, aircallSetup, disconnectIntegration, getPhoneLink, listIntegrations, phoneInfo, removePhoneLink, setPhoneLink } from '@/lib/api';
-import { confirm, notify, shareOrCopy } from '@/lib/dialog';
+import { aircallConnect, aircallSetup, disconnectIntegration, getPhoneLink, listIntegrations, phoneInfo, removePhoneLink, ringcentralAvailable, setPhoneLink, startRingCentral } from '@/lib/api';
+import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { radius, space, useTheme } from '@/lib/theme';
 
 export default function Phone() {
@@ -20,14 +22,38 @@ export default function Phone() {
   const [apiToken, setApiToken] = useState('');
   const [whToken, setWhToken] = useState('');
   const [onlyMine, setOnlyMine] = useState(true);
+  // RingCentral
+  const [rcOk, setRcOk] = useState(false);
+  const [rc, setRc] = useState<{ account?: string } | null>(null);
+  const params = useLocalSearchParams<{ connected?: string }>();
 
   useEffect(() => {
     phoneInfo().then(setInfo);
     getPhoneLink().then(setLink);
     listIntegrations()
-      .then((l) => setAircall(l.find((i) => i.provider === 'aircall')?.config ?? null))
+      .then((l) => {
+        setAircall(l.find((i) => i.provider === 'aircall')?.config ?? null);
+        setRc(l.find((i) => i.provider === 'ringcentral')?.config ?? null);
+      })
       .catch(() => undefined);
+    ringcentralAvailable().then(setRcOk);
   }, []);
+
+  useEffect(() => {
+    if (params.connected === 'ringcentral:ok') notify('RingCentral connected', 'Recorded calls on your extension will appear as recordings a minute or two after they end.');
+    if (params.connected === 'ringcentral:failed') notify("Couldn't connect RingCentral", 'Please try again.');
+  }, [params.connected]);
+
+  async function connectRc() {
+    try {
+      const back = isWeb ? `${window.location.origin}/phone` : ExpoLinking.createURL('phone');
+      const url = await startRingCentral(back);
+      if (isWeb) window.location.assign(url);
+      else await Linking.openURL(url);
+    } catch (e) {
+      notify("Couldn't start RingCentral sign-in", (e as Error).message);
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -142,6 +168,31 @@ export default function Phone() {
           </>
         )}
       </Card>
+
+      {(rcOk || rc) && (
+        <Card style={{ gap: space.md }}>
+          <T weight="600">RingCentral</T>
+          <T muted size={14}>Recorded calls on your RingCentral extension are imported automatically after they end (call recording must be on).</T>
+          {rc ? (
+            <>
+              <T>Connected{rc.account ? ` as ${rc.account}` : ''}</T>
+              <Button
+                label="Disconnect"
+                kind="ghost"
+                onPress={() =>
+                  void confirm('Disconnect RingCentral?', 'New calls stop being imported.', 'Disconnect', true).then(async (ok) => {
+                    if (!ok) return;
+                    await disconnectIntegration('ringcentral').catch((e) => notify("Couldn't disconnect", (e as Error).message));
+                    setRc(null);
+                  })
+                }
+              />
+            </>
+          ) : (
+            <Button label="Connect with RingCentral" onPress={() => void connectRc()} />
+          )}
+        </Card>
+      )}
     </ScrollView>
   );
 }

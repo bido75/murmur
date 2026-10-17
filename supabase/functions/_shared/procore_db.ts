@@ -1,6 +1,7 @@
 // Procore token storage (Deno). Refresh tokens rotate on every use, so the newest pair is
 // saved before the access token is handed out.
 import { adminClient } from './services.ts';
+import { renewOnce } from './token_lock.ts';
 import { needsRefresh, procoreEnv, requestToken, tokenRequest, type ProcoreEnv } from './procore.ts';
 
 export function env(): ProcoreEnv {
@@ -24,6 +25,12 @@ export async function loadProcore(userId: string): Promise<ProcoreRow | null> {
 /** A valid access token for this user, refreshing (and saving the rotated refresh token) if needed. */
 export async function procoreAccess(userId: string, row: ProcoreRow): Promise<string> {
   if (row.access_secret && !needsRefresh(row.access_expires_at)) return row.access_secret;
+  return await renewOnce(userId, 'procore', (r) => !needsRefresh(r.access_expires_at), () => renewProcore(userId, row));
+}
+
+async function renewProcore(userId: string, row: ProcoreRow): Promise<string> {
+  const fresh = await loadProcore(userId); // the newest refresh token, in case another run just rotated it
+  if (fresh) row.secret = fresh.secret;
   const e = env();
   let tokens;
   try {

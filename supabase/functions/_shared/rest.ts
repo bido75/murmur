@@ -19,7 +19,9 @@ export async function route(r: RestRequest, src: Source): Promise<RestResponse> 
     if (project_id && !UUID.test(project_id)) return { status: 400, body: { error: 'project_id must be a UUID' } };
     const since = r.query.get('since') ?? undefined;
     if (since && Number.isNaN(Date.parse(since))) return { status: 400, body: { error: 'since must be a date' } };
-    return { status: 200, body: { data: await src.listRecordings({ project_id, since, limit: limitOf(r.query) }) } };
+    const before = r.query.get('before') ?? undefined;
+    if (before && Number.isNaN(Date.parse(before))) return { status: 400, body: { error: 'before must be a date' } };
+    return { status: 200, body: { data: await src.listRecordings({ project_id, since, before, limit: limitOf(r.query) }) } };
   }
   if (r.method === 'GET' && res === 'recordings' && id && !sub) {
     if (!UUID.test(id)) return notFound;
@@ -48,6 +50,20 @@ export async function route(r: RestRequest, src: Source): Promise<RestResponse> 
     const status = (r.body as { status?: string } | null)?.status;
     if (status !== 'open' && status !== 'done') return { status: 400, body: { error: 'status must be open or done' } };
     return (await src.setTaskStatus(id, status)) ? { status: 200, body: { id, status } } : notFound;
+  }
+  if (r.method === 'POST' && res === 'webhooks' && !id && src.createWebhook) {
+    const b = (r.body ?? {}) as { url?: unknown; events?: unknown };
+    const url = typeof b.url === 'string' ? b.url.trim() : '';
+    if (!/^https:\/\/\S+$/.test(url) || url.length > 2000) return { status: 400, body: { error: 'url must be an https:// address' } };
+    const allowed = ['recording.ready', 'recording.failed', 'task.created'];
+    const events = Array.isArray(b.events) && b.events.length ? b.events.map(String) : ['recording.ready'];
+    if (events.some((e) => !allowed.includes(e))) return { status: 400, body: { error: `events must be from: ${allowed.join(', ')}` } };
+    const made = await src.createWebhook(url, events);
+    return made ? { status: 201, body: made } : { status: 400, body: { error: 'Could not create the webhook' } };
+  }
+  if (r.method === 'DELETE' && res === 'webhooks' && id && src.deleteWebhook) {
+    if (!UUID.test(id)) return notFound;
+    return (await src.deleteWebhook(id)) ? { status: 204, body: null } : notFound;
   }
   return notFound;
 }

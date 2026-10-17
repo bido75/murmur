@@ -1,0 +1,76 @@
+name: Native builds
+# Compiles the parts that need platform toolchains: the Wear OS app, the Apple Watch app, and the
+# phone app's native Android project (including the on-device transcription and foreground-service
+# modules). Run by hand from the Actions tab, and weekly.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  wear-os:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build Wear OS app
+        working-directory: wear
+        run: gradle :app:assembleDebug -PmurmurServerUrl=https://example.supabase.co -PmurmurAnonKey=ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: murmur-wear-debug
+          path: wear/app/build/outputs/apk/debug/*.apk
+
+  apple-watch:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - name: Generate and build the watch app (simulator, unsigned)
+        working-directory: watch
+        run: |
+          xcodegen
+          xcodebuild -project MurmurWatch.xcodeproj -scheme MurmurWatch \
+            -destination 'generic/platform=watchOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO MURMUR_SERVER_URL=https://example.supabase.co MURMUR_ANON_KEY=ci build
+
+  android-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npx expo prebuild --platform android --no-install
+      - name: Compile the native Android app (debug)
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+  ios-app:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx expo prebuild --platform ios
+      - name: Compile the native iOS app (simulator, unsigned)
+        run: |
+          xcodebuild -workspace ios/*.xcworkspace -scheme "$(basename ios/*.xcworkspace .xcworkspace)" \
+            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build

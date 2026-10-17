@@ -139,6 +139,8 @@ test('REST API routes, validation and not-found', async () => {
     getTranscript: async () => ({ text: 'hi', next_offset: null }),
     listTasks: async (o) => (calls.push(`tasks:${o.status}`), []),
     setTaskStatus: async (id) => id === '20000000-0000-0000-0000-000000000001',
+    createWebhook: async (url) => (calls.push(`hook:${url}`), { id: '30000000-0000-0000-0000-000000000001' }),
+    deleteWebhook: async (id) => id === '30000000-0000-0000-0000-000000000001',
   };
   const r = (method: string, path: string, query = '', body: unknown = null) => route({ method, path, query: new URLSearchParams(query), body }, src);
   assert.equal((await r('GET', '/api/v1/projects')).status, 200);
@@ -153,4 +155,11 @@ test('REST API routes, validation and not-found', async () => {
   assert.equal((await r('PATCH', '/api/v1/tasks/20000000-0000-0000-0000-000000000001', '', { status: 'deleted' })).status, 400);
   assert.equal((await r('DELETE', '/api/v1/tasks/x')).status, 404);
   assert.equal((await r('GET', '/api/v1/search', 'q=a')).status, 400);
+  // Zapier-style instant triggers subscribe and unsubscribe a URL.
+  assert.equal((await r('POST', '/api/v1/webhooks', '', { url: 'https://hooks.zapier.com/x' })).status, 201);
+  assert.equal((await r('POST', '/api/v1/webhooks', '', { url: 'http://insecure' })).status, 400);
+  assert.equal((await r('POST', '/api/v1/webhooks', '', { url: 'https://x.example', events: ['everything'] })).status, 400);
+  assert.equal((await r('DELETE', '/api/v1/webhooks/30000000-0000-0000-0000-000000000001')).status, 204);
+  assert.equal((await r('DELETE', '/api/v1/webhooks/30000000-0000-0000-0000-000000000009')).status, 404);
+  assert.equal((await r('GET', '/api/v1/recordings', 'before=nope')).status, 400);
 });

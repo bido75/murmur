@@ -1,6 +1,7 @@
 // Desktop UI: sign in → set up a recording → record → upload. Plain DOM, no framework.
 import type { Bridge } from '../shared/bridge';
 import { pendingSegments } from '../shared/queue';
+import { MEETING_LABELS, type MeetingApp } from '../shared/meetings';
 import { Capture } from './capture';
 import { startLive } from './live';
 import { APP_NAME, APP_URL } from './config';
@@ -28,7 +29,7 @@ type State = {
   projects: { id: string; name: string }[];
   recent: { id: string; title: string; status: string; created_at: string }[];
   pending: number;
-  meeting: string | null;
+  meeting: MeetingApp | null;
   form: { title: string; projectId: string; template: string; system: boolean; screen: boolean; consent: string };
   warning: string | null;
   level: number;
@@ -119,7 +120,7 @@ function homeView(): Child[] {
 
   return [
     h('div', { class: 'item' }, h('h1', {}, APP_NAME), h('button', { class: 'ghost', onclick: () => void supabase.auth.signOut().then(() => { state.view = 'signin'; render(); }) }, 'Sign out')),
-    state.meeting && h('div', { class: 'banner info' }, `${state.meeting === 'zoom' ? 'Zoom' : state.meeting === 'teams' ? 'Teams' : 'Webex'} meeting in progress. Ready to record it.`),
+    state.meeting && h('div', { class: 'banner info' }, `${MEETING_LABELS[state.meeting]} meeting in progress. Ready to record it.`),
     h('div', { class: 'card' },
       h('input', { type: 'text', placeholder: 'Title (optional)', value: f.title, 'aria-label': 'Title', oninput: (e: Event) => (f.title = (e.target as HTMLInputElement).value) }),
       h('div', { class: 'row2' },
@@ -181,17 +182,6 @@ async function startRecording() {
   const f = state.form;
   recordingId = uuid();
   try {
-    await enqueue({
-      kind: 'create',
-      recordingId,
-      title: f.title.trim() || (state.meeting ? `${state.meeting === 'zoom' ? 'Zoom' : state.meeting === 'teams' ? 'Teams' : 'Webex'} meeting` : 'New recording'),
-      template: f.template,
-      projectId: f.projectId || null,
-      consentMethod: f.consent,
-      consentAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      video: f.screen,
-    });
     const id = recordingId;
     capture = new Capture(id, {
       onSegment: (s) => enqueue({ kind: 'segment', recordingId: id, idx: s.idx, path: s.path, ext: s.ext, durationMs: s.durationMs, video: f.screen }),
@@ -199,6 +189,20 @@ async function startRecording() {
       onLevel: (db) => { state.level = db; },
     });
     await capture.start(f.system, f.screen);
+    // Created after capture starts, so it knows whether the call's audio has its own channel.
+    // (Parts are only queued when they finish, so this still runs first.)
+    await enqueue({
+      kind: 'create',
+      recordingId,
+      title: f.title.trim() || (state.meeting ? `${MEETING_LABELS[state.meeting]} meeting` : 'New recording'),
+      template: f.template,
+      projectId: f.projectId || null,
+      consentMethod: f.consent,
+      consentAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      video: f.screen,
+      channels: capture.channels,
+    });
     state.view = 'recording';
     state.warning = state.warning ?? null;
     await bridge().setRecording(true);
@@ -308,8 +312,8 @@ async function boot() {
   setInterval(() => void flush(), 30_000);
   onQueueChange(() => void getQueue().then((q) => { state.pending = pendingSegments(q); if (state.view === 'home') render(); }));
 
-  bridge().on('meeting:state', (m) => { state.meeting = (m as string | null) ?? null; if (state.view === 'home') render(); });
-  bridge().on('meeting:detected', (m) => { state.meeting = m as string; if (state.view === 'home') render(); });
+  bridge().on('meeting:state', (m) => { state.meeting = (m as MeetingApp | null) ?? null; if (state.view === 'home') render(); });
+  bridge().on('meeting:detected', (m) => { state.meeting = m as MeetingApp; if (state.view === 'home') render(); });
   bridge().on('tray:start', () => { if (state.view === 'home' && state.form.consent) void startRecording(); });
   bridge().on('tray:stop', () => void stopRecording());
 

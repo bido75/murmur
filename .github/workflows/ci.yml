@@ -28,6 +28,12 @@ jobs:
       - name: Desktop app
         working-directory: desktop
         run: npm ci && npx tsc --noEmit -p . && npm test
+      - name: Zapier app
+        working-directory: zapier
+        run: npm install && npm test
+      - name: Browser extension build
+        working-directory: extension
+        run: node build.mjs
       - name: Dependency audit (high and critical)
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: true

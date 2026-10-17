@@ -33,7 +33,7 @@ test('link import: share pages become direct downloads', () => {
   const dbx = normalizeMediaLink('https://www.dropbox.com/scl/fi/abc/walk.m4a?rlkey=x&dl=0');
   assert.ok(dbx.ok && dbx.url.includes('dl=1') && dbx.url.includes('rlkey=x') && !dbx.url.includes('dl=0'));
   const drive = normalizeMediaLink('https://drive.google.com/file/d/1AbCdEfGhIjKlMn_op/view?usp=sharing');
-  assert.ok(drive.ok && drive.url === 'https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMn_op');
+  assert.ok(drive.ok && drive.url === 'https://drive.usercontent.google.com/download?id=1AbCdEfGhIjKlMn_op&export=download&confirm=t');
   const od = normalizeMediaLink('https://1drv.ms/u/s!Abc');
   assert.ok(od.ok && od.url.includes('download=1'));
   const mp3 = normalizeMediaLink('https://cdn.example.com/pods/ep1.mp3');
@@ -206,4 +206,11 @@ test('translation chunks keep every line in order', async () => {
   assert.deepEqual(chunks.flat(), lines);
   assert.equal(chunkLines(['a'.repeat(8000), 'b'.repeat(8000)], 120, 12000).length, 2);
   assert.ok(LANGUAGES.length >= 30);
+});
+
+test('a normalized Drive link stays valid when checked again', () => {
+  const once = normalizeMediaLink('https://drive.google.com/file/d/1AbCdEfGhIjKlMn_op/view');
+  assert.ok(once.ok);
+  const twice = normalizeMediaLink(once.ok ? once.url : '');
+  assert.ok(twice.ok && twice.url === (once.ok ? once.url : ''));
 });

@@ -19,10 +19,10 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from './config';
 import { isWeb } from './dialog';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { LOCAL_RECORDING } from './localStt';
 import { PcmWavRecorder, repairWav } from './pcmRecorder';
-import { enqueue, keepFile } from './sync';
+import { enqueue, keepFile, keepRecording } from './sync';
 
 const OPTIONS: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -33,6 +33,9 @@ const OPTIONS: RecordingOptions = {
 // Browsers record WebM/Opus via MediaRecorder; phones record AAC in .m4a.
 const EXT = isWeb ? 'webm' : 'm4a';
 const ACTIVE_KEY = 'recorder.active.v1';
+// Browsers only hand over audio when a part ends, so parts are shorter there: closing the tab
+// loses at most the part in progress (the finished ones wait in IndexedDB).
+const WEB_SEGMENT_MS = 2 * 60 * 1000;
 const INPUT_KEY = 'recorder.input.v1'; // the mic the user picked last (e.g. a Bluetooth lapel mic)
 const KEEP_AWAKE_TAG = 'recording';
 
@@ -148,7 +151,7 @@ export function useSegmentedRecorder() {
     }
     if (uri && durationMs > 500) {
       const ext = s.local ? 'wav' : EXT;
-      const kept = keepFile(uri, s.recordingId, s.segIdx, ext);
+      const kept = await keepRecording(uri, s.recordingId, s.segIdx, ext);
       if (s.local) await enqueue({ kind: 'local_segment', recordingId: s.recordingId, idx: s.segIdx, localUri: kept, offsetMs: s.doneMs, durationMs });
       else await enqueue({ kind: 'segment', recordingId: s.recordingId, idx: s.segIdx, localUri: kept, ext, durationMs });
       s.doneMs += durationMs;
@@ -252,7 +255,7 @@ export function useSegmentedRecorder() {
         setPcmLevel(st.metering ?? null);
       }
 
-      if (st.mediaServicesDidReset || st.durationMillis >= SEGMENT_MS) {
+      if (st.mediaServicesDidReset || st.durationMillis >= (isWeb ? WEB_SEGMENT_MS : SEGMENT_MS)) {
         void rotate();
         return;
       }
@@ -276,6 +279,26 @@ export function useSegmentedRecorder() {
     }, 500);
     return () => clearInterval(timer);
   }, [phase, status, rotate]);
+
+  // If the system paused our timers in the background, split an overlong part as soon as we're back.
+  useEffect(() => {
+    if (phase !== 'recording' || isWeb) return;
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active' && !busy.current && status().durationMillis >= SEGMENT_MS) void rotate();
+    });
+    return () => sub.remove();
+  }, [phase, status, rotate]);
+
+  // Browser: warn before closing the tab mid-recording (the part in progress would be lost).
+  useEffect(() => {
+    if (!isWeb || phase === 'idle') return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [phase]);
 
   // Never leave the mic open if the screen goes away (runs on unmount only).
   const stopRef = useRef(stop);

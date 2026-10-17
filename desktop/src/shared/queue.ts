@@ -11,6 +11,7 @@ export type CreateOp = Base & {
   consentAt: string | null;
   createdAt: string;
   video?: boolean;
+  channels?: 1 | 2;
 };
 export type SegmentOp = Base & { kind: 'segment'; idx: number; path: string; ext: string; durationMs: number; video?: boolean };
 export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };

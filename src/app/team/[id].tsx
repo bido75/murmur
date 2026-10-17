@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { ActionMenu, type MenuAction } from '@/components/ActionMenu';
 import { Button, Card, Segmented, T } from '@/components/ui';
-import { currentUserId, getWorkspace, inviteMember, prettyCode, removeMember, renameWorkspace, revokeInvite, setMemberRole } from '@/lib/api';
+import { currentUserId, emailInvite, getWorkspace, inviteMember, prettyCode, removeMember, renameWorkspace, revokeInvite, setMemberRole } from '@/lib/api';
 import { APP_NAME } from '@/lib/config';
 import { confirm, notify, shareOrCopy } from '@/lib/dialog';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -43,9 +43,12 @@ export default function Team() {
     try {
       const code = await inviteMember(id, email, role);
       const msg = `Join ${data?.workspace?.name ?? 'my team'} on ${APP_NAME}. Sign in with ${email.trim()}, then go to Settings → Join a team and enter code ${prettyCode(code)}. It expires in 14 days.`;
+      const to = email.trim();
       setEmail('');
       await load();
-      await shareOrCopy(msg, 'Invite copied');
+      // Emailed when the server can send email; the code can always be shared by hand as well.
+      if (await emailInvite(code)) notify('Invite sent', `${to} will get an email with the code. You can also share it yourself from the list below.`);
+      else await shareOrCopy(msg, 'Invite copied');
     } catch (e) {
       notify("Couldn't create invite", (e as Error).message);
     } finally {

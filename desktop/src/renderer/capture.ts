@@ -1,5 +1,6 @@
-// Records the microphone mixed with system audio (the other people on the call) into
-// WebM/Opus. Audio is appended to disk every few seconds and split into 5-minute files,
+// Records the microphone and system audio (the other people on the call) into WebM/Opus, as
+// two channels: your mic on the left, the call on the right. The transcriber then knows which
+// words are yours and only has to tell the remote people apart. Audio is appended to disk every few seconds and split into 5-minute files,
 // so a crash or power cut loses at most a few seconds.
 import type { Bridge } from '../shared/bridge';
 import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from './config';
@@ -20,7 +21,9 @@ const EXT = 'webm';
 
 export class Capture {
   private ctx: AudioContext | null = null;
-  private dest: MediaStreamAudioDestinationNode | null = null;
+  private dest: MediaStreamAudioDestinationNode | null = null; // what's recorded (2 channels)
+  private merger: ChannelMergerNode | null = null;
+  private mix: MediaStreamAudioDestinationNode | null = null; // mono mix, for the live transcript
   private analyser: AnalyserNode | null = null;
   private inputs: MediaStream[] = [];
   private recorder: MediaRecorder | null = null;
@@ -44,13 +47,19 @@ export class Capture {
     if (!(await bridge().micPermission())) throw new Error('Microphone access is off. Allow it in your system settings.');
     this.ctx = new AudioContext({ sampleRate: 48000 });
     this.dest = this.ctx.createMediaStreamDestination();
+    this.dest.channelCount = 2;
+    this.merger = this.ctx.createChannelMerger(2);
+    this.merger.connect(this.dest);
+    this.mix = this.ctx.createMediaStreamDestination();
+    this.mix.channelCount = 1;
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
 
     const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     this.inputs.push(mic);
-    this.ctx.createMediaStreamSource(mic).connect(this.dest);
-    this.ctx.createMediaStreamSource(mic).connect(this.analyser);
+    const micSrc = this.ctx.createMediaStreamSource(mic);
+    this.route(micSrc, 0);
+    micSrc.connect(this.analyser);
 
     if (withScreen) await this.addScreen(withSystemAudio);
     if (withSystemAudio && !(withScreen && this.systemAudio === 'on')) await this.addSystemAudio();
@@ -68,7 +77,7 @@ export class Capture {
     this.video = v;
     this.inputs.push(s);
     if (s.getAudioTracks().length) {
-      this.ctx!.createMediaStreamSource(new MediaStream(s.getAudioTracks())).connect(this.dest!);
+      this.route(this.ctx!.createMediaStreamSource(new MediaStream(s.getAudioTracks())), 1);
       this.systemAudio = 'on';
     }
     // Stopping the share from the system UI ends the screen part; audio keeps recording.
@@ -84,12 +93,12 @@ export class Capture {
         s.getVideoTracks().forEach((t) => t.stop());
         if (!s.getAudioTracks().length) throw new Error('No system audio track');
         this.inputs.push(s);
-        this.ctx!.createMediaStreamSource(s).connect(this.dest!);
+        this.route(this.ctx!.createMediaStreamSource(s), 1);
         this.systemAudio = 'on';
       } else if (platform === 'darwin') {
         await this.ctx!.audioWorklet.addModule('pcm-worklet.js');
         const node = new AudioWorkletNode(this.ctx!, 'pcm-player', { numberOfInputs: 0, outputChannelCount: [1] });
-        node.connect(this.dest!);
+        this.route(node, 1);
         let carry = new Uint8Array(0);
         const offData = bridge().on('macaudio:data', (payload) => {
           // Pipe chunks can split a 4-byte sample; carry the remainder to the next chunk.
@@ -126,6 +135,17 @@ export class Capture {
     }
   }
 
+  /** Channel 0 = your mic, 1 = the call. Everything also goes to the mono mix. */
+  private route(node: AudioNode, channel: 0 | 1) {
+    node.connect(this.merger!, 0, channel);
+    node.connect(this.mix!);
+  }
+
+  /** 2 when the call's audio is on its own channel; 1 if only the mic was captured. */
+  get channels(): 1 | 2 {
+    return this.systemAudio === 'on' ? 2 : 1;
+  }
+
   private async openSegment() {
     this.segIdx += 1;
     this.segPath = await bridge().segmentOpen(this.recordingId, this.segIdx, EXT);
@@ -135,7 +155,7 @@ export class Capture {
     const withVideo = this.video && this.video.readyState === 'live';
     const rec = withVideo
       ? new MediaRecorder(new MediaStream([this.video!, ...this.dest!.stream.getAudioTracks()]), { mimeType: VIDEO_MIME, videoBitsPerSecond: 1_200_000, audioBitsPerSecond: 64000 })
-      : new MediaRecorder(this.dest!.stream, { mimeType: MIME, audioBitsPerSecond: 64000 });
+      : new MediaRecorder(this.dest!.stream, { mimeType: MIME, audioBitsPerSecond: 96000 });
     const path = this.segPath;
     rec.ondataavailable = (e) => {
       if (!e.data.size) return;
@@ -191,9 +211,9 @@ export class Capture {
     }
   }
 
-  /** The mixed mic + computer audio, e.g. for the live transcript. */
+  /** The mixed mic + computer audio (mono), e.g. for the live transcript. */
   get stream(): MediaStream | null {
-    return this.dest?.stream ?? null;
+    return this.mix?.stream ?? null;
   }
 
   get elapsedMs(): number {

@@ -45,7 +45,8 @@ export function normalizeMediaLink(input: string): LinkCheck {
   if (host === 'drive.google.com') {
     const id = u.pathname.match(/\/file\/d\/([\w-]{10,})/)?.[1] ?? u.searchParams.get('id');
     if (!id) return { ok: false, reason: 'Use the share link of a single Google Drive file (anyone with the link can view).' };
-    return { ok: true, url: `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`, label: 'Google Drive' };
+    // drive.usercontent with confirm=t skips the "can't scan this file for viruses" page large files get.
+    return { ok: true, url: `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`, label: 'Google Drive' };
   }
   // OneDrive personal share links: 1drv.ms or onedrive.live.com → add download=1
   if (host === '1drv.ms' || host === 'onedrive.live.com') {

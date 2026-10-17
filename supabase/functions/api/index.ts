@@ -11,8 +11,9 @@ import { adminClient } from '../_shared/services.ts';
 import { authenticate, makeSource } from '../_shared/mcp_source.ts';
 import { route } from '../_shared/rest.ts';
 
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS' };
-const send = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS' };
+const send = (status: number, body: unknown) =>
+  new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -23,7 +24,7 @@ Deno.serve(async (req) => {
   const userId = await authenticate(db, token, '');
   if (!userId) return send(401, { error: 'Invalid or revoked token' });
   let body: unknown = null;
-  if (req.method === 'PATCH') body = await req.json().catch(() => null);
+  if (req.method === 'PATCH' || req.method === 'POST') body = await req.json().catch(() => null);
   try {
     const u = new URL(req.url);
     const r = await route({ method: req.method, path: u.pathname, query: u.searchParams, body }, await makeSource(db, userId));

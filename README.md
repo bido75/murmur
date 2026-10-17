@@ -219,7 +219,19 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
     build (`npx expo run:ios` / `npx expo run:android`); it isn't available in Expo Go.
 18. **Company controls.** `supabase functions deploy admin`, `supabase functions deploy export-data`, `supabase functions deploy scim --no-verify-jwt`.
     SAML single sign-on and SCIM setup: `docs/security/sso.md` — including turning on the access-token hook (Authentication → Hooks → `public.custom_access_token_hook`) so "SSO required" is enforced by the server. The security & compliance pack is in `docs/security/`.
-19. **Desktop screen recording** needs nothing extra on Windows. On macOS, allow Murmur under System Settings → Privacy & Security →
+19. **RingCentral** (optional). Create a REST API app (auth code flow) with the Read Call Log, Read Call Recording and
+    Webhook Subscriptions permissions, redirect URL `https://YOUR-PROJECT.supabase.co/functions/v1/ringcentral/callback`;
+    `supabase secrets set RINGCENTRAL_CLIENT_ID=... RINGCENTRAL_CLIENT_SECRET=...` (sandbox: `RINGCENTRAL_SERVER=https://platform.devtest.ringcentral.com`).
+    `supabase functions deploy ringcentral --no-verify-jwt`, and renew its webhooks daily:
+    ```sql
+    select cron.schedule('murmur-ringcentral', '41 4 * * *', $$ select net.http_post(url := 'https://YOUR-PROJECT.supabase.co/functions/v1/ringcentral/renew', headers := jsonb_build_object('x-cron-secret', 'YOUR_CRON_SECRET')); $$);
+    ```
+20. **Long recordings and imports.** Processing hands over to a fresh run before the function time limit, so 2-hour+
+    recordings finish on any plan; it needs `CRON_SECRET` (or `INTERNAL_SECRET`) set. Optional: `PIPELINE_BUDGET_MS`
+    (default 240000; lower on the free plan, e.g. 120000) and `IMPORT_COPY_MAX_MB` (default 2000; files imported from
+    links are copied into your storage). Raise Storage's project-wide file size limit to at least 5 GB.
+21. **Zapier**: see `zapier/README.md` to publish the Zapier app.
+22. **Desktop screen recording** needs nothing extra on Windows. On macOS, allow Murmur under System Settings → Privacy & Security →
     Screen & System Audio Recording.
 
 ## Checks
@@ -289,35 +301,59 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] SAML SSO with an Okta developer account (docs/security/sso.md): "Continue with single sign-on" signs in. With "SSO required" and the hook on, an email code for that domain is refused, and a session signed in by code before turning it on ends within an hour.
 - [ ] SCIM with Okta: assign a user → they appear as a member; unassign → removed; owners can't be removed.
 - [ ] Export my data: open the ZIP; notes.md, transcript.txt, tasks.csv open cleanly; audio links download.
+- [ ] A 2-hour recording (or a 2-hour import): it finishes; speakers keep the same number across the 5-minute joins.
+- [ ] Desktop with computer audio: your words are labelled "Me", the others as separate speakers.
+- [ ] Desktop: open a Google Meet call in Chrome; the "meeting detected" notice appears.
+- [ ] Import a Google Drive file over 100 MB, then make the Drive link private: the recording still plays.
+- [ ] Browser: record 5 minutes, close the tab, reopen the app: the first two-minute parts upload and get notes.
+- [ ] Android on-device transcription: record 10 minutes with the screen off; a "Recording" notification shows and nothing is lost.
+- [ ] Add a library photo taken during a site walk: it lands at its moment and links to the matching task.
+- [ ] Highlight reel: add clips from two recordings, reorder, share; the public page plays each clip. Turn the team's public links off: the page empties.
+- [ ] Ask Claude (connector) about a recording older than your 1,000 newest: it finds it.
+- [ ] Invite a teammate by email (with Resend set up): they get the email with the code.
+- [ ] RingCentral sandbox: connect, make a recorded call, it imports once.
+- [ ] Zapier: connect with a token, turn on a "New Notes" Zap, record something: the Zap runs.
 
-## Known limits
+## What still needs doing outside the code
 
-- **Consent rules are information, not legal advice.** The state list (13 all-party states, with phone/in-person nuances) was checked against current summaries in Oct 2026; outside the US the app always says "ask everyone first". Have counsel review before launch.
-- **Notetaker bot** uses Recall.ai and was tested with a fake server only (requests, signatures, events), not a live meeting. Bots that join without the host present can be blocked by meeting settings (waiting rooms, "only signed-in users").
-- **Retention** applies the owner's setting and, for team projects, the team's policy; the shorter wins.
-- **Untested against live services:** Slack, Salesforce, HubSpot, Notion, Google Docs, OneNote, monday.com, ClickUp, Trello, Twilio, Aircall, SAML SSO, SCIM clients, the Apple Watch and Wear OS apps (not compiled here), on-device transcription (needs iPhone and Android builds), the SSO access-token hook on a live project and the browser extension's capture (popup and linking were tested). Each was built from the vendor's documentation and tested with mocked responses where possible.
-- **On-device transcription on Android** records through its own microphone module, so it can't keep recording with the app in the background yet; the screen stays on and the app says to keep it open. iPhone has no such limit.
-- **Link imports** read the file from where it is; if the link stops working later, playback in the app stops (notes stay). Very large Google Drive files show a virus-scan page instead of the file and fail with a clear error.
-- **Share pages** need the web app deployed (`APP_URL`). On phones, links open in the browser.
+Everything identified as a gap has been built. What remains can't be done from code alone:
 
-- **Procore** was built from Procore's public REST docs and tested with a fake server, not a real Procore company. Check the punch item and daily log links open the right page (Procore's web URLs change; set `PROCORE_APP_URL` if needed) and that photo attachments arrive.
-- **Procore token renewal**: Procore issues a new refresh token on every renewal. Two Procore actions started at the same second could race and force a reconnect; rare, and the app says so when it happens.
-- **No on-device transcription yet**: with no signal you still record and take photos; transcription runs when the phone is back online.
-- **Noise**: Deepgram is given the audio as recorded. Phone noise suppression often hurts transcription, so it isn't switched on; a lapel mic and the project's words to listen for help most.
-- **Photos added afterwards** (from the library) attach to the recording but aren't linked to entries, since there's no moment to match.
+**Paid plans** — deliberately left for the production push (billing, in-app purchases, plan limits).
 
-- **Model names**: defaults are `claude-sonnet-5-5` and Deepgram `nova-3`. Check both against the providers' current docs; change via secrets without redeploying the app.
-- **Speaker labels** are assigned per 5-minute part, so "Speaker 1" in one part may be "Speaker 2" in the next. Fix later by joining parts server-side before transcription.
-- **Rotation runs while the app is awake.** If the phone keeps it fully suspended, the current part simply grows until you stop; a crash in that state can lose that one part.
-- **Long recordings**: processing runs as a background Edge Function task, which has a wall-clock limit (lower on Supabase's free plan). Very long recordings (2h+) may need the paid plan or a queue worker.
-- **Upload size**: 5-minute parts are about 2.4 MB. Large imported files can hit Supabase Storage's per-file limit; raise it in Storage settings.
-- **Tracker APIs** (Linear GraphQL, Asana REST, Jira Cloud REST v3) were written against their public APIs from memory and typechecked, not run against live accounts. Test each with a real token; error messages from the provider are shown in the app.
-- **Carry-over only closes a task on a verified quote.** A wrong "done" is still possible if someone says it's done when it isn't; the task shows the quote and can be reopened with one tap.
-- **MCP scope**: the AI tool sees your newest 1,000 readable recordings. Older ones aren't searchable through it yet.
-- **OAuth and calendar were tested in pieces, not end to end against Claude.ai, Google or Microsoft.** The protocol logic, the database rules and the discovery chain are tested; the provider APIs and Claude's connector are not. Use the device checklist and the MCP Inspector before announcing it.
-- **Team invites aren't emailed**: the admin gets a code to send however they like. Add an email provider (e.g. Resend) to send them automatically.
-- **App Store**: Apple requires in-app account deletion before release; not built yet.
-- **Recording law**: the notice reminder helps but isn't legal advice. Get counsel to review before launch, especially for phone calls.
+**Testing against the real services.** Everything was built from the providers' documentation and
+tested with mocked responses; none has been run against a live account yet. The device checklist
+above covers each one: Recall.ai, Slack, Salesforce, HubSpot, Notion, Google Docs, OneNote,
+monday.com, ClickUp, Trello, Asana, Linear, Jira, Procore, Twilio, Aircall, RingCentral, Google and
+Microsoft calendars, SAML SSO (and the access-token hook), SCIM clients, Claude.ai/ChatGPT
+connectors, the Zapier app, and Deepgram/Anthropic on long recordings.
+
+**Building on real devices.** The phone app's native projects, the on-device transcription and
+foreground-service modules, the Apple Watch and Wear OS apps, and the desktop app's macOS helper
+need their platform toolchains, which this environment can't download. The **Native builds**
+workflow (`.github/workflows/native-builds.yml`) compiles all of them on GitHub's Mac and Linux
+machines; run it once from the Actions tab, then try them on a phone, a watch and a Mac/PC.
+The browser extension's tab capture needs a real click on its toolbar button to test.
+
+**Decisions and reviews for people, not code:**
+- *Recording-consent law*: the in-app guidance (13 all-party US states, phone vs in-person) is
+  information, not legal advice. Have counsel review before launch, especially for phone calls.
+- *SOC 2 / HIPAA*: the controls and documents are in `docs/security/`; the audit, the BAAs with
+  each vendor and the policies are business steps (see `docs/security/soc2-readiness.md`).
+- *Publishing*: App Store / Play Store listings, the Chrome Web Store listing, the Zapier app review.
+- *Accounts and settings*: an EAS project id for push, provider app registrations (step 8 onward),
+  and a Supabase plan whose limits fit (function time, storage file size).
+
+**Design choices worth knowing (not defects):**
+- Deepgram gets the audio as recorded (phone noise suppression tends to hurt transcription).
+- A task is closed by a later recording only on a verified quote; a wrong "done" can still happen if
+  someone says it's done when it isn't, and the task shows the quote and reopens with one tap.
+- Speakers are matched across a long recording's 5-minute parts by the AI from what was said at
+  each join; when it isn't confident it keeps them separate rather than merge two people. Renaming
+  a speaker applies to the whole recording.
+- macOS system-audio capture needs macOS 13 or newer (older Macs record the mic only).
+- Bots that join meetings can be held in a waiting room or blocked by meeting settings; the app shows
+  that status.
+- YouTube links are refused on purpose: downloading from YouTube is against its terms.
 
 ## Project layout
 

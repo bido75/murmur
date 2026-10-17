@@ -1,0 +1,14 @@
+{
+  "name": "murmur-zapier",
+  "version": "1.0.0",
+  "description": "Murmur for Zapier: new notes and tasks as triggers, search recordings, complete tasks.",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/app.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "zapier-platform-core": "19.1.0"
+  }
+}

@@ -1,6 +1,7 @@
 // Sharing. Deploy with --no-verify-jwt: /view is public (the share token is the key);
 // the other routes check the signed-in user themselves.
 //   GET  /view?token=…                    → public notes for a share link
+//   GET  /reel?token=…                    → a public highlight reel: its clips, words and audio
 //   POST /recap { recording_id, to, note } → email the notes (with a share link) to attendees
 //   POST /docx  { recording_id, include_transcript } → Word file download URL
 //   POST /ask   { token, question } (public; x-share-password if set) → answer from that recording
@@ -21,6 +22,7 @@ Deno.serve(async (req) => {
   const path = new URL(req.url).pathname;
   try {
     if (path.endsWith('/view') && req.method === 'GET') return await view(req);
+    if (path.endsWith('/reel') && req.method === 'GET') return await reel(req);
     if (path.endsWith('/recap') && req.method === 'POST') return await recap(req);
     if (path.endsWith('/docx') && req.method === 'POST') return await docx(req);
     if (path.endsWith('/ask') && req.method === 'POST') return await askShared(req);
@@ -241,4 +243,29 @@ async function docx(req: Request) {
   if (error) throw new Error(error.message);
   const { data: signed } = await admin.storage.from('exports').createSignedUrl(path, 3600, { download: filename });
   return json({ url: signed?.signedUrl, filename });
+}
+
+/** A public highlight reel. Only clips the reel's creator may publish are returned (see public_reel_items). */
+async function reel(req: Request) {
+  const token = new URL(req.url).searchParams.get('token') ?? '';
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) throw new HttpError(404, 'This reel doesn’t exist.');
+  const db = adminClient();
+  const { data: rows } = await db.rpc('public_reel_items', { tok: token });
+  const items = (rows ?? []) as { title: string | null; playlist_title: string; recording_id: string; recording_title: string; created_at: string; start_ms: number; end_ms: number; audio_deleted: boolean }[];
+  if (!items.length) {
+    const { data: p } = await db.from('playlists').select('id').eq('share_token', token).maybeSingle();
+    throw new HttpError(404, p ? 'This reel has no clips that can be shared.' : 'This reel was turned off or doesn’t exist.');
+  }
+  const audioCache = new Map<string, Awaited<ReturnType<typeof sharedAudio>>>();
+  const trCache = new Map<string, { utterances: Utterance[]; speaker_names: Record<string, string> } | null>();
+  const clips = [];
+  for (const it of items.slice(0, 50)) {
+    if (!audioCache.has(it.recording_id)) audioCache.set(it.recording_id, it.audio_deleted ? [] : await sharedAudio(db, it.recording_id));
+    if (!trCache.has(it.recording_id)) trCache.set(it.recording_id, (await db.from('transcripts').select('utterances, speaker_names').eq('recording_id', it.recording_id).maybeSingle()).data);
+    const tr = trCache.get(it.recording_id);
+    const words = (tr?.utterances ?? []).filter((u) => u.end_ms > it.start_ms && u.start_ms < it.end_ms);
+    const lines = publicNotes({ recording: { title: it.recording_title, created_at: it.created_at, duration_ms: 0, template: 'meeting' }, summary: null, tasks: [], transcript: tr ? { ...tr, utterances: words } : null }, true).transcript ?? [];
+    clips.push({ title: it.title || it.recording_title, recording: it.recording_title, date: it.created_at, clip: { start_ms: it.start_ms, end_ms: it.end_ms }, audio: audioCache.get(it.recording_id), lines });
+  }
+  return json({ title: items[0].playlist_title, clips, app: APP_NAME() });
 }

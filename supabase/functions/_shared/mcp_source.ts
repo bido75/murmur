@@ -37,20 +37,15 @@ export async function authenticate(db: SupabaseClient, token: string, mcp: strin
   return null;
 }
 
-/** Everything the user can read, worked out once per request by the same SQL rules the app uses. */
+/** Everything the user can read, decided by the same SQL rules the app uses (no cap on history). */
 export async function makeSource(db: SupabaseClient, uid: string): Promise<Source> {
   type ProjectRow = { id: string; name: string; workspace_id: string | null; team: string | null };
   type RecRow = { id: string; user_id: string; project_id: string | null; title: string; created_at: string; status: string; duration_ms: number };
-  const [{ data: projects }, { data: recs }] = await Promise.all([
-    db.rpc('readable_projects', { uid }),
-    db.rpc('readable_recordings', { uid, max_rows: 1000 }),
-  ]);
+  const { data: projects } = await db.rpc('readable_projects', { uid });
   const projectList = (projects ?? []) as ProjectRow[];
   const projectName = new Map(projectList.map((p) => [p.id, p.name]));
-  const readable = (recs ?? []) as RecRow[];
-  const recById = new Map(readable.map((r) => [r.id, r]));
 
-  const info = (r: (typeof readable)[number]): RecordingInfo => ({
+  const info = (r: RecRow): RecordingInfo => ({
     id: r.id,
     title: r.title,
     date: String(r.created_at).slice(0, 10),
@@ -58,41 +53,34 @@ export async function makeSource(db: SupabaseClient, uid: string): Promise<Sourc
     status: r.status,
     minutes: Math.round((r.duration_ms ?? 0) / 60000),
   });
+  const readableRec = async (id: string): Promise<RecRow | null> => {
+    const { data: ok } = await db.rpc('can_read_recording', { rid: id, uid });
+    if (!ok) return null;
+    const { data } = await db.from('recordings').select('id, user_id, project_id, title, created_at, status, duration_ms').eq('id', id).maybeSingle();
+    return (data as RecRow | null) ?? null;
+  };
 
   return {
     async listProjects() {
       return projectList.map((p) => ({ id: p.id, name: p.name, team: p.team }));
     },
 
-    async listRecordings({ project_id, since, limit }) {
-      return readable
-        .filter((r) => (!project_id || r.project_id === project_id) && (!since || String(r.created_at) >= since))
-        .slice(0, limit)
-        .map(info);
+    async listRecordings({ project_id, since, limit, before }) {
+      const { data } = await db.rpc('readable_recording_page', { uid, pid: project_id ?? null, since: since ?? null, before: before ?? null, max_rows: limit });
+      return ((data ?? []) as RecRow[]).map(info);
     },
 
     async searchRecordings(query, limit) {
-      const ids = readable.map((r) => r.id);
-      if (!ids.length) return [];
-      const words = query.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').split(/\s+/).filter((w) => w.length > 1).slice(0, 8);
-      if (!words.length) return [];
-      const { data } = await db
-        .from('transcripts')
-        .select('recording_id, text')
-        .in('recording_id', ids.slice(0, 500))
-        .textSearch('search', words.join(' | '), { config: 'simple' })
-        .limit(limit);
-      return (data ?? [])
-        .filter((t) => recById.has(t.recording_id))
-        .map((t) => {
-          const lower = String(t.text).toLowerCase();
-          const at = Math.max(0, Math.min(...words.map((w) => lower.indexOf(w)).filter((i) => i >= 0), lower.length) - 120);
-          return { ...info(recById.get(t.recording_id)!), snippet: String(t.text).slice(at, at + 300) };
-        });
+      const { data } = await db.rpc('search_recordings_for', { uid, q: query, max_results: limit });
+      return ((data ?? []) as (RecRow & { recording_id: string; snippet: string | null; at_ms: number | null })[]).map((h) => ({
+        ...info({ ...h, id: h.recording_id }),
+        snippet: h.snippet ?? '',
+        at_ms: h.at_ms,
+      }));
     },
 
     async getNotes(recordingId) {
-      const r = recById.get(recordingId);
+      const r = await readableRec(recordingId);
       if (!r) return null;
       const [{ data: s }, { data: tasks }] = await Promise.all([
         db.from('summaries').select('overview, key_points, decisions, open_questions, task_updates, site_log').eq('recording_id', recordingId).maybeSingle(),
@@ -102,7 +90,7 @@ export async function makeSource(db: SupabaseClient, uid: string): Promise<Sourc
     },
 
     async getTranscript(recordingId, offset, maxChars) {
-      if (!recById.has(recordingId)) return null;
+      if (!(await readableRec(recordingId))) return null;
       const { data } = await db.from('transcripts').select('utterances, speaker_names').eq('recording_id', recordingId).maybeSingle();
       if (!data) return { text: '', next_offset: null };
       const full = formatTranscript((data.utterances ?? []) as Utterance[], data.speaker_names ?? {});
@@ -111,19 +99,8 @@ export async function makeSource(db: SupabaseClient, uid: string): Promise<Sourc
     },
 
     async listTasks({ status, project_id, limit }) {
-      const ids = readable.filter((r) => !project_id || r.project_id === project_id).map((r) => r.id);
-      if (!ids.length) return [];
-      let q = db
-        .from('tasks')
-        .select('id, text, owner, due_text, status, needs_review, recording_id, quote')
-        .in('recording_id', ids.slice(0, 500))
-        .order('created_at', { ascending: false })
-        .limit(limit);
-      if (status === 'open') q = q.eq('status', 'open').eq('needs_review', false);
-      if (status === 'review') q = q.eq('status', 'open').eq('needs_review', true);
-      if (status === 'done') q = q.eq('status', 'done');
-      const { data } = await q;
-      return (data ?? []).map(
+      const { data } = await db.rpc('readable_tasks', { uid, task_status: status, pid: project_id ?? null, max_rows: limit });
+      return ((data ?? []) as { id: string; text: string; owner: string | null; due_text: string | null; status: string; needs_review: boolean; recording_id: string; recording: string; quote: string | null }[]).map(
         (t): TaskInfo => ({
           id: t.id,
           text: t.text,
@@ -132,16 +109,26 @@ export async function makeSource(db: SupabaseClient, uid: string): Promise<Sourc
           status: t.status,
           needs_review: t.needs_review,
           recording_id: t.recording_id,
-          recording: t.recording_id ? recById.get(t.recording_id)?.title ?? null : null,
+          recording: t.recording,
           quote: t.quote,
         }),
       );
     },
 
+    async createWebhook(url, events) {
+      const { data, error } = await db.from('webhooks').insert({ user_id: uid, url, events }).select('id').single();
+      return error ? null : { id: data.id as string };
+    },
+
+    async deleteWebhook(id) {
+      const { data } = await db.from('webhooks').delete().eq('id', id).eq('user_id', uid).select('id');
+      return (data ?? []).length > 0;
+    },
+
     async setTaskStatus(taskId, status) {
       const { data: t } = await db.from('tasks').select('id, recording_id, user_id').eq('id', taskId).maybeSingle();
       if (!t) return false;
-      const allowed = t.user_id === uid || (t.recording_id && recById.has(t.recording_id));
+      const allowed = t.user_id === uid || (t.recording_id && (await readableRec(t.recording_id)) !== null);
       if (!allowed) return false;
       const { error } = await db.from('tasks').update({ status }).eq('id', taskId);
       return !error;

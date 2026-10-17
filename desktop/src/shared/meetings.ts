@@ -1,7 +1,9 @@
 // Meeting detection from the OS process list. Pure, unit-tested.
 // Conservative on purpose: a false "meeting detected" prompt is more annoying than a missed one.
 
-export type MeetingApp = 'zoom' | 'teams' | 'webex';
+export type MeetingApp = 'zoom' | 'teams' | 'webex' | 'meet';
+
+export const MEETING_LABELS: Record<MeetingApp, string> = { zoom: 'Zoom', teams: 'Teams', webex: 'Webex', meet: 'Google Meet' };
 export type ProcessInfo = { name: string; title?: string };
 
 /** Parse `ps -axo comm=` (macOS) into process names. */
@@ -46,4 +48,21 @@ export function detectMeeting(processes: ProcessInfo[]): MeetingApp | null {
 /** Only prompt once per meeting: fire when a meeting starts, reset when it ends. */
 export function shouldPrompt(prev: MeetingApp | null, now: MeetingApp | null, recording: boolean): boolean {
   return !recording && now !== null && prev === null;
+}
+
+/**
+ * Meetings in a browser tab, from window titles (the browser shows the active tab's title).
+ * - Google Meet: "Meet - abc-defg-hij" (the meeting code; the lobby and home page don't match)
+ * - Teams on the web: "… | Meeting | Microsoft Teams" / "Meeting with … | Microsoft Teams"
+ * - Zoom web client and Webex web: "Zoom Meeting", "Webex Meeting"/"… - Webex"
+ */
+export function detectBrowserMeeting(titles: string[]): MeetingApp | null {
+  for (const raw of titles) {
+    const t = raw.trim();
+    if (/(^|\s)Meet\s[-–]\s[a-z]{3}-[a-z]{4}-[a-z]{3}\b/.test(t)) return 'meet';
+    if (/\bmeeting\b.*\|\s*microsoft teams\b/i.test(t)) return 'teams';
+    if (/^zoom meeting\b/i.test(t) || /\bzoom meeting\s[-–]/i.test(t)) return 'zoom';
+    if (/^webex meeting\b/i.test(t) || /\bmeeting\b.*[-–]\s*webex\b/i.test(t)) return 'webex';
+  }
+  return null;
 }

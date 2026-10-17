@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Directory, File, Paths, UploadType } from 'expo-file-system';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import { isWeb } from './dialog';
+import { dropBlob, isIdbUri, keepBlob, readBlob } from './webStore';
 import { supabase } from './supabase';
 import type { ConsentMethod, Template } from './types';
 
@@ -27,7 +28,7 @@ export type SegmentOp = Base & { kind: 'segment'; idx: number; localUri: string;
 export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
 export type LinkOp = Base & { kind: 'link'; url: string };
 export type NotesOp = Base & { kind: 'notes'; text: string };
-export type PhotoOp = Base & { kind: 'photo'; photoId: string; localUri: string; takenMs: number | null; width: number; height: number };
+export type PhotoOp = Base & { kind: 'photo'; photoId: string; localUri: string; takenMs: number | null; width: number; height: number; relink?: boolean };
 // Transcribed on this phone: each WAV part becomes text (kept until sent), then the text is sent.
 export type LocalSegmentOp = Base & { kind: 'local_segment'; idx: number; localUri: string; offsetMs: number; durationMs: number };
 export type LocalFinalizeOp = Base & { kind: 'local_finalize'; durationMs: number };
@@ -82,8 +83,18 @@ export async function enqueue(
 }
 
 /** Move a finished audio file into the pending folder so it survives restarts. */
+/** Keep a finished part until it uploads: a file on phones, IndexedDB in the browser. */
+export async function keepRecording(sourceUri: string, recordingId: string, idx: number, ext: string): Promise<string> {
+  if (!isWeb) return keepFile(sourceUri, recordingId, idx, ext);
+  try {
+    return await keepBlob(sourceUri, `${recordingId}-${String(idx).padStart(4, '0')}.${ext}`);
+  } catch {
+    return sourceUri; // private browsing or storage full: upload from memory this session
+  }
+}
+
 export function keepFile(sourceUri: string, recordingId: string, idx: number, ext: string): string {
-  // On the web the recording is an in-memory blob URL; it uploads in this session.
+  // On the web an imported file is an in-memory blob URL; it uploads in this session.
   if (isWeb) return sourceUri;
   const dir = pendingDir();
   if (!dir.exists) dir.create({ intermediates: true });
@@ -248,6 +259,8 @@ async function perform(op: Op, userId: string, accessToken: string) {
       const file = new File(op.localUri);
       if (file.exists) file.delete();
     }
+    // Added after the notes were made: link it to what was being said, without re-running the AI.
+    if (op.relink && op.takenMs != null) await supabase.functions.invoke('process-recording/relink-photos', { body: { recording_id: op.recordingId } }).catch(() => undefined);
     return;
   }
 
@@ -295,15 +308,17 @@ async function uploadFile(bucket: string, localUri: string, path: string, mime: 
 class LostAudioError extends Error {}
 
 async function uploadWeb(op: SegmentOp, path: string) {
-  let blob: Blob;
+  let blob: Blob | null = null;
   try {
-    blob = await (await fetch(op.localUri)).blob();
+    blob = isIdbUri(op.localUri) ? await readBlob(op.localUri) : await (await fetch(op.localUri)).blob();
   } catch {
-    // Blob URLs don't survive a page reload; nothing left to upload.
-    throw new LostAudioError('This browser recording was lost when the page reloaded.');
+    blob = null;
   }
+  // Blob URLs don't survive a page reload (IndexedDB parts do); nothing left to upload.
+  if (!blob) throw new LostAudioError('This browser recording was lost when the page reloaded.');
   const { error } = await supabase.storage.from('audio').upload(path, blob, { upsert: true, contentType: mimeFor(op.ext) });
   if (error) throw new Error(error.message);
+  if (isIdbUri(op.localUri)) await dropBlob(op.localUri).catch(() => undefined);
 }
 
 async function uploadNative(op: SegmentOp, path: string, userId: string, accessToken: string) {

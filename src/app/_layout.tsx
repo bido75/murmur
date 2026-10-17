@@ -80,6 +80,8 @@ export default function RootLayout() {
           <Stack.Screen name="alerts" options={{ title: 'Alerts & digest' }} />
           <Stack.Screen name="phone" options={{ title: 'Phone calls' }} />
           <Stack.Screen name="devices" options={{ title: 'Devices' }} />
+          <Stack.Screen name="reels/index" options={{ title: 'Highlight reels' }} />
+          <Stack.Screen name="reels/[id]" options={{ title: '' }} />
           <Stack.Screen name="team/[id]" options={{ title: '' }} />
           <Stack.Screen name="team/admin" options={{ title: 'Admin console' }} />
           <Stack.Screen name="join" options={{ title: 'Join a team' }} />
@@ -101,6 +103,7 @@ export default function RootLayout() {
         {/* Public pages for people without an account: shared notes and consent links. */}
         <Stack.Screen name="s/[token]" options={{ headerShown: false }} />
         <Stack.Screen name="sso-callback" options={{ headerShown: false }} />
+        <Stack.Screen name="h/[token]" options={{ headerShown: false }} />
         <Stack.Screen name="c/[token]" options={{ headerShown: false }} />
       </Stack>
       </View>

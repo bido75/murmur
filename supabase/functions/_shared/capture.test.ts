@@ -107,3 +107,37 @@ test('WAV header and PCM level', async () => {
   const out = execFileSync('python3', ['-I', '-c', 'import wave,sys;w=wave.open(sys.argv[1]);print(w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes())', f]).toString().trim();
   assert.equal(out, '16000 1 2 200');
 });
+
+test('library photos placed by their EXIF time', async () => {
+  const { exifTakenAt, photoMoment } = await import('./ingest.ts');
+  // 09:12:30 at UTC-5 = 14:12:30 UTC
+  assert.equal(exifTakenAt({ DateTimeOriginal: '2026:10:15 09:12:30', OffsetTimeOriginal: '-05:00' }), Date.parse('2026-10-15T14:12:30Z'));
+  // No offset: the phone's zone (here given as UTC-4 → getTimezoneOffset() = 240)
+  assert.equal(exifTakenAt({ DateTimeOriginal: '2026:10:15 09:12:30' }, 240), Date.parse('2026-10-15T13:12:30Z'));
+  assert.equal(exifTakenAt({ '{Exif}': { DateTimeOriginal: '2026:10:15 09:12:30' } }, 0), Date.parse('2026-10-15T09:12:30Z'));
+  assert.equal(exifTakenAt({ DateTimeOriginal: '0000:00:00 00:00:00' }), null);
+  assert.equal(exifTakenAt({}), null);
+  const start = '2026-10-15T14:00:00Z';
+  assert.equal(photoMoment(Date.parse('2026-10-15T14:12:30Z'), start, 30 * 60_000), 750_000);
+  assert.equal(photoMoment(Date.parse('2026-10-15T13:59:30Z'), start, 30 * 60_000), 0, 'just before: start');
+  assert.equal(photoMoment(Date.parse('2026-10-15T16:00:00Z'), start, 30 * 60_000), null, 'long after');
+  assert.equal(photoMoment(null, start, 1000), null);
+});
+
+test('RingCentral: sign-in, subscription, session events and recordings', async () => {
+  const rc = await import('./ringcentral.ts');
+  const u = new URL(rc.rcAuthorizeUrl('https://platform.ringcentral.com', 'cid', 'https://x/cb', 'st'));
+  assert.equal(u.pathname, '/restapi/oauth/authorize');
+  assert.equal(u.searchParams.get('state'), 'st');
+  const t = rc.rcTokenRequest('cid', 'sec', { grant_type: 'refresh_token', refresh_token: 'r' });
+  assert.equal(t.headers.Authorization, `Basic ${btoa('cid:sec')}`);
+  assert.equal(t.body.get('refresh_token'), 'r');
+  assert.deepEqual(rc.rcSubscriptionBody('https://h', 'v').deliveryMode, { transportType: 'WebHook', address: 'https://h', verificationToken: 'v' });
+  const ended = rc.parseRcSession({ body: { telephonySessionId: 's-1', parties: [{ extensionId: '101', direction: 'Inbound', status: { code: 'Disconnected' }, from: { phoneNumber: '+15125550123', name: 'Sam Lee' } }] } });
+  assert.deepEqual(ended, { sessionId: 's-1', ended: true, direction: 'Inbound', other: '+15125550123', otherName: 'Sam Lee' });
+  assert.equal(rc.rcCallTitle(ended!), 'Call from Sam Lee');
+  assert.equal(rc.parseRcSession({ body: { telephonySessionId: 's-2', parties: [{ extensionId: '1', status: { code: 'Answered' } }] } })?.ended, false);
+  assert.equal(rc.parseRcSession({}), null);
+  assert.deepEqual(rc.recordingFromCallLog({ records: [{ duration: 125, startTime: '2026-10-16T15:00:00Z', recording: { id: 99, contentUri: 'https://media.ringcentral.com/restapi/v1.0/account/1/recording/99/content' } }] }), { id: '99', contentUri: 'https://media.ringcentral.com/restapi/v1.0/account/1/recording/99/content', durationSec: 125, startTime: '2026-10-16T15:00:00Z' });
+  assert.equal(rc.recordingFromCallLog({ records: [{ duration: 5 }] }), null);
+});

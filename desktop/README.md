@@ -75,7 +75,8 @@ notifications, installers and signing. Please run this checklist:
 ## Known limits
 
 - System audio on macOS needs 13 (Ventura) or newer; older Macs record the mic only.
-- Speaker labels come from the audio, so with system audio mixed in, remote people are told apart
-  by voice, not by Zoom/Teams names.
-- Meeting detection for Meet (browser tabs) isn't automatic; use the Record button.
+- Your mic and the call are recorded on separate channels, so your words are always labelled as
+  yours ("Me"); the remote people are told apart by voice (rename them once and the names stick
+  for that recording).
+- Meetings in a browser (Google Meet, Teams, Zoom and Webex on the web) are detected from window titles; on macOS this needs the Screen & System Audio Recording permission, which system audio already uses.
 - Headphones are fine on both platforms because system audio is captured directly.

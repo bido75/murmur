@@ -1,10 +1,12 @@
 // Android on-device transcription: Android's built-in recorder can't write the 16 kHz WAV that
 // whisper.cpp reads, so we take raw 16-bit PCM from the mic (react-native-audio-pcm-stream) and
-// write the WAV ourselves. Audio is appended to disk as it arrives, so a crash loses at most a
+// write the WAV ourselves. A small foreground service (modules/murmur-foreground) keeps it running
+// with the screen off. Audio is appended to disk as it arrives, so a crash loses at most a
 // fraction of a second; repairWav() fixes the header of a file cut off mid-recording.
 import { Buffer } from 'buffer';
 import { File, FileMode } from 'expo-file-system';
 import { Platform } from 'react-native';
+import { startForegroundRecording, stopForegroundRecording } from '../../modules/murmur-foreground';
 import { pcmLevelDb, wavHeader } from './shared';
 
 const RATE = 16000;
@@ -76,6 +78,8 @@ export class PcmWavRecorder {
     this.bytes = 0;
     this.paused = false;
     if (!this.sub) {
+      // Keeps the mic running with the screen off or the app in the background.
+      startForegroundRecording('Recording', 'Transcribing on this phone. Tap to open.');
       s.init({ sampleRate: RATE, channels: 1, bitsPerSample: 16, audioSource: 6, bufferSize: 8192, wavFile: '' });
       this.sub = s.on('data', (b64) => this.onData(b64));
       s.start();
@@ -117,5 +121,6 @@ export class PcmWavRecorder {
     this.sub?.remove();
     this.sub = undefined;
     await pcmStream()?.stop().catch(() => '');
+    stopForegroundRecording();
   }
 }

@@ -1,6 +1,6 @@
 // Deepgram request parameters. Pure; tested.
 
-export type SttOptions = { model?: string; keyterms?: string[]; language?: string | null; redact?: string[]; mipOptOut?: boolean };
+export type SttOptions = { model?: string; keyterms?: string[]; language?: string | null; redact?: string[]; mipOptOut?: boolean; multichannel?: boolean };
 
 const REDACT = new Set(['pii', 'phi', 'pci', 'numbers']);
 
@@ -20,6 +20,8 @@ export function deepgramParams(o: SttOptions, withKeyterms = true): URLSearchPar
   else p.set('detect_language', 'true');
   for (const r of o.redact ?? []) if (REDACT.has(r)) p.append('redact', r);
   if (o.mipOptOut !== false) p.set('mip_opt_out', 'true');
+  // Desktop recordings: your mic on one channel, the other people on the other.
+  if (o.multichannel) p.set('multichannel', 'true');
   if (withKeyterms && model.startsWith('nova-3')) for (const k of o.keyterms ?? []) p.append('keyterm', k);
   return p;
 }

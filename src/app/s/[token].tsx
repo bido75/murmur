@@ -1,11 +1,10 @@
 // Public, read-only notes behind a share link. No account needed.
-import { useAudioPlayer } from 'expo-audio';
 import { useLocalSearchParams } from 'expo-router';
-import { createElement, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, TextInput, View } from 'react-native';
+import { SharedAudio, type AudioPart } from '@/components/SharedAudio';
 import { Button, Card, T } from '@/components/ui';
 import { publicCall, PublicError } from '@/lib/api';
-import { isWeb } from '@/lib/dialog';
 import { clock, minutes } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
 
@@ -21,7 +20,7 @@ type Notes = {
   site_log: { title: string; items: string[] }[];
   transcript: { at: string; speaker: string; text: string }[] | null;
 };
-type Audio = { url: string; start_ms: number; duration_ms: number };
+type Audio = AudioPart;
 type Payload = { notes: Notes; photos: { url: string; caption: string | null }[]; app: string; audio: Audio[]; can_ask: boolean; clip: { start_ms: number; end_ms: number; title: string | null } | null };
 
 export default function SharedNotes() {
@@ -161,39 +160,6 @@ export default function SharedNotes() {
       )}
       <T muted size={12}>AI-generated notes from a recording, checked against the transcript. Shared with {data.app}.</T>
     </ScrollView>
-  );
-}
-
-/** Play the recording (or just the clip). Browser player on the web, a simple button on phones. */
-function SharedAudio({ parts, clip }: { parts: Audio[]; clip: Payload['clip'] }) {
-  // For a clip, only the part that contains its start is needed.
-  const shown = clip ? parts.filter((p) => clip.start_ms >= p.start_ms && (!p.duration_ms || clip.start_ms < p.start_ms + p.duration_ms)).slice(0, 1) : parts;
-  return (
-    <View style={{ gap: space.sm }}>
-      {shown.map((p, i) => {
-        const from = clip ? Math.max(0, (clip.start_ms - p.start_ms) / 1000) : 0;
-        const to = clip ? Math.max(from + 1, (clip.end_ms - p.start_ms) / 1000) : null;
-        if (isWeb) {
-          const src = to != null ? `${p.url}#t=${from.toFixed(1)},${to.toFixed(1)}` : p.url;
-          return createElement('audio', { key: i, controls: true, preload: 'none', src, style: { width: '100%' } });
-        }
-        return <NativePlayer key={i} url={p.url} from={from} label={shown.length > 1 ? `Play part ${i + 1}` : 'Play'} />;
-      })}
-    </View>
-  );
-}
-
-function NativePlayer({ url, from, label }: { url: string; from: number; label: string }) {
-  const player = useAudioPlayer({ uri: url });
-  return (
-    <Button
-      label={label}
-      kind="secondary"
-      onPress={async () => {
-        await player.seekTo(from);
-        player.play();
-      }}
-    />
   );
 }
 

@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActionMenu } from '@/components/ActionMenu';
 import { ProjectPicker } from '@/components/ProjectPicker';
@@ -305,7 +305,7 @@ export default function Record() {
         <T muted size={big ? 16 : 13} style={{ textAlign: 'center' }}>
           {rec.segmentsSaved > 0 ? `${rec.segmentsSaved} part${rec.segmentsSaved > 1 ? 's' : ''} saved safely` : 'Saving as you go'}
           {photos.length ? ` · ${photos.length} photo${photos.length > 1 ? 's' : ''}` : ''}
-          {onDevice ? ` · transcribed on this phone${Platform.OS === 'android' ? ' (keep the app open)' : ''}` : ''}
+          {onDevice ? ' · transcribed on this phone' : ''}
         </T>
 
         {photos.length > 0 && (

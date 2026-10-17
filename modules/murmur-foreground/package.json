@@ -1,0 +1,7 @@
+{
+  "name": "murmur-foreground",
+  "version": "0.1.0",
+  "description": "Android foreground service that keeps on-device (PCM) recording running with the screen off.",
+  "main": "index.ts",
+  "private": true
+}

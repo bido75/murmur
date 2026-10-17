@@ -8,10 +8,10 @@ import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
 import { PromptModal, type Prompt } from '@/components/PromptModal';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { addComment, ask, DESTINATIONS, exportNotes, type Destination, translateRecording, type Translation, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
+import { addComment, addToReel, createReel, listReels, ask, DESTINATIONS, exportNotes, type Destination, translateRecording, type Translation, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { APP_URL } from '@/lib/config';
-import { LANGUAGES } from '@/lib/shared';
+import { LANGUAGES, photoMoment } from '@/lib/shared';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -143,8 +143,11 @@ export default function RecordingDetail() {
     try {
       const shot = await takePhoto(source);
       if (!shot) return;
-      await queuePhoto(rec.id, shot, null);
+      // A library photo taken during the recording goes to its moment (from the photo's time).
+      const at = source === 'library' ? photoMoment(shot.takenAt ?? null, rec.created_at, rec.duration_ms ?? 0) : null;
+      await queuePhoto(rec.id, shot, at, at != null && rec.status === 'ready');
       await load();
+      if (at != null) notify('Photo placed', `Taken ${clock(at)} into the recording, so it's linked to what was being said then.`);
     } catch (e) {
       notify("Couldn't add the photo", (e as Error).message);
     }
@@ -181,6 +184,31 @@ export default function RecordingDetail() {
         label: 'Comment on this moment',
         onPress: () =>
           setPrompt({ title: `Comment at ${clock(u.start_ms)}`, multiline: true, okLabel: 'Post', onSubmit: async (v) => { if (v.trim()) { await addComment(id, { kind: 'comment', at_ms: u.start_ms, body: v.trim() }); setComments(await listComments(id)); } } }),
+      },
+      {
+        // Anyone who can read the recording can collect clips in their own reels.
+        label: 'Add to a highlight reel…',
+        onPress: guard(async () => {
+          const reels = await listReels();
+          const mine = reels.filter((r) => r.user_id === me);
+          const start = Math.max(0, u.start_ms - 2000);
+          const clip = { recording_id: id, start_ms: start, end_ms: Math.max(u.end_ms + 3000, start + 15_000), title: u.text.slice(0, 80) };
+          const add = async (reelId: string, name: string) => {
+            await addToReel(reelId, clip);
+            notify('Added', `Clip added to “${name}”.`);
+          };
+          setMenu({
+            title: 'Add this moment to',
+            actions: [
+              ...mine.map((r) => ({ label: r.title, onPress: guard(() => add(r.id, r.title)) })),
+              {
+                label: 'New reel…',
+                onPress: () =>
+                  setPrompt({ title: 'Name the reel', placeholder: 'e.g. Client feedback, October', okLabel: 'Create', onSubmit: async (v) => { if (v.trim()) await add(await createReel(v), v.trim()); } }),
+              },
+            ],
+          });
+        }),
       },
     ];
     if (isOwnerNow) {

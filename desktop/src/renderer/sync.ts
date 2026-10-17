@@ -63,6 +63,7 @@ async function perform(op: Op, userId: string) {
         template: op.template,
         source: op.video ? 'screen' : 'mic',
         has_video: Boolean(op.video),
+        channels: op.channels ?? 1,
         status: 'recording',
         project_id: op.projectId,
         consent_method: op.consentMethod,

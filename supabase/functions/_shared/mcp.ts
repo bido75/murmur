@@ -8,8 +8,11 @@ export type TaskInfo = { id: string; text: string; owner: string | null; due: st
 
 export interface Source {
   listProjects(): Promise<{ id: string; name: string; team: string | null }[]>;
-  listRecordings(opts: { project_id?: string; since?: string; limit: number }): Promise<RecordingInfo[]>;
-  searchRecordings(query: string, limit: number): Promise<(RecordingInfo & { snippet: string })[]>;
+  listRecordings(opts: { project_id?: string; since?: string; before?: string; limit: number }): Promise<RecordingInfo[]>;
+  /** REST API only: subscribe a URL to events (Zapier's instant triggers). */
+  createWebhook?(url: string, events: string[]): Promise<{ id: string } | null>;
+  deleteWebhook?(id: string): Promise<boolean>;
+  searchRecordings(query: string, limit: number): Promise<(RecordingInfo & { snippet: string; at_ms?: number | null })[]>;
   getNotes(recordingId: string): Promise<Record<string, unknown> | null>;
   getTranscript(recordingId: string, offset: number, maxChars: number): Promise<{ text: string; next_offset: number | null } | null>;
   listTasks(opts: { status: 'open' | 'review' | 'done'; project_id?: string; limit: number }): Promise<TaskInfo[]>;
@@ -50,6 +53,7 @@ export const TOOLS: Tool[] = [
       properties: {
         project_id: { type: 'string', description: 'Project id from list_projects.' },
         since: { type: 'string', description: 'ISO date, e.g. 2026-10-01.' },
+        before: { type: 'string', description: 'ISO date or timestamp: only older recordings (page back through history).' },
         limit: { type: 'number', description: '1–50, default 20.' },
       },
       additionalProperties: false,
@@ -59,6 +63,7 @@ export const TOOLS: Tool[] = [
       src.listRecordings({
         project_id: a.project_id ? needId(a.project_id, 'project_id') : undefined,
         since: str(a.since, 40),
+        before: str(a.before, 40),
         limit: num(a.limit, 20, 1, 50),
       }),
   },

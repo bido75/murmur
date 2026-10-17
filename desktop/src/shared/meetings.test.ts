@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectMeeting, parsePs, parseTasklist, shouldPrompt } from './meetings.ts';
+import { detectBrowserMeeting, detectMeeting, parsePs, parseTasklist, shouldPrompt } from './meetings.ts';
 
 test('macOS: Zoom meeting detected only while CptHost runs', () => {
   const idle = parsePs('/sbin/launchd\n/Applications/zoom.us.app/Contents/MacOS/zoom.us\n');
@@ -27,4 +27,14 @@ test('prompts once when a meeting starts, never while recording', () => {
   assert.equal(shouldPrompt('zoom', 'zoom', false), false);
   assert.equal(shouldPrompt(null, 'zoom', true), false);
   assert.equal(shouldPrompt('zoom', null, false), false);
+});
+
+test('browser meetings from window titles', () => {
+  assert.equal(detectBrowserMeeting(['Inbox - Gmail - Google Chrome', 'Meet - abc-defg-hij - Google Chrome']), 'meet');
+  assert.equal(detectBrowserMeeting(['Meet - Google Chrome', 'Google Meet - Arc']), null, 'home page and lobby without a code');
+  assert.equal(detectBrowserMeeting(['Weekly sync | Meeting | Microsoft Teams - Microsoft Edge']), 'teams');
+  assert.equal(detectBrowserMeeting(['Chat | Microsoft Teams']), null);
+  assert.equal(detectBrowserMeeting(['Zoom Meeting - Google Chrome']), 'zoom');
+  assert.equal(detectBrowserMeeting(['Webex Meeting - Firefox']), 'webex');
+  assert.equal(detectBrowserMeeting(['Notes about the meeting - Docs']), null);
 });

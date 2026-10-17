@@ -181,6 +181,12 @@ export default function SettingsScreen() {
       </Card>
 
       <Card style={{ gap: space.sm }}>
+        <T weight="600">Highlight reels</T>
+        <T muted size={14}>Clips from several recordings, in one place to play or share.</T>
+        <Button label="Open" kind="secondary" onPress={() => router.push('/reels')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
         <T weight="600">Phone calls</T>
         <T muted size={14}>Record calls through your Murmur number, or import calls from Aircall.</T>
         <Button label="Set up" kind="secondary" onPress={() => router.push('/phone')} />

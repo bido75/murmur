@@ -5,7 +5,7 @@ import * as Sharing from 'expo-sharing';
 import { isWeb } from './dialog';
 import { downloadWeb } from './export';
 import { uuid } from './format';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
+import { APP_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import { supabase } from './supabase';
 import { enqueue, keepFile, pendingOps, pendingPhotos, processRecording, type CreateOp } from './sync';
 import type { CalendarEvent, CalProvider, ConsentMethod, ConsentResponse, ConnKey, Integration, Invite, MeetingBot, Member, Photo, Project, Provider, Recording, Role, ShareLink, Summary, SummaryTemplate, Task, Template, Transcript, Workspace } from './types';
@@ -1098,4 +1098,97 @@ export async function ssoForEmail(email: string): Promise<{ sso: boolean; requir
 export async function joinDomainTeams(): Promise<number> {
   const { data } = await supabase.rpc('join_domain_teams');
   return Number(data ?? 0);
+}
+
+/** Email a team invite if the server has email set up; returns false otherwise. */
+export async function emailInvite(code: string): Promise<boolean> {
+  try {
+    return (await callFn<{ sent: boolean }>('admin/email-invite', { code })).sent;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- Highlight reels ----------
+
+export type Reel = { id: string; user_id: string; workspace_id: string | null; title: string; share_token: string | null; created_at: string };
+export type ReelItem = { id: string; playlist_id: string; recording_id: string; start_ms: number; end_ms: number; title: string | null; position: number; recordings?: { title: string } | null };
+
+export async function listReels(): Promise<Reel[]> {
+  const { data, error } = await supabase.from('playlists').select('id, user_id, workspace_id, title, share_token, created_at').order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Reel[];
+}
+
+export async function createReel(title: string, workspaceId: string | null = null): Promise<string> {
+  const { data, error } = await supabase.from('playlists').insert({ title: title.trim(), workspace_id: workspaceId }).select('id').single();
+  if (error) throw new Error(error.message);
+  return data.id as string;
+}
+
+export async function renameReel(id: string, title: string) {
+  const { error } = await supabase.from('playlists').update({ title: title.trim() }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteReel(id: string) {
+  const { error } = await supabase.from('playlists').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function reelItems(id: string): Promise<ReelItem[]> {
+  const { data, error } = await supabase
+    .from('playlist_items')
+    .select('id, playlist_id, recording_id, start_ms, end_ms, title, position, recordings(title)')
+    .eq('playlist_id', id)
+    .order('position')
+    .order('created_at');
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as (ReelItem & { recordings: { title: string } | { title: string }[] | null })[]).map((r) => ({ ...r, recordings: one(r.recordings) }));
+}
+
+export async function addToReel(reelId: string, clip: { recording_id: string; start_ms: number; end_ms: number; title?: string | null }) {
+  const { data: last } = await supabase.from('playlist_items').select('position').eq('playlist_id', reelId).order('position', { ascending: false }).limit(1).maybeSingle();
+  const { error } = await supabase.from('playlist_items').insert({
+    playlist_id: reelId,
+    recording_id: clip.recording_id,
+    start_ms: Math.max(0, Math.round(clip.start_ms)),
+    end_ms: Math.round(clip.end_ms),
+    title: clip.title?.slice(0, 200) ?? null,
+    position: (last?.position ?? -1) + 1,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function removeReelItem(id: string) {
+  const { error } = await supabase.from('playlist_items').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+/** Swap two clips' places. */
+export async function swapReelItems(a: ReelItem, b: ReelItem) {
+  const r1 = await supabase.from('playlist_items').update({ position: b.position }).eq('id', a.id);
+  const r2 = await supabase.from('playlist_items').update({ position: a.position }).eq('id', b.id);
+  if (r1.error || r2.error) throw new Error((r1.error ?? r2.error)!.message);
+}
+
+export async function setReelSharing(id: string, enabled: boolean): Promise<string | null> {
+  const { data, error } = await supabase.rpc('set_playlist_sharing', { pid: id, enabled });
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? null;
+}
+
+export function reelUrl(token: string) {
+  return `${APP_URL || (isWeb ? window.location.origin : '')}/h/${token}`;
+}
+
+// ---------- RingCentral ----------
+
+export async function ringcentralAvailable(): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('ringcentral/available', { method: 'GET' });
+  return !error && Boolean(data?.available);
+}
+
+export async function startRingCentral(returnTo: string): Promise<string> {
+  return (await callFn<{ url: string }>('ringcentral/start', { return_to: returnTo })).url;
 }

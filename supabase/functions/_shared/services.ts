@@ -49,19 +49,20 @@ export class HttpError extends Error {
   }
 }
 
-type DeepgramUtterance = { start: number; end: number; speaker?: number; transcript: string };
+type DeepgramUtterance = { start: number; end: number; speaker?: number; channel?: number; transcript: string };
 
 /** Transcribe one audio URL with speaker labels. Times come back in ms, relative to the file. */
 export async function transcribe(
   audioUrl: string,
   keyterms: string[] = [],
-  opts: { language?: string | null; redact?: string[] } = {},
-): Promise<{ utterances: Utterance[]; durationMs: number; language: string | null }> {
+  opts: { language?: string | null; redact?: string[]; multichannel?: boolean } = {},
+): Promise<{ utterances: (Utterance & { channel?: number })[]; durationMs: number; language: string | null }> {
   const o = {
     model: env('DEEPGRAM_MODEL', 'nova-3'),
     keyterms,
     language: opts.language ?? null,
     redact: opts.redact ?? [],
+    multichannel: Boolean(opts.multichannel),
     // Keep customer audio out of Deepgram's model-improvement program (the app promises
     // recordings aren't used to train AI). Set DEEPGRAM_MIP_OPT_OUT=false to change.
     mipOptOut: (Deno.env.get('DEEPGRAM_MIP_OPT_OUT') ?? 'true') !== 'false',
@@ -88,6 +89,7 @@ export async function transcribe(
       start_ms: Math.round(u.start * 1000),
       end_ms: Math.round(u.end * 1000),
       speaker: u.speaker ?? 0,
+      channel: u.channel ?? 0,
       text: u.transcript.trim(),
     }));
   const durationMs = Math.round((body?.metadata?.duration ?? 0) * 1000);

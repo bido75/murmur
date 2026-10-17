@@ -105,3 +105,28 @@ export function pcmLevelDb(bytes: Uint8Array): number {
   const rms = Math.sqrt(sum / n);
   return rms > 0 ? Math.max(-160, 20 * Math.log10(rms)) : -160;
 }
+
+/**
+ * When a photo was taken, from its EXIF data ("2026:10:15 09:12:30", the camera's local time,
+ * with an optional "-05:00" offset). Returns epoch ms, or null if missing or nonsense.
+ */
+export function exifTakenAt(exif: Record<string, unknown> | null | undefined, tzOffsetMin = new Date().getTimezoneOffset()): number | null {
+  if (!exif) return null;
+  const raw = String(exif.DateTimeOriginal ?? exif.DateTimeDigitized ?? exif.DateTime ?? (exif['{Exif}'] as Record<string, unknown> | undefined)?.DateTimeOriginal ?? '');
+  const m = raw.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
+  if (y < 2000 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60) return null;
+  const off = String(exif.OffsetTimeOriginal ?? exif.OffsetTime ?? '').match(/^([+-])(\d{2}):?(\d{2})$/);
+  // Offset given: exact. Otherwise assume the phone's own time zone (the photo was taken on it).
+  const offsetMin = off ? -(off[1] === '-' ? -1 : 1) * (Number(off[2]) * 60 + Number(off[3])) : tzOffsetMin;
+  return Date.UTC(y, mo - 1, d, h, mi, s) + offsetMin * 60_000;
+}
+
+/** Where in the recording a library photo belongs, if it was taken while recording (±1 min). */
+export function photoMoment(takenAt: number | null, recordingStart: string, durationMs: number): number | null {
+  if (takenAt == null) return null;
+  const ms = takenAt - Date.parse(recordingStart);
+  if (!Number.isFinite(ms) || ms < -60_000 || ms > durationMs + 60_000) return null;
+  return Math.max(0, Math.min(ms, durationMs));
+}

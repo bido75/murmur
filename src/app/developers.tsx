@@ -91,12 +91,14 @@ export default function Developers() {
         <T weight="600">REST API</T>
         <T muted size={14}>Read your recordings, notes, transcripts and tasks, and tick tasks off. Use a personal token from “Claude, ChatGPT and other AI tools”.</T>
         <T selectable style={code}>{`GET   /projects
-GET   /recordings?project_id=&since=&limit=
+GET   /recordings?project_id=&since=&before=&limit=
 GET   /recordings/{id}            notes
 GET   /recordings/{id}/transcript?offset=
 GET   /search?q=
 GET   /tasks?status=open|review|done&project_id=
-PATCH /tasks/{id}  {"status":"done"}`}</T>
+PATCH /tasks/{id}  {"status":"done"}
+POST  /webhooks   {"url":"https://…","events":["recording.ready"]}
+DELETE /webhooks/{id}`}</T>
         <T muted size={14}>Base URL:</T>
         <T selectable style={code}>{base}</T>
         <T selectable style={code}>{curl}</T>

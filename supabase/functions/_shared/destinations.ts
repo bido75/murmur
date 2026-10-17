@@ -1,6 +1,7 @@
 // Sending notes to other tools (Deno). Built on the pure builders in connect.ts and
 // oauth_providers.ts. Used by the `export` function (on demand) and by automations.
 import { adminClient } from './services.ts';
+import { renewOnce } from './token_lock.ts';
 import { crmNoteText, notionBlocks, oneNoteHtml, slackMessage } from './connect.ts';
 import { driveMultipart, providerConf, refreshBody, soqlString, type OAuthProvider } from './oauth_providers.ts';
 import { hubspot } from './trackers.ts';
@@ -15,7 +16,15 @@ export async function loadIntegration(userId: string, provider: string): Promise
 
 /** A fresh access token for an OAuth destination, saving rotated refresh tokens. */
 export async function accessFor(userId: string, provider: Exclude<OAuthProvider, 'slack'>, row: Row): Promise<string> {
-  if (row.access_secret && row.access_expires_at && new Date(row.access_expires_at).getTime() - Date.now() > 60_000) return row.access_secret;
+  const fresh = (r: { access_secret: string | null; access_expires_at: string | null }) => Boolean(r.access_secret && r.access_expires_at && new Date(r.access_expires_at).getTime() - Date.now() > 60_000);
+  if (fresh(row)) return row.access_secret!;
+  return await renewOnce(userId, provider, fresh, async () => {
+    const latest = await loadIntegration(userId, provider); // newest refresh token
+    return await renewOAuth(userId, provider, latest ?? row);
+  });
+}
+
+async function renewOAuth(userId: string, provider: Exclude<OAuthProvider, 'slack'>, row: Row): Promise<string> {
   const conf = providerConf(provider, (k) => Deno.env.get(k));
   const id = Deno.env.get(conf.idEnv) ?? '';
   const secret = Deno.env.get(conf.secretEnv) ?? '';

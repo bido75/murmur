@@ -2,6 +2,7 @@
 // Shared by process-recording (user-triggered) and the meeting bot webhook.
 import { adminClient, claudeStructured, transcribe } from './services.ts';
 import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
+import { boundaryExcerpt, joinParts, mapLimited, mergeChannels, parseSpeakerMap, speakersIn, sttCacheKey } from './parts.ts';
 import { normalizeMediaLink } from './links.ts';
 import { notifyUser } from './push.ts';
 import { runAfterReady, runFailedHooks } from './after_ready.ts';
@@ -21,7 +22,7 @@ export async function runPipeline(recordingId: string) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
-    .select('user_id, template, title, project_id, custom_template_id, audio_deleted_at, user_notes, transcribed_on_device')
+    .select('user_id, template, title, project_id, custom_template_id, audio_deleted_at, user_notes, transcribed_on_device, channels')
     .eq('id', recordingId)
     .single();
   if (!rec) return;
@@ -34,11 +35,12 @@ export async function runPipeline(recordingId: string) {
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
     custom = (t?.instructions as string | undefined) ?? null;
   }
-  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null);
+  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2);
 }
 
-async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null) {
+async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false) {
   const admin = adminClient();
+  const startedAt = Date.now();
   try {
     // Corrected transcripts (and ones whose audio retention removed, or made on the phone) are reused, not re-transcribed.
     const { data: existing } = await admin.from('transcripts').select('utterances, speaker_names, edited_at').eq('recording_id', recordingId).maybeSingle();
@@ -66,8 +68,21 @@ async function run(recordingId: string, userId: string, template: string, curren
       const keyterms = await keytermsFor(projectId, template);
       const sttOpts = await sttOptionsFor(userId, projectId);
 
-      // 1. Transcribe each segment and place it on the recording's timeline.
-      for (const seg of segments) {
+      // 1. Transcribe the parts (four at a time). Each part's transcript is saved as soon as it's
+      //    done, so if this run nears the server's time limit it hands over to a fresh run that
+      //    picks up where it stopped.
+      const cacheKey = sttCacheKey({ keyterms, language: sttOpts.language, redact: sttOpts.redact, multichannel: twoChannel, model: Deno.env.get('DEEPGRAM_MODEL') ?? 'nova-3' });
+      const { data: cachedRows } = await admin.from('segment_transcripts').select('idx, cache_key, utterances, duration_ms, language').eq('recording_id', recordingId);
+      const cached = new Map((cachedRows ?? []).filter((r) => r.cache_key === cacheKey).map((r) => [r.idx as number, r]));
+      const budgetMs = Number(Deno.env.get('PIPELINE_BUDGET_MS') ?? 240_000);
+      let handedOver = false;
+      const results = await mapLimited(segments, 4, async (seg) => {
+        const hit = cached.get(seg.idx);
+        if (hit) return { utterances: hit.utterances as Utterance[], durationMs: hit.duration_ms as number, language: (hit.language as string | null) ?? null };
+        if (handedOver || Date.now() - startedAt > budgetMs) {
+          handedOver = true;
+          return null;
+        }
         let audioUrl: string;
         if (seg.storage_path) {
           const { data: signed, error: signErr } = await admin.storage.from('audio').createSignedUrl(seg.storage_path, 60 * 60);
@@ -79,17 +94,36 @@ async function run(recordingId: string, userId: string, template: string, curren
           if (!check.ok) throw new Error(check.reason);
           audioUrl = check.url;
         }
-        const result = await transcribe(audioUrl, keyterms, sttOpts).catch((e) => {
+        const r = await transcribe(audioUrl, keyterms, { ...sttOpts, multichannel: twoChannel }).catch((e) => {
           if (!seg.storage_path) throw new Error(`Couldn't download audio from that link. Check it's public and points to an audio or video file. (${(e as Error).message.slice(0, 160)})`);
           throw e;
         });
-        all.push(...offsetUtterances(result.utterances, offset));
-        language = language ?? result.language;
-        offset += result.durationMs || seg.duration_ms;
+        const utterances = twoChannel ? mergeChannels(r.utterances) : r.utterances;
+        const out = { utterances, durationMs: r.durationMs || seg.duration_ms, language: r.language };
+        await admin.from('segment_transcripts').upsert({ recording_id: recordingId, idx: seg.idx, cache_key: cacheKey, utterances, duration_ms: out.durationMs, language: r.language });
+        // A part imported from a link is copied into our storage, so playback keeps working if the link goes away.
+        if (!seg.storage_path && seg.source_url) await copyLinkedPart(recordingId, userId, seg.idx, audioUrl).catch((e) => console.warn('link copy failed', (e as Error).message));
+        return out;
+      });
+      if (results.some((r) => r === null)) {
+        await continueLater(recordingId);
+        return;
       }
+      const parts = results as { utterances: Utterance[]; durationMs: number; language: string | null }[];
+
+      // 2. Speakers are numbered per part by the transcriber; match them up across the joins
+      //    so "Speaker 2" is the same person all the way through.
+      const joined = twoChannel ? parts.map((p) => p.utterances) : await matchSpeakers(parts.map((p) => p.utterances));
+      parts.forEach((p, i) => {
+        all.push(...offsetUtterances(joined[i], offset));
+        language = language ?? p.language;
+        offset += p.durationMs;
+      });
+      if (twoChannel && !speakerNames['0']) speakerNames['0'] = 'Me';
 
       const text = all.map((u) => u.text).join(' ');
-      await admin.from('transcripts').upsert({ recording_id: recordingId, user_id: userId, utterances: all, text });
+      await admin.from('transcripts').upsert({ recording_id: recordingId, user_id: userId, utterances: all, text, ...(Object.keys(speakerNames).length ? { speaker_names: speakerNames } : {}) });
+      await admin.from('segment_transcripts').delete().eq('recording_id', recordingId);
     }
     await admin.from('recordings').update({ status: 'summarizing', duration_ms: offset, ...(language ? { language } : {}) }).eq('id', recordingId);
 
@@ -226,4 +260,98 @@ async function sttOptionsFor(userId: string, projectId: string | null): Promise<
     }
   }
   return { language: (data?.language as string | null) ?? null, redact: [...redact] };
+}
+
+/** Hand a long recording to a fresh run (each run has a time limit). Gives up after 20 runs. */
+async function continueLater(recordingId: string) {
+  const admin = adminClient();
+  const { data: rec } = await admin.from('recordings').select('process_attempts').eq('id', recordingId).single();
+  const attempts = Number(rec?.process_attempts ?? 0) + 1;
+  if (attempts > 20) throw new Error('This recording is too long to process. Split it into shorter recordings and try again.');
+  await admin.from('recordings').update({ process_attempts: attempts }).eq('id', recordingId);
+  const base = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
+  const res = await fetch(`${base}/functions/v1/process-recording/continue`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${Deno.env.get('SUPABASE_ANON_KEY') ?? ''}`,
+      'x-internal-secret': internalSecret(),
+    },
+    body: JSON.stringify({ recording_id: recordingId }),
+  });
+  if (!res.ok) throw new Error(`Couldn't continue processing (${res.status})`);
+}
+
+export function internalSecret(): string {
+  return Deno.env.get('INTERNAL_SECRET') ?? Deno.env.get('CRON_SECRET') ?? '';
+}
+
+/** Ask Claude which speaker is which across each join, from the words either side of it. */
+async function matchSpeakers(parts: Utterance[][]): Promise<Utterance[][]> {
+  if (parts.length < 2 || parts.every((p) => speakersIn(p).length <= 1 && speakersIn(p)[0] === 0)) return joinParts(parts, []);
+  const maps: Record<number, number | null>[] = [];
+  for (let i = 1; i < parts.length; i++) {
+    const a = speakersIn(parts[i - 1]);
+    const b = speakersIn(parts[i]);
+    if (!a.length || !b.length) {
+      maps.push({});
+      continue;
+    }
+    try {
+      const ex = boundaryExcerpt(parts[i - 1], parts[i]);
+      const out = await claudeStructured<{ matches: { b: number; a: number | null }[] }>(
+        SPEAKER_MATCH_SYSTEM,
+        [{ role: 'user', content: `End of part A (speakers ${a.map((s) => `A${s}`).join(', ')}):\n${ex.before}\n\nStart of part B, which continues right after (speakers ${b.map((s) => `B${s}`).join(', ')}):\n${ex.after}` }],
+        SPEAKER_MATCH_TOOL,
+      );
+      maps.push(parseSpeakerMap(out.matches, b, a));
+    } catch (e) {
+      console.warn('speaker matching failed; keeping separate numbers', (e as Error).message);
+      maps.push({});
+    }
+  }
+  return joinParts(parts, maps);
+}
+
+const SPEAKER_MATCH_SYSTEM =
+  'A recording was split into parts and each part had its speakers numbered separately. Part B continues straight after part A. ' +
+  'Decide which speaker in B is which speaker in A, using names said, who was talking at the cut, who asks and answers, and topic continuity. ' +
+  'Only match when you are fairly confident; otherwise say the B speaker is new (a: null). Never map two B speakers to the same A speaker.';
+
+const SPEAKER_MATCH_TOOL = {
+  name: 'speaker_matches',
+  description: 'For each speaker in part B, the matching speaker number in part A, or null if new or unsure.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      matches: {
+        type: 'array',
+        items: { type: 'object', properties: { b: { type: 'integer' }, a: { type: ['integer', 'null'] } }, required: ['b', 'a'] },
+      },
+    },
+    required: ['matches'],
+  },
+};
+
+/** Stream a linked file into our storage (no full copy in memory) and point the part at it. */
+async function copyLinkedPart(recordingId: string, userId: string, idx: number, url: string) {
+  const maxBytes = Number(Deno.env.get('IMPORT_COPY_MAX_MB') ?? 2000) * 1024 * 1024;
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok || !res.body) throw new Error(`download ${res.status}`);
+  const len = Number(res.headers.get('content-length') ?? 0);
+  if (len > maxBytes) throw new Error('file too large to copy');
+  const type = (res.headers.get('content-type') ?? 'application/octet-stream').split(';')[0];
+  if (type.startsWith('text/')) throw new Error('not a media file');
+  const ext = type.includes('video') ? 'mp4' : type.includes('mpeg') ? 'mp3' : type.includes('wav') ? 'wav' : type.includes('ogg') ? 'ogg' : type.includes('webm') ? 'webm' : 'm4a';
+  const path = `${userId}/${recordingId}/seg-${String(idx).padStart(4, '0')}.${ext}`;
+  const base = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
+  const up = await fetch(`${base}/storage/v1/object/audio/${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''}`, 'Content-Type': type, 'x-upsert': 'true' },
+    body: res.body,
+    // @ts-ignore Deno streams request bodies with duplex: 'half'
+    duplex: 'half',
+  });
+  if (!up.ok) throw new Error(`storage ${up.status}: ${(await up.text()).slice(0, 120)}`);
+  await adminClient().from('recording_segments').update({ storage_path: path }).eq('recording_id', recordingId).eq('idx', idx);
 }
