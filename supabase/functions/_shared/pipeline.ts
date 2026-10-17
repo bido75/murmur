@@ -4,6 +4,7 @@ import { adminClient, claudeStructured, transcribe } from './services.ts';
 import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
 import { normalizeMediaLink } from './links.ts';
 import { notifyUser } from './push.ts';
+import { runAfterReady, runFailedHooks } from './after_ready.ts';
 import { assignPhotos, attachPhotosToLog, buildKeyterms, siteLogIsEmpty, verifySiteLog, type PhotoMark } from './field.ts';
 import {
   dropRepeats,
@@ -166,6 +167,7 @@ async function run(recordingId: string, userId: string, template: string, curren
       .update({ status: 'failed', error: (e as Error).message.slice(0, 500) })
       .eq('id', recordingId);
     await notifyUser(userId, { title: 'Couldn’t process a recording', body: (e as Error).message.slice(0, 200), data: { recording_id: recordingId } });
+    await runFailedHooks(recordingId, (e as Error).message.slice(0, 500)).catch(() => {});
   }
 }
 
@@ -176,6 +178,7 @@ export async function afterReady(recordingId: string, userId: string, title: str
     body: `${title}${taskCount ? ` · ${taskCount} action item${taskCount > 1 ? 's' : ''}` : ''}`,
     data: { recording_id: recordingId },
   });
+  await runAfterReady(recordingId).catch((e) => console.error('after-ready steps failed', recordingId, e));
 }
 
 /** Open, confirmed tasks from this project's other recordings (newest first, max 40). */

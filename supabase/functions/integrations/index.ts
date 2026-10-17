@@ -5,6 +5,7 @@
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { listTargets, PROVIDERS, TOKEN_PROVIDERS, verifyToken, type Config, type Provider, type Target } from '../_shared/trackers.ts';
 import { listTargets as procoreTargets } from '../_shared/procore.ts';
+import { notionPages } from '../_shared/destinations.ts';
 import { env as procoreEnv, loadProcore, procoreAccess } from '../_shared/procore_db.ts';
 
 Deno.serve(async (req) => {
@@ -13,11 +14,24 @@ Deno.serve(async (req) => {
     const { id: userId } = await requireUser(req);
     const body = await req.json();
     const provider = body.provider as Provider;
-    if (!PROVIDERS.includes(provider)) throw new HttpError(400, 'Unknown provider');
+    // Trackers plus destinations connected with a token (Notion) or by signing in (Slack, Salesforce, Google Docs, OneNote).
+    const ALL = [...PROVIDERS, 'notion', 'slack', 'google_docs', 'onenote', 'aircall'];
+    if (!ALL.includes(provider)) throw new HttpError(400, 'Unknown provider');
     const admin = adminClient();
 
+    if (body.action === 'connect' && (provider as string) === 'notion') {
+      const token = String(body.token ?? '').trim();
+      const me = await fetch('https://api.notion.com/v1/users/me', { headers: { Authorization: `Bearer ${token}`, 'Notion-Version': '2022-06-28' } });
+      if (!me.ok) throw new HttpError(400, 'Notion rejected that token. Use an internal integration secret (starts with ntn_ or secret_).');
+      const who = await me.json();
+      const config = { account: who?.bot?.workspace_name ?? 'Notion' };
+      const { error } = await admin.from('integrations').upsert({ user_id: userId, provider, secret: token, config }, { onConflict: 'user_id,provider' });
+      if (error) throw new Error(error.message);
+      return json({ provider, config });
+    }
+
     if (body.action === 'connect') {
-      if (!TOKEN_PROVIDERS.includes(provider)) throw new HttpError(400, 'Procore connects by signing in, not with a token.');
+      if (!TOKEN_PROVIDERS.includes(provider)) throw new HttpError(400, 'This one connects by signing in, not with a token.');
       const token = String(body.token ?? '').trim();
       if (!token) throw new HttpError(400, 'Paste a token first');
       const config: Config = {};
@@ -25,6 +39,8 @@ Deno.serve(async (req) => {
         config.email = String(body.email ?? '').trim();
         config.site = String(body.site ?? '').trim();
       }
+      if (provider === 'trello') config.key = String(body.key ?? '').trim();
+      if (provider === 'hubspot') config.target = { id: 'tasks', name: 'HubSpot tasks' };
       config.account = await verifyToken(provider, token, config).catch((e) => {
         throw new HttpError(400, (e as Error).message);
       });
@@ -37,6 +53,10 @@ Deno.serve(async (req) => {
 
     const { data: row } = await admin.from('integrations').select('secret, config').eq('user_id', userId).eq('provider', provider).maybeSingle();
     if (!row) throw new HttpError(404, 'Not connected');
+
+    if (body.action === 'targets' && (provider as string) === 'notion') {
+      return json({ targets: await notionPages(row.secret) });
+    }
 
     if (body.action === 'targets') {
       if (provider === 'procore') {

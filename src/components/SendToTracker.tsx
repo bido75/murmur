@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import { ActionMenu } from '@/components/ActionMenu';
 import { listIntegrations, pushTasks } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
-import { PROVIDER_LABELS, type Integration, type Provider, type Task } from '@/lib/types';
+import { PROVIDER_LABELS, TRACKERS, type Integration, type Provider, type Task } from '@/lib/types';
 
 /** Sends confirmed, open tasks that haven't been sent yet. Asks which tracker if several are connected. */
 export function SendToTracker({ tasks, onDone }: { tasks: Task[]; onDone: () => void }) {
@@ -16,7 +16,8 @@ export function SendToTracker({ tasks, onDone }: { tasks: Task[]; onDone: () => 
     listIntegrations().then(setIntegrations).catch(() => setIntegrations([]));
   }, []);
 
-  const ready = (integrations ?? []).filter((i) => i.config.target);
+  // Trackers only (not Slack/Notion/etc.). Salesforce tasks need no destination.
+  const ready = (integrations ?? []).filter((i): i is Integration & { provider: Provider } => TRACKERS.includes(i.provider as Provider) && (Boolean(i.config.target) || i.provider === 'salesforce'));
   const eligible = (p: Provider) => tasks.filter((t) => t.status === 'open' && !t.needs_review && !t.external?.[p]?.url);
 
   async function send(p: Provider) {
@@ -57,7 +58,7 @@ export function SendToTracker({ tasks, onDone }: { tasks: Task[]; onDone: () => 
         visible={picking}
         title="Send open tasks to"
         onClose={() => setPicking(false)}
-        actions={ready.map((i) => ({ label: `${PROVIDER_LABELS[i.provider]} · ${i.config.target?.name}`, onPress: () => void send(i.provider) }))}
+        actions={ready.map((i) => ({ label: i.config.target ? `${PROVIDER_LABELS[i.provider]} · ${i.config.target.name}` : PROVIDER_LABELS[i.provider], onPress: () => void send(i.provider) }))}
       />
     </>
   );

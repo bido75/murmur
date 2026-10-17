@@ -37,9 +37,11 @@ export async function registerForPush(): Promise<void> {
 export function listenForNotificationTaps(): () => void {
   if (isWeb) return () => {};
   const open = (data: unknown) => {
-    const id = (data as { recording_id?: string } | undefined)?.recording_id;
+    const d = data as { recording_id?: string; t?: string } | undefined;
+    const id = d?.recording_id;
+    const t = d?.t && /^\d+$/.test(d.t) ? d.t : undefined; // topic alerts jump to the moment
     // Wait for navigation to be ready when the app was opened from the notification.
-    if (id) setTimeout(() => router.push({ pathname: '/recording/[id]', params: { id } }), 400);
+    if (id) setTimeout(() => router.push({ pathname: '/recording/[id]', params: t ? { id, t } : { id } }), 400);
   };
   const last = Notifications.getLastNotificationResponse();
   if (last) open(last.notification.request.content.data);

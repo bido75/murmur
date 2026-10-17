@@ -3,6 +3,7 @@
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { createIssue, describeTask, PROVIDERS, type Config, type Provider } from '../_shared/trackers.ts';
 import { createPunchItem, type Attachment } from '../_shared/procore.ts';
+import { salesforceTask } from '../_shared/destinations.ts';
 import { env as procoreEnv, loadProcore, procoreAccess } from '../_shared/procore_db.ts';
 
 type Result = { task_id: string; ok: boolean; url?: string; key?: string; skipped?: string; error?: string };
@@ -50,7 +51,9 @@ Deno.serve(async (req) => {
                 { name: t.text, description },
                 await taskPhotos(client, t.photo_ids ?? []),
               )
-            : await createIssue(provider, integ.secret, integ.config as Config, { title: t.text, description, dueDate: t.due_date });
+            : provider === 'salesforce'
+              ? await salesforceTask(userId, t.text, description, t.due_date)
+              : await createIssue(provider, integ.secret, integ.config as Config, { title: t.text, description, dueDate: t.due_date });
         const external = { ...(t.external ?? {}), [provider]: { id: created.id, key: created.key ?? null, url: created.url } };
         // The task was read through RLS above, so the caller is allowed to see (and update) it.
         await admin.from('tasks').update({ external }).eq('id', t.id);

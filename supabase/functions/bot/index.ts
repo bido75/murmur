@@ -5,38 +5,11 @@
 //   POST /webhook  Recall bot status events; on "done" the audio is copied in and processed
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { runPipeline } from '../_shared/pipeline.ts';
-import {
-  apiBase,
-  audioDownloadUrl,
-  botAnnouncement,
-  createBotBody,
-  firstRecordingId,
-  meetingPlatform,
-  parseBotEvent,
-  recallEnv,
-  statusForEvent,
-  verifyWebhook,
-  type RecallEnv,
-} from '../_shared/recall.ts';
+import { audioDownloadUrl, firstRecordingId, meetingPlatform, parseBotEvent, recallEnv, statusForEvent, verifyWebhook } from '../_shared/recall.ts';
+import { createBot, env, recall } from '../_shared/bot_core.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 const MAX_AUDIO_BYTES = 400 * 1024 * 1024;
-
-function env(): RecallEnv {
-  const e = recallEnv((k) => Deno.env.get(k));
-  if (!e.apiKey) throw new HttpError(503, "The meeting bot isn't set up on the server yet (RECALL_API_KEY).");
-  return e;
-}
-
-async function recall<T>(e: RecallEnv, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${apiBase(e)}${path}`, {
-    ...init,
-    headers: { Authorization: `Token ${e.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers ?? {}) },
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Meeting bot service error (${res.status}): ${text.slice(0, 200)}`);
-  return (text ? JSON.parse(text) : {}) as T;
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -56,7 +29,7 @@ Deno.serve(async (req) => {
 
 async function schedule(req: Request) {
   const { id: userId, client } = await requireUser(req);
-  const e = env();
+  env(); // fails early if the bot isn't set up
   const body = await req.json();
   const meetingUrl = String(body.meeting_url ?? '').trim();
   if (!meetingPlatform(meetingUrl)) throw new HttpError(400, 'Paste a Zoom, Google Meet, Microsoft Teams or Webex meeting link.');
@@ -82,20 +55,7 @@ async function schedule(req: Request) {
 
   const admin = adminClient();
   try {
-    const bot = await recall<{ id: string }>(e, '/bot/', {
-      method: 'POST',
-      body: JSON.stringify(
-        createBotBody({
-          meetingUrl,
-          joinAt: joinAt?.toISOString() ?? null,
-          botName: e.botName,
-          recordingId,
-          userId,
-          announcement: botAnnouncement(me.user?.email ?? null, Deno.env.get('APP_NAME') ?? 'Murmur'),
-        }),
-      ),
-    });
-    await admin.from('meeting_bots').insert({ user_id: userId, recording_id: recordingId, provider_bot_id: bot.id, meeting_url: meetingUrl, join_at: joinAt?.toISOString() ?? null });
+    await createBot({ userId, email: me.user?.email ?? null, recordingId, meetingUrl, joinAt: joinAt?.toISOString() ?? null, eventKey: body.event_key || null, eventStart: body.event_start || null });
   } catch (err) {
     await admin.from('recordings').delete().eq('id', recordingId);
     throw err;

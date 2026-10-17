@@ -8,14 +8,14 @@ import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
 import { PromptModal, type Prompt } from '@/components/PromptModal';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { addComment, ask, translateRecording, type Translation, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
+import { addComment, ask, DESTINATIONS, exportNotes, type Destination, translateRecording, type Translation, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { APP_URL } from '@/lib/config';
 import { LANGUAGES } from '@/lib/shared';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
-import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentResponse, type Integration, type MeetingBot, type Photo, type Project, type Task } from '@/lib/types';
+import { CONSENT_LABELS, PROVIDER_LABELS, TEMPLATE_LABELS, type ConsentResponse, type Integration, type MeetingBot, type Photo, type Project, type Task } from '@/lib/types';
 
 type Data = Awaited<ReturnType<typeof getRecording>>;
 type Tab = 'notes' | 'transcript' | 'tasks' | 'ask';
@@ -233,6 +233,32 @@ export default function RecordingDetail() {
     }
   }
 
+  async function sendNotes(recId: string, d: Destination) {
+    const run = async (emails: string[] = []) => {
+      try {
+        const r = await exportNotes(recId, d, emails);
+        const where = PROVIDER_LABELS[d];
+        const extra = d === 'slack' && r.channel ? ` (${r.channel})` : r.linked != null ? ` · linked to ${r.linked} contact${r.linked === 1 ? '' : 's'}` : '';
+        if (r.url && (await confirm(`Sent to ${where}${extra}`, 'Open it now?', 'Open'))) void Linking.openURL(r.url);
+        else if (!r.url) notify(`Sent to ${where}${extra}`);
+      } catch (e) {
+        notify(`Couldn't send to ${PROVIDER_LABELS[d]}`, (e as Error).message);
+      }
+    };
+    if (d === 'hubspot' || d === 'salesforce') {
+      // Contacts are matched by email; attendees from consent responses are suggested.
+      const known = responses.map((r) => r.email).filter((e): e is string => !!e);
+      setPrompt({
+        title: `Log in ${PROVIDER_LABELS[d]}`,
+        message: 'Attendee emails, separated by commas. The meeting is logged on matching contacts.',
+        initial: known.join(', '),
+        placeholder: 'name@client.com',
+        okLabel: 'Log meeting',
+        onSubmit: (v) => run(v.split(/[\s,;]+/).filter((e) => e.includes('@'))),
+      });
+    } else await run();
+  }
+
   function openMenu() {
     const rec = data?.recording;
     if (!rec) return;
@@ -263,6 +289,16 @@ export default function RecordingDetail() {
       },
       { label: 'Share, email or export', onPress: () => router.push({ pathname: '/share', params: { id: rec.id } }) },
     ];
+    const dests = DESTINATIONS.filter((d) => integrations.some((i) => i.provider === d));
+    if (rec.status === 'ready') {
+      actions.push({
+        label: dests.length ? 'Send notes to…' : 'Send notes to Slack, Notion…',
+        onPress: () =>
+          dests.length
+            ? setMenu({ title: 'Send notes to', actions: dests.map((d) => ({ label: PROVIDER_LABELS[d], onPress: () => void sendNotes(rec.id, d) })) })
+            : router.push('/integrations'),
+      });
+    }
     if (isOwner) {
       if (!isWeb) actions.push({ label: 'Take a photo', onPress: () => void addPhoto('camera') });
       actions.push({ label: 'Add a photo from library', onPress: () => void addPhoto('library') });

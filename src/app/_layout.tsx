@@ -71,7 +71,10 @@ export default function RootLayout() {
           <Stack.Screen name="recording/[id]" options={{ title: '' }} />
           <Stack.Screen name="project/[id]" options={{ title: '' }} />
           <Stack.Screen name="deck" options={{ title: 'Make a deck', presentation: 'modal' }} />
-          <Stack.Screen name="integrations" options={{ title: 'Task trackers' }} />
+          <Stack.Screen name="integrations" options={{ title: 'Connections' }} />
+          <Stack.Screen name="automations" options={{ title: 'Automations' }} />
+          <Stack.Screen name="developers" options={{ title: 'Webhooks & API' }} />
+          <Stack.Screen name="alerts" options={{ title: 'Alerts & digest' }} />
           <Stack.Screen name="team/[id]" options={{ title: '' }} />
           <Stack.Screen name="join" options={{ title: 'Join a team' }} />
           <Stack.Screen name="api-access" options={{ title: 'Claude & ChatGPT' }} />

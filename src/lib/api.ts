@@ -8,7 +8,7 @@ import { uuid } from './format';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import { supabase } from './supabase';
 import { enqueue, keepFile, pendingOps, pendingPhotos, processRecording, type CreateOp } from './sync';
-import type { CalendarEvent, CalProvider, ConsentMethod, ConsentResponse, Integration, Invite, MeetingBot, Member, Photo, Project, Provider, Recording, Role, ShareLink, Summary, SummaryTemplate, Task, Template, Transcript, Workspace } from './types';
+import type { CalendarEvent, CalProvider, ConsentMethod, ConsentResponse, ConnKey, Integration, Invite, MeetingBot, Member, Photo, Project, Provider, Recording, Role, ShareLink, Summary, SummaryTemplate, Task, Template, Transcript, Workspace } from './types';
 import { normalizeMediaLink, titleFromLink } from './shared';
 
 /** Register a new recording locally; it syncs to the server when there's a connection. */
@@ -560,19 +560,19 @@ async function callFn<T>(name: string, body: Record<string, unknown>): Promise<T
   return data as T;
 }
 
-export function connectIntegration(provider: Provider, token: string, extra: { email?: string; site?: string } = {}) {
+export function connectIntegration(provider: ConnKey, token: string, extra: { email?: string; site?: string; key?: string } = {}) {
   return callFn<Integration>('integrations', { action: 'connect', provider, token, ...extra });
 }
 
-export async function integrationTargets(provider: Provider) {
+export async function integrationTargets(provider: ConnKey) {
   return (await callFn<{ targets: { id: string; name: string }[] }>('integrations', { action: 'targets', provider })).targets;
 }
 
-export function setIntegrationTarget(provider: Provider, target: { id: string; name: string }) {
+export function setIntegrationTarget(provider: ConnKey, target: { id: string; name: string }) {
   return callFn<Integration>('integrations', { action: 'set_target', provider, target });
 }
 
-export async function disconnectIntegration(provider: Provider) {
+export async function disconnectIntegration(provider: ConnKey) {
   const { error } = await supabase.from('integrations').delete().eq('provider', provider);
   if (error) throw new Error(error.message);
 }
@@ -785,4 +785,144 @@ export async function getBrief(projectId: string) {
     openTasks,
     last: last ? { id: last.id as string, title: last.title as string, created_at: last.created_at as string, summary } : null,
   };
+}
+
+// ---------- Sign-in connections (Slack, Salesforce, Google Docs, OneNote) ----------
+
+export type OAuthConn = 'slack' | 'salesforce' | 'google_docs' | 'onenote';
+
+export async function connectAvailable(): Promise<OAuthConn[]> {
+  const { data, error } = await supabase.functions.invoke('connect/available', { method: 'GET' });
+  return error ? [] : ((data?.providers ?? []) as OAuthConn[]);
+}
+
+/** Returns the provider's sign-in URL; it sends the user back with ?connected=provider:status. */
+export async function startConnect(provider: OAuthConn, returnTo: string): Promise<string> {
+  return (await callFn<{ url: string }>('connect/start', { provider, return_to: returnTo })).url;
+}
+
+// ---------- Send notes to another tool ----------
+
+export type Destination = 'slack' | 'notion' | 'google_docs' | 'onenote' | 'hubspot' | 'salesforce';
+export const DESTINATIONS: Destination[] = ['slack', 'notion', 'google_docs', 'onenote', 'hubspot', 'salesforce'];
+export type ExportResult = { url: string | null; channel?: string | null; linked?: number };
+
+export function exportNotes(recordingId: string, destination: Destination, emails: string[] = []) {
+  return callFn<ExportResult>('export', { recording_id: recordingId, destination, emails });
+}
+
+export async function getExports(recordingId: string): Promise<Partial<Record<Destination, ExportResult & { at: string }>>> {
+  const { data } = await supabase.from('summaries').select('exports').eq('recording_id', recordingId).maybeSingle();
+  return (data?.exports as Partial<Record<Destination, ExportResult & { at: string }>> | null) ?? {};
+}
+
+// ---------- Automations ----------
+
+export type AutomationAction =
+  | { type: 'slack' }
+  | { type: 'email'; to: string[] }
+  | { type: 'tracker'; provider: string }
+  | { type: 'export'; destination: 'notion' | 'google_docs' | 'onenote' | 'hubspot' | 'salesforce' }
+  | { type: 'webhook'; url: string };
+
+export type Automation = {
+  id: string;
+  name: string;
+  project_id: string | null;
+  template: string | null;
+  actions: AutomationAction[];
+  active: boolean;
+  last_run_at: string | null;
+  last_result: string | null;
+};
+
+export async function listAutomations(): Promise<Automation[]> {
+  const { data, error } = await supabase.from('automations').select('id, name, project_id, template, actions, active, last_run_at, last_result').order('created_at');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Automation[];
+}
+
+export async function saveAutomation(a: Omit<Automation, 'id' | 'last_run_at' | 'last_result'> & { id?: string }) {
+  const row = { name: a.name.trim(), project_id: a.project_id, template: a.template, actions: a.actions, active: a.active };
+  const q = a.id ? supabase.from('automations').update(row).eq('id', a.id) : supabase.from('automations').insert(row);
+  const { error } = await q;
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteAutomation(id: string) {
+  const { error } = await supabase.from('automations').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ---------- Webhooks ----------
+
+export type WebhookEvent = 'recording.ready' | 'recording.failed' | 'task.created';
+export type Webhook = {
+  id: string;
+  url: string;
+  secret: string;
+  events: WebhookEvent[];
+  project_id: string | null;
+  active: boolean;
+  last_status: number | null;
+  last_error: string | null;
+  last_delivery_at: string | null;
+};
+
+export async function listWebhooks(): Promise<Webhook[]> {
+  const { data, error } = await supabase.from('webhooks').select('id, url, secret, events, project_id, active, last_status, last_error, last_delivery_at').order('created_at');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Webhook[];
+}
+
+export async function addWebhook(url: string, events: WebhookEvent[], projectId: string | null) {
+  const { error } = await supabase.from('webhooks').insert({ url: url.trim(), events, project_id: projectId });
+  if (error) throw new Error(error.message.includes('check') ? 'The address must start with https://' : error.message);
+}
+
+export async function setWebhookActive(id: string, active: boolean) {
+  const { error } = await supabase.from('webhooks').update({ active }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteWebhook(id: string) {
+  const { error } = await supabase.from('webhooks').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export function apiBaseUrl() {
+  return `${(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '')}/functions/v1/api/v1`;
+}
+
+// ---------- Topic alerts, weekly digest, automatic notetaker ----------
+
+export type TopicAlert = { id: string; phrase: string; project_id: string | null; email: boolean };
+
+export async function listTopicAlerts(): Promise<TopicAlert[]> {
+  const { data, error } = await supabase.from('topic_alerts').select('id, phrase, project_id, email').order('created_at');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TopicAlert[];
+}
+
+export async function addTopicAlert(phrase: string, projectId: string | null, email: boolean) {
+  const { error } = await supabase.from('topic_alerts').insert({ phrase: phrase.trim(), project_id: projectId, email });
+  if (error) throw new Error(error.message.includes('check') ? 'Use 2 to 80 characters.' : error.message);
+}
+
+export async function deleteTopicAlert(id: string) {
+  const { error } = await supabase.from('topic_alerts').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export type Routines = { weekly_digest: boolean; auto_notetaker: boolean; timezone: string | null };
+
+export async function getRoutines(): Promise<Routines> {
+  const { data } = await supabase.from('user_settings').select('weekly_digest, auto_notetaker, timezone').maybeSingle();
+  return { weekly_digest: Boolean(data?.weekly_digest), auto_notetaker: Boolean(data?.auto_notetaker), timezone: (data?.timezone as string | null) ?? null };
+}
+
+export async function saveRoutines(r: Partial<Routines>) {
+  const me = await currentUserId();
+  const { error } = await supabase.from('user_settings').upsert({ user_id: me, ...r }, { onConflict: 'user_id' });
+  if (error) throw new Error(error.message);
 }

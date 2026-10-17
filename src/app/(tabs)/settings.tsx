@@ -175,9 +175,27 @@ export default function SettingsScreen() {
       </Card>
 
       <Card style={{ gap: space.sm }}>
-        <T weight="600">Task trackers</T>
-        <T muted size={14}>Send confirmed action items to Asana, Linear, Jira or Procore.</T>
+        <T weight="600">Connections</T>
+        <T muted size={14}>Task trackers (Procore, Asana, Linear, Jira, monday.com, ClickUp, Trello), Slack, Notion, Google Docs, OneNote, HubSpot and Salesforce.</T>
         <Button label="Manage connections" kind="secondary" onPress={() => router.push('/integrations')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Automations</T>
+        <T muted size={14}>When notes are ready: post to Slack, email the recap, send tasks, save to Notion, or call Zapier.</T>
+        <Button label="Manage automations" kind="secondary" onPress={() => router.push('/automations')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Alerts, digest & automatic notetaker</T>
+        <T muted size={14}>Get told when a topic comes up, a Monday summary email, and a notetaker for every calendar meeting.</T>
+        <Button label="Open" kind="secondary" onPress={() => router.push('/alerts')} />
+      </Card>
+
+      <Card style={{ gap: space.sm }}>
+        <T weight="600">Webhooks & REST API</T>
+        <T muted size={14}>For developers: signed webhooks and a read API over your recordings and tasks.</T>
+        <Button label="Open" kind="secondary" onPress={() => router.push('/developers')} />
       </Card>
 
       <Card style={{ gap: space.sm }}>

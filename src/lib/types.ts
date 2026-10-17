@@ -89,11 +89,17 @@ export type Photo = {
   pending?: boolean;
 };
 
-export type Provider = 'asana' | 'linear' | 'jira' | 'procore';
+export type Provider = 'asana' | 'linear' | 'jira' | 'procore' | 'monday' | 'clickup' | 'trello' | 'hubspot' | 'salesforce';
+/** Everything that can be connected: trackers plus places notes can go. */
+export type ConnKey = Provider | 'slack' | 'notion' | 'google_docs' | 'onenote';
 export type External = Partial<Record<Provider, { id: string; key: string | null; url: string }>>;
-export type Integration = { provider: Provider; config: { account?: string; target?: { id: string; name: string }; site?: string; email?: string } };
+export type Integration = { provider: ConnKey; config: { account?: string; target?: { id: string; name: string }; site?: string; email?: string; instance_url?: string } };
 
-export const PROVIDER_LABELS: Record<Provider, string> = { asana: 'Asana', linear: 'Linear', jira: 'Jira', procore: 'Procore' };
+export const PROVIDER_LABELS: Record<ConnKey, string> = {
+  asana: 'Asana', linear: 'Linear', jira: 'Jira', procore: 'Procore', monday: 'Monday.com', clickup: 'ClickUp', trello: 'Trello',
+  hubspot: 'HubSpot', salesforce: 'Salesforce', slack: 'Slack', notion: 'Notion', google_docs: 'Google Docs', onenote: 'OneNote',
+};
+export const TRACKERS: Provider[] = ['asana', 'linear', 'jira', 'monday', 'clickup', 'trello', 'hubspot', 'salesforce', 'procore'];
 
 export const CONSENT_LABELS: Record<ConsentMethod, string> = {
   told_everyone: 'Told everyone at the start',

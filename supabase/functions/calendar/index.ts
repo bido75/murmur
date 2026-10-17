@@ -5,28 +5,11 @@
 //   POST /events    { days? } → upcoming meetings from all connected calendars, with project matches
 // Refresh tokens are stored server-side only (see the calendar_connections column grants).
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
-import { isSafeReturn, matchProject, normalizeGoogle, normalizeGraph, sortAndFilter, type CalendarEvent, type CalProvider } from '../_shared/calendar.ts';
+import { isSafeReturn, matchProject, sortAndFilter, type CalProvider } from '../_shared/calendar.ts';
 import { randomToken } from '../_shared/oauth.ts';
-
-const PROVIDERS: Record<CalProvider, { auth: string; token: string; scope: string; idEnv: string; secretEnv: string }> = {
-  google: {
-    auth: 'https://accounts.google.com/o/oauth2/v2/auth',
-    token: 'https://oauth2.googleapis.com/token',
-    scope: 'openid email https://www.googleapis.com/auth/calendar.readonly',
-    idEnv: 'GOOGLE_CLIENT_ID',
-    secretEnv: 'GOOGLE_CLIENT_SECRET',
-  },
-  microsoft: {
-    auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
-    token: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-    scope: 'openid email offline_access User.Read Calendars.Read',
-    idEnv: 'MICROSOFT_CLIENT_ID',
-    secretEnv: 'MICROSOFT_CLIENT_SECRET',
-  },
-};
+import { creds, fetchEvents, PROVIDERS } from '../_shared/calendar_fetch.ts';
 
 const callbackUrl = () => `${(Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '')}/functions/v1/calendar/callback`;
-const creds = (p: CalProvider) => ({ id: Deno.env.get(PROVIDERS[p].idEnv) ?? '', secret: Deno.env.get(PROVIDERS[p].secretEnv) ?? '' });
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -135,25 +118,6 @@ function page(message: string) {
   });
 }
 
-async function accessToken(provider: CalProvider, refreshToken: string, userId: string): Promise<string | null> {
-  const c = creds(provider);
-  const res = await fetch(PROVIDERS[provider].token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: c.id, client_secret: c.secret, scope: PROVIDERS[provider].scope }),
-  });
-  const tok = await res.json();
-  if (!res.ok) {
-    console.error('calendar refresh failed', provider, res.status, tok?.error);
-    return null;
-  }
-  // Microsoft rotates refresh tokens; keep the newest.
-  if (tok.refresh_token && tok.refresh_token !== refreshToken) {
-    await adminClient().from('calendar_connections').update({ refresh_token: tok.refresh_token }).eq('user_id', userId).eq('provider', provider);
-  }
-  return tok.access_token;
-}
-
 async function events(req: Request) {
   const { id: userId, client } = await requireUser(req);
   const body = await req.json().catch(() => ({}));
@@ -161,40 +125,8 @@ async function events(req: Request) {
   const now = new Date();
   const until = new Date(now.getTime() + days * 86400_000);
 
-  const db = adminClient();
-  const { data: conns } = await db.from('calendar_connections').select('provider, refresh_token, account_email').eq('user_id', userId);
-  if (!conns?.length) return json({ connected: [], events: [] });
-
-  const all: (CalendarEvent | null)[] = [];
-  const problems: string[] = [];
-  for (const conn of conns as { provider: CalProvider; refresh_token: string; account_email: string | null }[]) {
-    if (!creds(conn.provider).id) continue;
-    const at = await accessToken(conn.provider, conn.refresh_token, userId);
-    if (!at) {
-      problems.push(conn.provider);
-      continue;
-    }
-    if (conn.provider === 'google') {
-      const u = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events');
-      u.search = new URLSearchParams({ timeMin: now.toISOString(), timeMax: until.toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '50' }).toString();
-      const r = await fetch(u, { headers: { Authorization: `Bearer ${at}` } });
-      if (!r.ok) { problems.push('google'); continue; }
-      all.push(...((await r.json()).items ?? []).map(normalizeGoogle));
-    } else {
-      const u = new URL('https://graph.microsoft.com/v1.0/me/calendarView');
-      u.search = new URLSearchParams({
-        startDateTime: now.toISOString(),
-        endDateTime: until.toISOString(),
-        $top: '50',
-        $orderby: 'start/dateTime',
-        $select: 'id,subject,start,end,isAllDay,isCancelled,seriesMasterId,type,attendees,onlineMeeting,onlineMeetingUrl,location,bodyPreview',
-      }).toString();
-      const r = await fetch(u, { headers: { Authorization: `Bearer ${at}`, Prefer: 'outlook.timezone="UTC"' } });
-      if (!r.ok) { problems.push('microsoft'); continue; }
-      all.push(...((await r.json()).value ?? []).map((e: Parameters<typeof normalizeGraph>[0]) => normalizeGraph(e, conn.account_email)));
-    }
-  }
-
+  const { events: all, problems, conns } = await fetchEvents(userId, now, until);
+  if (!conns.length) return json({ connected: [], events: [] });
   // Attach the matching project (explicit links first, then by name), using the user's own access.
   const [{ data: links }, { data: projects }] = await Promise.all([
     client.from('calendar_links').select('event_key, project_id'),
