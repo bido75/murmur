@@ -70,3 +70,38 @@ export function whisperToUtterances(segments: { text: string; t0: number; t1: nu
   }
   return out;
 }
+
+/** A 44-byte WAV header for 16-bit PCM (what whisper.cpp reads). */
+export function wavHeader(dataBytes: number, sampleRate = 16000, channels = 1): Uint8Array {
+  const h = new Uint8Array(44);
+  const v = new DataView(h.buffer);
+  const ascii = (o: number, s: string) => [...s].forEach((c, i) => (h[o + i] = c.charCodeAt(0)));
+  ascii(0, 'RIFF');
+  v.setUint32(4, 36 + dataBytes, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  v.setUint32(16, 16, true); // PCM chunk size
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, channels, true);
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * channels * 2, true); // byte rate
+  v.setUint16(32, channels * 2, true); // block align
+  v.setUint16(34, 16, true); // bits per sample
+  ascii(36, 'data');
+  v.setUint32(40, dataBytes, true);
+  return h;
+}
+
+/** Loudness of a chunk of 16-bit little-endian PCM, in dBFS (−160 for silence). */
+export function pcmLevelDb(bytes: Uint8Array): number {
+  const n = Math.floor(bytes.length / 2);
+  if (!n) return -160;
+  const v = new DataView(bytes.buffer, bytes.byteOffset, n * 2);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const s = v.getInt16(i * 2, true) / 32768;
+    sum += s * s;
+  }
+  const rms = Math.sqrt(sum / n);
+  return rms > 0 ? Math.max(-160, 20 * Math.log10(rms)) : -160;
+}

@@ -1,8 +1,10 @@
 // On-device transcription with whisper.cpp (whisper.rn). The audio never leaves the phone; only
-// the text is sent for notes. Needs a development/production build (not Expo Go) and, for now,
-// iOS: whisper.rn reads 16 kHz PCM WAV, which iOS can record directly. Untested on hardware.
+// the text is sent for notes. Needs a development or production build (not Expo Go).
+// iOS records the 16 kHz PCM WAV whisper.rn reads directly; Android goes through pcmRecorder.ts.
+// Untested on hardware.
 import { Directory, File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
+import { pcmRecorderAvailable } from './pcmRecorder';
 import { whisperToUtterances } from './shared';
 import type { Utterance } from './types';
 
@@ -29,7 +31,7 @@ function whisper(): WhisperModule | null {
 }
 
 export function localSttSupported(): boolean {
-  return Platform.OS === 'ios' && whisper() !== null;
+  return whisper() !== null && (Platform.OS === 'ios' || pcmRecorderAvailable());
 }
 
 function modelFile(): File {

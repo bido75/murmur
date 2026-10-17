@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/metro-runtime": "~57.0.17",
+    "@fugood/react-native-audio-pcm-stream": "1.1.4",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.117.3",
     "buffer": "6.0.3",

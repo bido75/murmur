@@ -11,7 +11,7 @@ compliance-automation tool (Vanta, Drata, Secureframe) can track evidence for th
 | CC4 Monitoring | Alerting on function errors, failed jobs, auth anomalies | Process — wire Supabase log drains to an alerting tool |
 | CC5 Control activities | Code review on every change; CI runs tests, types, lint (`.github/workflows/ci.yml`) | CI built; enforce branch protection and reviews (process) |
 | CC6.1 Logical access | RLS on all tables; role model; tokens hashed; least-privilege service role | Built |
-| CC6.1 Authentication | Email codes, SAML SSO, SCIM deprovisioning | Built (see SSO gap in access-control.md) |
+| CC6.1 Authentication | Email codes, SAML SSO, SCIM deprovisioning | Built |
 | CC6.2/6.3 Access reviews | Quarterly review of Supabase org members, vendor consoles, team admins | Process |
 | CC6.6 External threats | HTTPS only; signed webhooks; input validation; toll-fraud guard | Built |
 | CC6.7 Data in transit | TLS everywhere | Built |

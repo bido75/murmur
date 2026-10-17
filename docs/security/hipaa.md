@@ -35,5 +35,5 @@ Access control (RLS, roles, SSO/SCIM), audit controls (trigger-based audit log),
 
 ## Gaps to close
 
-Enforced SSO at the auth server; formal risk analysis; workforce
+Formal risk analysis; workforce
 training; breach-notification procedure with timelines (incident-response.md).

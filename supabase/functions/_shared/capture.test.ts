@@ -80,3 +80,30 @@ test('on-device transcripts: whisper segments become paragraphs; bad input refus
   assert.equal(cleanLocalTranscript([{ start_ms: 9000, end_ms: 9500, text: 'a' }, { start_ms: 1000, end_ms: 2000, text: 'b' }]), null, 'out of order');
   assert.equal(cleanLocalTranscript([{ start_ms: 0, end_ms: 10, text: '   ' }]), null);
 });
+
+test('WAV header and PCM level', async () => {
+  const { wavHeader, pcmLevelDb } = await import('./ingest.ts');
+  const h = wavHeader(32000);
+  const v = new DataView(h.buffer);
+  assert.equal(new TextDecoder().decode(h.slice(0, 4)), 'RIFF');
+  assert.equal(new TextDecoder().decode(h.slice(8, 16)), 'WAVEfmt ');
+  assert.equal(v.getUint32(4, true), 36 + 32000);
+  assert.equal(v.getUint32(24, true), 16000);
+  assert.equal(v.getUint32(28, true), 32000);
+  assert.equal(v.getUint32(40, true), 32000);
+  // A full-scale square wave is 0 dBFS; silence is the floor.
+  const loud = new Uint8Array(400);
+  const lv = new DataView(loud.buffer);
+  for (let i = 0; i < 200; i++) lv.setInt16(i * 2, i % 2 ? 32767 : -32768, true);
+  assert.ok(Math.abs(pcmLevelDb(loud)) < 0.01);
+  assert.equal(pcmLevelDb(new Uint8Array(400)), -160);
+  // Python reads the file as valid 16 kHz mono audio.
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const f = join(mkdtempSync(join(tmpdir(), 'wav-')), 'a.wav');
+  writeFileSync(f, Buffer.concat([wavHeader(400), loud]));
+  const out = execFileSync('python3', ['-I', '-c', 'import wave,sys;w=wave.open(sys.argv[1]);print(w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes())', f]).toString().trim();
+  assert.equal(out, '16000 1 2 200');
+});

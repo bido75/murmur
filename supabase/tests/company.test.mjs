@@ -120,3 +120,21 @@ test('SCIM tokens: admin only, hashed, at most 3', async () => {
   await rows(owner, 'select create_scim_token($1)', [ws]);
   assert.ok(await fails(owner, 'select create_scim_token($1)', [ws]));
 });
+
+test('SSO required is enforced when tokens are issued', async () => {
+  const hook = async (claims) => (await svc('select custom_access_token_hook($1::jsonb) r', [JSON.stringify({ user_id: newHire.id, claims, authentication_method: 'otp' })]))[0].r;
+  // acme.com is verified, has a provider and requires SSO (set in the domains test).
+  const otp = await hook({ sub: newHire.id, email: 'sam@acme.com', amr: [{ method: 'otp', timestamp: 1 }] });
+  assert.equal(otp.error.http_code, 403);
+  const sso = await hook({ sub: newHire.id, email: 'Sam@Acme.com', amr: [{ method: 'sso/saml', timestamp: 1 }] });
+  assert.equal(sso.error, undefined);
+  assert.equal(sso.claims.email, 'Sam@Acme.com', 'claims pass through unchanged');
+  const other = await hook({ sub: outsider.id, email: 'x@else.com', amr: [{ method: 'otp', timestamp: 1 }] });
+  assert.equal(other.error, undefined);
+  const noEmailClaim = await hook({ sub: newHire.id, amr: [{ method: 'otp', timestamp: 1 }] });
+  assert.equal(noEmailClaim.error.http_code, 403, 'falls back to the account email');
+  await svc(`update workspace_domains set sso_required = false where domain = 'acme.com'`);
+  assert.equal((await hook({ sub: newHire.id, email: 'sam@acme.com', amr: [{ method: 'otp', timestamp: 1 }] })).error, undefined);
+  await svc(`update workspace_domains set sso_required = true where domain = 'acme.com'`);
+  assert.ok(await fails(owner, `select custom_access_token_hook('{}'::jsonb)`), 'not callable by users');
+});

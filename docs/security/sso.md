@@ -21,7 +21,10 @@ Requires Supabase Pro or above with SAML enabled (Authentication → Providers �
    update workspace_domains set sso_provider_id = '<provider id>', sso_required = true
    where domain = 'acme.com' and verified_at is not null;
    ```
-5. People with `@acme.com` emails now see **Continue with single sign-on**. Add the web app's
+5. Turn on the access-token hook once per project (Authentication → Hooks → Customize Access Token →
+   Postgres function `public.custom_access_token_hook`). It refuses tokens for non-SSO sessions at
+   SSO-required domains; without it, "SSO required" only changes what the app shows.
+6. People with `@acme.com` emails now see **Continue with single sign-on**. Add the web app's
    `/sso-callback` and the app scheme (`murmur://sso-callback`) to Auth → URL Configuration →
    Redirect URLs.
 

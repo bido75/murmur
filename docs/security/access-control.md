@@ -32,9 +32,9 @@ visible to the person in Privacy & data. Rows cannot be edited or deleted by any
   in with a confirmed email at that domain join the team automatically (can be turned off).
 - **SAML single sign-on:** Okta, Microsoft Entra ID, Google Workspace and other SAML 2.0 providers,
   configured per domain by the operator (see [sso.md](sso.md)). Domains can be marked "SSO
-  required"; the app then offers only SSO for those addresses. *Known gap:* email-code sign-in for
-  an SSO-required domain is hidden in the app but not yet blocked at the auth server; add a Supabase
-  Auth hook before selling "enforced SSO".
+  required": the auth server then refuses to issue a token for any session at that domain that
+  didn't start with SSO (Supabase access-token hook `custom_access_token_hook`), so email codes
+  stop working and older sessions end at their next refresh. The app shows only the SSO button.
 - **SCIM 2.0:** identity providers add and remove team members automatically (Users endpoint,
   filter by userName, PATCH active). Removing a person removes their team access; their personal
   recordings stay theirs.

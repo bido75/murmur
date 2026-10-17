@@ -11,6 +11,7 @@ create extension if not exists pgcrypto schema extensions;
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
+create role supabase_auth_admin nologin;
 grant usage on schema public to anon, authenticated, service_role;
 grant usage on schema extensions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;

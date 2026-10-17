@@ -216,9 +216,9 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
 17. **Aircall, devices, on-device transcription.**
     `supabase functions deploy aircall --no-verify-jwt` and `supabase functions deploy ingest --no-verify-jwt` (browser extension, watches,
     on-device transcripts). Then see `extension/README.md`, `watch/README.md`, `wear/README.md`. On-device transcription needs a development
-    build (`npx expo run:ios`); it isn't available in Expo Go.
+    build (`npx expo run:ios` / `npx expo run:android`); it isn't available in Expo Go.
 18. **Company controls.** `supabase functions deploy admin`, `supabase functions deploy export-data`, `supabase functions deploy scim --no-verify-jwt`.
-    SAML single sign-on and SCIM setup: `docs/security/sso.md`. The security & compliance pack is in `docs/security/`.
+    SAML single sign-on and SCIM setup: `docs/security/sso.md` — including turning on the access-token hook (Authentication → Hooks → `public.custom_access_token_hook`) so "SSO required" is enforced by the server. The security & compliance pack is in `docs/security/`.
 19. **Desktop screen recording** needs nothing extra on Windows. On macOS, allow Murmur under System Settings → Privacy & Security →
     Screen & System Audio Recording.
 
@@ -280,13 +280,13 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Aircall sandbox: set up the webhook, make a call, check it imports once (re-sent webhooks don't duplicate).
 - [ ] Browser extension: link with a code, record a YouTube tab with your mic for 6 minutes (two parts), stop; notes arrive. Close the tab mid-recording: it finishes cleanly.
 - [ ] Apple Watch / Wear OS (after building): link, record 2 minutes with the screen off, stop out of Wi-Fi range, then reconnect: it uploads.
-- [ ] On-device transcription (iPhone dev build): download the model, record, check no audio file appears in storage and notes arrive.
+- [ ] On-device transcription (iPhone and Android dev builds): download the model, record 6+ minutes, check no audio file appears in storage and notes arrive. On Android, force-quit mid-recording and reopen: the first part is still transcribed.
 - [ ] Desktop: "Also record my screen", share a slide deck for 6 minutes, stop; "Watch screen recording" plays both parts.
 - [ ] Admin console: turn off public links → existing links say "turned off"; set link max 7 days → new links expire in 7 days; require consent → recording into a team project needs a consent choice.
 - [ ] Team retention 30 days on audio; backdate a team recording; run retention: audio gone.
 - [ ] Audit log shows: invite, role change, link made/revoked, recording deleted, policy change.
 - [ ] Verify a domain you own (TXT record) → a new account at that domain joins the team on sign-in.
-- [ ] SAML SSO with an Okta developer account (docs/security/sso.md): "Continue with single sign-on" signs in.
+- [ ] SAML SSO with an Okta developer account (docs/security/sso.md): "Continue with single sign-on" signs in. With "SSO required" and the hook on, an email code for that domain is refused, and a session signed in by code before turning it on ends within an hour.
 - [ ] SCIM with Okta: assign a user → they appear as a member; unassign → removed; owners can't be removed.
 - [ ] Export my data: open the ZIP; notes.md, transcript.txt, tasks.csv open cleanly; audio links download.
 
@@ -295,9 +295,8 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - **Consent rules are information, not legal advice.** The state list (13 all-party states, with phone/in-person nuances) was checked against current summaries in Oct 2026; outside the US the app always says "ask everyone first". Have counsel review before launch.
 - **Notetaker bot** uses Recall.ai and was tested with a fake server only (requests, signatures, events), not a live meeting. Bots that join without the host present can be blocked by meeting settings (waiting rooms, "only signed-in users").
 - **Retention** applies the owner's setting and, for team projects, the team's policy; the shorter wins.
-- **Untested against live services:** Slack, Salesforce, HubSpot, Notion, Google Docs, OneNote, monday.com, ClickUp, Trello, Twilio, Aircall, SAML SSO, SCIM clients, the Apple Watch and Wear OS apps (not compiled here), on-device transcription (needs an iPhone build) and the browser extension's capture (popup and linking were tested). Each was built from the vendor's documentation and tested with mocked responses where possible.
-- **SSO required** hides email codes for that domain in the app but isn't yet enforced by the auth server (see docs/security/access-control.md).
-- **On-device transcription** is iOS-only for now (Android can't record the WAV format it needs without another native module).
+- **Untested against live services:** Slack, Salesforce, HubSpot, Notion, Google Docs, OneNote, monday.com, ClickUp, Trello, Twilio, Aircall, SAML SSO, SCIM clients, the Apple Watch and Wear OS apps (not compiled here), on-device transcription (needs iPhone and Android builds), the SSO access-token hook on a live project and the browser extension's capture (popup and linking were tested). Each was built from the vendor's documentation and tested with mocked responses where possible.
+- **On-device transcription on Android** records through its own microphone module, so it can't keep recording with the app in the background yet; the screen stays on and the app says to keep it open. iPhone has no such limit.
 - **Link imports** read the file from where it is; if the link stops working later, playback in the app stops (notes stay). Very large Google Drive files show a virus-scan page instead of the file and fail with a clear error.
 - **Share pages** need the web app deployed (`APP_URL`). On phones, links open in the browser.
 

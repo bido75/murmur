@@ -2,4 +2,4 @@
 export { consentAdvice, STATES, stateByCode, type Advice, type Kind, type StateLaw } from '../../supabase/functions/_shared/consent';
 export { normalizeMediaLink, titleFromLink } from '../../supabase/functions/_shared/links';
 export { LANGUAGES } from '../../supabase/functions/_shared/translate';
-export { whisperToUtterances } from '../../supabase/functions/_shared/ingest';
+export { pcmLevelDb, wavHeader, whisperToUtterances } from '../../supabase/functions/_shared/ingest';

@@ -14,12 +14,14 @@ import {
   type RecordingInput,
   type RecordingOptions,
 } from 'expo-audio';
-import { File } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from './config';
 import { isWeb } from './dialog';
+import { Platform } from 'react-native';
 import { LOCAL_RECORDING } from './localStt';
+import { PcmWavRecorder, repairWav } from './pcmRecorder';
 import { enqueue, keepFile } from './sync';
 
 const OPTIONS: RecordingOptions = {
@@ -55,6 +57,7 @@ export async function recoverInterruptedRecording(): Promise<string | null> {
       const f = new File(a.currentUri);
       if (f.exists && f.size > 4096) {
         const ext = a.local ? 'wav' : EXT;
+        if (a.local && Platform.OS === 'android') repairWav(a.currentUri); // header sizes weren't written
         const uri = keepFile(a.currentUri, a.recordingId, a.segIdx, ext);
         // Duration unknown; the server measures it during transcription.
         if (a.local) await enqueue({ kind: 'local_segment', recordingId: a.recordingId, idx: a.segIdx, localUri: uri, offsetMs: a.doneMs, durationMs: 0 });
@@ -85,6 +88,15 @@ export function useSegmentedRecorder() {
   const [inputs, setInputs] = useState<RecordingInput[]>([]);
   const [inputUid, setInputUid] = useState<string | null>(null);
   const preferredInput = useRef<string | null>(null);
+  // Android + on-device transcription: raw PCM written to WAV by us instead of expo-audio.
+  const pcm = useRef<PcmWavRecorder | null>(null);
+  const [pcmMs, setPcmMs] = useState(0);
+  const [pcmLevel, setPcmLevel] = useState<number | null>(null);
+  const [usingPcm, setUsingPcm] = useState(false);
+  const status = useCallback(() => {
+    const p = pcm.current;
+    return p ? { durationMillis: p.durationMs, metering: p.level, mediaServicesDidReset: false } : recorder.getStatus();
+  }, [recorder]);
 
   /** Each new file re-prepares the recorder, so re-apply the chosen mic every time. */
   const applyInput = useCallback(async () => {
@@ -103,6 +115,14 @@ export function useSegmentedRecorder() {
   }, [recorder]);
 
   const beginSegment = useCallback(async () => {
+    if (pcm.current && session.current) {
+      const uri = new File(Paths.cache, `rec-${session.current.recordingId}-${session.current.segIdx}.wav`).uri;
+      pcm.current.start(uri);
+      lastProgress.current = { ms: 0, at: Date.now() };
+      session.current.currentUri = uri;
+      await saveActive(session.current);
+      return;
+    }
     await recorder.prepareToRecordAsync(session.current?.local ? (LOCAL_RECORDING as Partial<RecordingOptions>) : undefined);
     await applyInput();
     recorder.record();
@@ -116,9 +136,16 @@ export function useSegmentedRecorder() {
   const finishSegment = useCallback(async () => {
     const s = session.current;
     if (!s) return;
-    const durationMs = recorder.getStatus().durationMillis;
-    await recorder.stop();
-    const uri = recorder.uri ?? s.currentUri;
+    let durationMs: number;
+    let uri: string | null;
+    if (pcm.current) {
+      durationMs = pcm.current.finishFile();
+      uri = s.currentUri;
+    } else {
+      durationMs = recorder.getStatus().durationMillis;
+      await recorder.stop();
+      uri = recorder.uri ?? s.currentUri;
+    }
     if (uri && durationMs > 500) {
       const ext = s.local ? 'wav' : EXT;
       const kept = keepFile(uri, s.recordingId, s.segIdx, ext);
@@ -160,6 +187,9 @@ export function useSegmentedRecorder() {
         interruptionMode: 'doNotMix',
       });
       session.current = { recordingId, segIdx: 1, doneMs: 0, currentUri: null, local: Boolean(opts.local) && !isWeb };
+      pcm.current = session.current.local && Platform.OS === 'android' ? new PcmWavRecorder() : null;
+      setUsingPcm(pcm.current !== null);
+      setPcmMs(0);
       setSegmentsSaved(0);
       setDoneMs(0);
       setWarning(null);
@@ -173,16 +203,18 @@ export function useSegmentedRecorder() {
   );
 
   const pause = useCallback(() => {
-    recorder.pause();
+    if (pcm.current) pcm.current.pause();
+    else recorder.pause();
     setPhase('paused');
   }, [recorder]);
 
   const resume = useCallback(() => {
-    recorder.record();
-    lastProgress.current = { ms: recorder.getStatus().durationMillis, at: Date.now() };
+    if (pcm.current) pcm.current.resume();
+    else recorder.record();
+    lastProgress.current = { ms: status().durationMillis, at: Date.now() };
     setWarning(null);
     setPhase('recording');
-  }, [recorder]);
+  }, [recorder, status]);
 
   /** Stop, save the last segment and hand the recording to the upload queue. */
   const stop = useCallback(async () => {
@@ -195,6 +227,9 @@ export function useSegmentedRecorder() {
       await enqueue(s.local ? { kind: 'local_finalize', recordingId: s.recordingId, durationMs: s.doneMs } : { kind: 'finalize', recordingId: s.recordingId, durationMs: s.doneMs });
       await saveActive(null);
     } finally {
+      await pcm.current?.release();
+      pcm.current = null;
+      setUsingPcm(false);
       session.current = null;
       busy.current = false;
       void Promise.resolve()
@@ -210,8 +245,12 @@ export function useSegmentedRecorder() {
     if (phase !== 'recording') return;
     const timer = setInterval(() => {
       if (busy.current) return;
-      const st = recorder.getStatus();
+      const st = status();
       const now = Date.now();
+      if (pcm.current) {
+        setPcmMs(st.durationMillis);
+        setPcmLevel(st.metering ?? null);
+      }
 
       if (st.mediaServicesDidReset || st.durationMillis >= SEGMENT_MS) {
         void rotate();
@@ -236,7 +275,7 @@ export function useSegmentedRecorder() {
       }
     }, 500);
     return () => clearInterval(timer);
-  }, [phase, recorder, rotate]);
+  }, [phase, status, rotate]);
 
   // Never leave the mic open if the screen goes away (runs on unmount only).
   const stopRef = useRef(stop);
@@ -264,14 +303,14 @@ export function useSegmentedRecorder() {
     [recorder],
   );
 
-  const elapsedMs = phase === 'idle' ? 0 : doneMs + state.durationMillis;
+  const elapsedMs = phase === 'idle' ? 0 : doneMs + (usingPcm ? pcmMs : state.durationMillis);
 
   return {
     phase,
     warning,
     segmentsSaved,
     elapsedMs,
-    level: state.metering ?? null,
+    level: usingPcm ? pcmLevel : (state.metering ?? null),
     start,
     pause,
     resume,
