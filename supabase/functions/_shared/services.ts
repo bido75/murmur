@@ -4,7 +4,7 @@ import type { Utterance } from './verify.ts';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-share-password',
 };
 
 export function json(body: unknown, status = 200): Response {

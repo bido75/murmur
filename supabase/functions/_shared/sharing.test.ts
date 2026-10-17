@@ -158,3 +158,21 @@ test('bot audio: mixed mp3 first, video as fallback', () => {
   assert.equal(audioDownloadUrl({ recordings: [{ media_shortcuts: { video_mixed: { data: { download_url: 'https://s3/v.mp4' } } } }] }, { results: [] }), 'https://s3/v.mp4');
   assert.equal(audioDownloadUrl({}, {}), null);
 });
+
+test('follow-up email material uses only confirmed notes; open tasks with owners and dates', async () => {
+  const { followupMaterial, followupSystem } = await import('./followup.ts');
+  const m = followupMaterial(publicNotes(src, false), 'olivia@acme.com');
+  assert.match(m, /Use Hilti anchors/);
+  assert.match(m, /Send RFI 14 \(owner: Maya\) \(due: Friday\)/);
+  assert.ok(!m.includes('Order steel'), 'done tasks are not next steps');
+  assert.ok(!m.includes('Maybe repaint') && !m.includes('Invented'));
+  assert.match(followupSystem('formal'), /formal/);
+});
+
+test('push batches: only Expo tokens, deduplicated, 100 per request', async () => {
+  const { pushBatches } = await import('./push_batches.ts');
+  const toks = [...Array.from({ length: 150 }, (_, i) => `ExponentPushToken[t${i}]`), 'ExponentPushToken[t1]', 'garbage', 'ExpoPushToken[x]'];
+  const b = pushBatches(toks, { title: 'Notes ready', body: 'OAC', data: { recording_id: 'r1' } });
+  assert.deepEqual(b.map((x) => x.length), [100, 51]);
+  assert.equal(b[0][0].data?.recording_id, 'r1');
+});

@@ -49,8 +49,12 @@ export function systemPrompt(template: string, custom: string | null = null): st
   ].join('\n');
 }
 
-export function userMessage(transcript: string, openTasks: { ref: string; text: string }[]): string {
+export function userMessage(transcript: string, openTasks: { ref: string; text: string }[], userNotes: string | null = null): string {
   const parts = [];
+  if (userNotes?.trim()) {
+    parts.push('Notes the user typed during the meeting (treat these as what mattered most to them: cover every point, expand each with details from the transcript, keep their wording where it fits, and never add anything the transcript does not support):');
+    parts.push('<user_notes>', userNotes.trim().slice(0, 20000), '</user_notes>', '');
+  }
   if (openTasks.length) {
     parts.push('Open tasks from earlier recordings in this project:');
     parts.push(...openTasks.map((t) => `${t.ref}: ${t.text}`));

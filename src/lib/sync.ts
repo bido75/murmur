@@ -26,8 +26,9 @@ export type CreateOp = Base & {
 export type SegmentOp = Base & { kind: 'segment'; idx: number; localUri: string; ext: string; durationMs: number };
 export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
 export type LinkOp = Base & { kind: 'link'; url: string };
+export type NotesOp = Base & { kind: 'notes'; text: string };
 export type PhotoOp = Base & { kind: 'photo'; photoId: string; localUri: string; takenMs: number | null; width: number; height: number };
-export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp | LinkOp;
+export type Op = CreateOp | SegmentOp | FinalizeOp | PhotoOp | LinkOp | NotesOp;
 type NewOp<T> = Omit<T, 'attempts' | 'nextAt'>;
 
 const KEY = 'sync.queue.v1';
@@ -67,7 +68,7 @@ export async function pendingOps(): Promise<Op[]> {
   return [...(await load())];
 }
 
-export async function enqueue(op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp> | NewOp<LinkOp>) {
+export async function enqueue(op: NewOp<CreateOp> | NewOp<SegmentOp> | NewOp<FinalizeOp> | NewOp<PhotoOp> | NewOp<LinkOp> | NewOp<NotesOp>) {
   const q = await load();
   q.push({ ...op, attempts: 0, nextAt: 0 } as Op);
   await save();
@@ -184,6 +185,12 @@ async function perform(op: Op, userId: string, accessToken: string) {
       const file = new File(op.localUri);
       if (file.exists) file.delete();
     }
+    return;
+  }
+
+  if (op.kind === 'notes') {
+    const { error } = await supabase.from('recordings').update({ user_notes: op.text.slice(0, 20000) || null }).eq('id', op.recordingId);
+    if (error) throw new Error(error.message);
     return;
   }
 

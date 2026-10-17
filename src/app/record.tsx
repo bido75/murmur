@@ -11,6 +11,7 @@ import { APP_URL } from '@/lib/config';
 import { consentAdvice, STATES } from '@/lib/shared';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { queuePhoto, takePhoto } from '@/lib/photos';
+import { enqueue } from '@/lib/sync';
 import { clock } from '@/lib/format';
 import { useSegmentedRecorder } from '@/lib/recorder';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -44,6 +45,8 @@ export default function Record() {
   const [otherState, setOtherState] = useState<string | null>(null);
   const [otherQuery, setOtherQuery] = useState('');
   const [consentToken, setConsentToken] = useState<string | null>(null);
+  const [typed, setTyped] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
 
   useEffect(() => {
     getSettings().then((s) => {
@@ -130,6 +133,8 @@ export default function Record() {
     tap();
     const ok = await confirm('Stop recording?', 'Your notes will be ready in a minute or two.', 'Stop', true);
     if (!ok) return;
+    // Typed notes go before the recording is finalized, so the AI sees them.
+    if (recordingId && typed.trim()) await enqueue({ kind: 'notes', recordingId, text: typed.trim() });
     await rec.stop();
     if (recordingId) router.replace({ pathname: '/recording/[id]', params: { id: recordingId } });
     else router.back();
@@ -291,6 +296,24 @@ export default function Record() {
         )}
 
         {rec.warning && <Banner text={rec.warning} action={{ label: 'Restart mic', onPress: () => void rec.restartMic() }} />}
+
+        {showNotes ? (
+          <TextInput
+            value={typed}
+            onChangeText={setTyped}
+            placeholder="Jot what matters (e.g. “crane date?”, “ask about budget”). The AI fills these out from the transcript."
+            placeholderTextColor={t.muted}
+            multiline
+            autoFocus
+            style={{ borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, color: t.ink, borderRadius: radius.md, padding: space.md, fontSize: big ? 18 : 16, minHeight: 120, maxHeight: 220, textAlignVertical: 'top' }}
+            accessibilityLabel="Your notes"
+          />
+        ) : (
+          <Pressable onPress={() => setShowNotes(true)} accessibilityRole="button" style={[styles.micRow, { borderColor: t.border }]}>
+            <T size={big ? 17 : 14}>{typed ? `Your notes (${typed.split('\n').filter(Boolean).length} lines)` : 'Type notes while you listen'}</T>
+            <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>Open</T>
+          </Pressable>
+        )}
       </View>
 
       {big ? (

@@ -141,7 +141,7 @@ export async function deletePhoto(photo: Photo) {
 
 // ---------- Search ----------
 
-export type SearchHit = { recording_id: string; title: string; created_at: string; project_id: string | null; template: Template; snippet: string | null; matched: 'transcript' | 'title' | 'notes' };
+export type SearchHit = { recording_id: string; title: string; created_at: string; project_id: string | null; template: Template; snippet: string | null; matched: 'transcript' | 'title' | 'notes'; at_ms: number | null };
 
 export async function searchRecordings(q: string): Promise<SearchHit[]> {
   if (q.trim().length < 2) return [];
@@ -169,15 +169,26 @@ export async function searchTasks(q: string): Promise<(Task & { recordings: { ti
 export async function listShareLinks(recordingId: string): Promise<ShareLink[]> {
   const { data, error } = await supabase
     .from('share_links')
-    .select('id, token, include_transcript, created_at, expires_at, revoked_at, views')
+    .select('id, token, include_transcript, created_at, expires_at, revoked_at, views, allow_audio, allow_questions, has_password, clip_start_ms, clip_end_ms, title')
     .eq('recording_id', recordingId)
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []) as ShareLink[];
 }
 
-export async function createShareLink(recordingId: string, withTranscript: boolean, validDays: number | null) {
-  return rpc<string>('create_share_link', { rec: recordingId, with_transcript: withTranscript, valid_days: validDays });
+export type ShareOptions = {
+  include_transcript?: boolean;
+  valid_days?: number | null;
+  allow_audio?: boolean;
+  allow_questions?: boolean;
+  password?: string;
+  clip_start_ms?: number;
+  clip_end_ms?: number;
+  title?: string;
+};
+
+export async function createShareLink(recordingId: string, opts: ShareOptions) {
+  return rpc<string>('create_share_link_v2', { rec: recordingId, opts });
 }
 
 export async function revokeShareLink(id: string) {
@@ -203,14 +214,21 @@ export function exportDocx(recordingId: string, includeTranscript: boolean) {
 }
 
 /** Public pages (no sign-in): shared notes and consent links. */
-export async function publicCall<T>(path: string, init: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<T> {
+export class PublicError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+export async function publicCall<T>(path: string, init: { method?: 'GET' | 'POST'; body?: unknown; password?: string } = {}): Promise<T> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${path}`, {
     method: init.method ?? 'GET',
-    headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+    headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json', ...(init.password ? { 'x-share-password': init.password } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new PublicError(data?.error ?? `Request failed (${res.status})`, res.status);
   return data as T;
 }
 
@@ -291,6 +309,61 @@ export function cancelBot(recordingId: string) {
 export async function getBot(recordingId: string): Promise<MeetingBot | null> {
   const { data } = await supabase.from('meeting_bots').select('status, status_detail, meeting_url, join_at').eq('recording_id', recordingId).maybeSingle();
   return (data as MeetingBot | null) ?? null;
+}
+
+// ---------- Editing ----------
+
+export async function setSpeakerName(recordingId: string, speaker: number, name: string, current: Record<string, string>) {
+  const next = { ...current };
+  if (name.trim()) next[String(speaker)] = name.trim().slice(0, 60);
+  else delete next[String(speaker)];
+  const { error } = await supabase.from('transcripts').update({ speaker_names: next }).eq('recording_id', recordingId);
+  if (error) throw new Error(error.message);
+  return next;
+}
+
+export async function updateUtteranceText(recordingId: string, utterances: { start_ms: number; end_ms: number; speaker: number; text: string }[], index: number, text: string) {
+  const next = utterances.map((u, i) => (i === index ? { ...u, text: text.trim() } : u));
+  const { error } = await supabase.from('transcripts').update({ utterances: next, edited_at: new Date().toISOString() }).eq('recording_id', recordingId);
+  if (error) throw new Error(error.message);
+  return next;
+}
+
+export async function updateSummary(recordingId: string, patch: Partial<Pick<Summary, 'overview' | 'key_points' | 'open_questions' | 'decisions'>>) {
+  const { error } = await supabase.from('summaries').update({ ...patch, edited_at: new Date().toISOString() }).eq('recording_id', recordingId);
+  if (error) throw new Error(error.message);
+}
+
+export async function saveUserNotes(recordingId: string, notes: string) {
+  const { error } = await supabase.from('recordings').update({ user_notes: notes.trim() || null }).eq('id', recordingId);
+  if (error) throw new Error(error.message);
+}
+
+// ---------- Comments and bookmarks ----------
+
+export type Comment = { id: string; user_id: string; author_email: string | null; kind: 'comment' | 'bookmark'; at_ms: number | null; body: string; created_at: string };
+
+export async function listComments(recordingId: string): Promise<Comment[]> {
+  const { data, error } = await supabase.from('recording_comments').select('id, user_id, author_email, kind, at_ms, body, created_at').eq('recording_id', recordingId).order('created_at');
+  if (error) return [];
+  return (data ?? []) as Comment[];
+}
+
+export async function addComment(recordingId: string, c: { kind: 'comment' | 'bookmark'; at_ms: number | null; body: string }) {
+  const { data } = await supabase.auth.getSession();
+  const { error } = await supabase.from('recording_comments').insert({ recording_id: recordingId, ...c, author_email: data.session?.user.email ?? null });
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteComment(id: string) {
+  const { error } = await supabase.from('recording_comments').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ---------- Follow-up email ----------
+
+export function draftFollowup(recordingId: string, tone: 'friendly' | 'formal') {
+  return callFn<{ subject: string; body: string }>('share/followup', { recording_id: recordingId, tone });
 }
 
 export async function retryProcessing(id: string) {

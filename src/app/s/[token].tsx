@@ -1,11 +1,13 @@
 // Public, read-only notes behind a share link. No account needed.
+import { useAudioPlayer } from 'expo-audio';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, View } from 'react-native';
-import { Card, T } from '@/components/ui';
-import { publicCall } from '@/lib/api';
-import { minutes } from '@/lib/format';
-import { space, useTheme } from '@/lib/theme';
+import { createElement, useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, TextInput, View } from 'react-native';
+import { Button, Card, T } from '@/components/ui';
+import { publicCall, PublicError } from '@/lib/api';
+import { isWeb } from '@/lib/dialog';
+import { clock, minutes } from '@/lib/format';
+import { radius, space, useTheme } from '@/lib/theme';
 
 type Notes = {
   title: string;
@@ -19,19 +21,60 @@ type Notes = {
   site_log: { title: string; items: string[] }[];
   transcript: { at: string; speaker: string; text: string }[] | null;
 };
-type Payload = { notes: Notes; photos: { url: string; caption: string | null }[]; app: string };
+type Audio = { url: string; start_ms: number; duration_ms: number };
+type Payload = { notes: Notes; photos: { url: string; caption: string | null }[]; app: string; audio: Audio[]; can_ask: boolean; clip: { start_ms: number; end_ms: number; title: string | null } | null };
 
 export default function SharedNotes() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const t = useTheme();
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [password, setPassword] = useState('');
+  const [tried, setTried] = useState<string | undefined>(undefined);
+
+  const load = useCallback(
+    (pw?: string) =>
+      publicCall<Payload>(`share/view?token=${encodeURIComponent(token ?? '')}`, { password: pw })
+        .then((d) => {
+          setData(d);
+          setNeedsPassword(false);
+          setTried(pw);
+        })
+        .catch((e) => {
+          if (e instanceof PublicError && e.status === 401) {
+            setNeedsPassword(true);
+            setError(pw ? e.message : null);
+          } else setError((e as Error).message);
+        }),
+    [token],
+  );
 
   useEffect(() => {
-    publicCall<Payload>(`share/view?token=${encodeURIComponent(token ?? '')}`)
-      .then(setData)
-      .catch((e) => setError((e as Error).message));
-  }, [token]);
+    void load();
+  }, [load]);
+
+  if (needsPassword) {
+    return (
+      <View style={{ flex: 1, padding: space.xl, justifyContent: 'center', gap: space.md, backgroundColor: t.bg, maxWidth: 480, width: '100%', alignSelf: 'center' }}>
+        <T size={22} weight="700">This link is protected</T>
+        <T muted>Enter the password the person who shared it gave you.</T>
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoFocus
+          onSubmitEditing={() => void load(password)}
+          placeholder="Password"
+          placeholderTextColor={t.muted}
+          style={{ borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, color: t.ink, borderRadius: radius.md, padding: space.md, fontSize: 16 }}
+          accessibilityLabel="Password"
+        />
+        {error ? <T size={14} style={{ color: t.danger }}>{error}</T> : null}
+        <Button label="Open" onPress={() => void load(password)} disabled={!password} />
+      </View>
+    );
+  }
 
   if (error) {
     return (
@@ -51,7 +94,10 @@ export default function SharedNotes() {
         <T size={28} weight="700">{n.title}</T>
         <T muted>{date}{n.duration_ms ? ` · ${minutes(n.duration_ms)}` : ''}</T>
       </View>
+      {data.clip && <T muted>Clip {clock(data.clip.start_ms)}–{clock(data.clip.end_ms)}</T>}
+      {data.audio.length > 0 && <SharedAudio parts={data.audio} clip={data.clip} />}
       {!!n.overview && <T size={17}>{n.overview}</T>}
+      {data.can_ask && <AskBox token={token ?? ''} password={tried} />}
 
       {n.tasks.length > 0 && (
         <Section title="Next steps">
@@ -115,6 +161,83 @@ export default function SharedNotes() {
       )}
       <T muted size={12}>AI-generated notes from a recording, checked against the transcript. Shared with {data.app}.</T>
     </ScrollView>
+  );
+}
+
+/** Play the recording (or just the clip). Browser player on the web, a simple button on phones. */
+function SharedAudio({ parts, clip }: { parts: Audio[]; clip: Payload['clip'] }) {
+  // For a clip, only the part that contains its start is needed.
+  const shown = clip ? parts.filter((p) => clip.start_ms >= p.start_ms && (!p.duration_ms || clip.start_ms < p.start_ms + p.duration_ms)).slice(0, 1) : parts;
+  return (
+    <View style={{ gap: space.sm }}>
+      {shown.map((p, i) => {
+        const from = clip ? Math.max(0, (clip.start_ms - p.start_ms) / 1000) : 0;
+        const to = clip ? Math.max(from + 1, (clip.end_ms - p.start_ms) / 1000) : null;
+        if (isWeb) {
+          const src = to != null ? `${p.url}#t=${from.toFixed(1)},${to.toFixed(1)}` : p.url;
+          return createElement('audio', { key: i, controls: true, preload: 'none', src, style: { width: '100%' } });
+        }
+        return <NativePlayer key={i} url={p.url} from={from} label={shown.length > 1 ? `Play part ${i + 1}` : 'Play'} />;
+      })}
+    </View>
+  );
+}
+
+function NativePlayer({ url, from, label }: { url: string; from: number; label: string }) {
+  const player = useAudioPlayer({ uri: url });
+  return (
+    <Button
+      label={label}
+      kind="secondary"
+      onPress={async () => {
+        await player.seekTo(from);
+        player.play();
+      }}
+    />
+  );
+}
+
+function AskBox({ token, password }: { token: string; password?: string }) {
+  const t = useTheme();
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
+  async function ask() {
+    const question = q.trim();
+    if (!question) return;
+    setBusy(true);
+    setQ('');
+    try {
+      const r = await publicCall<{ answer: string }>('share/ask', { method: 'POST', body: { token, question }, password });
+      setAnswers((x) => [...x, { q: question, a: r.answer }]);
+    } catch (e) {
+      setAnswers((x) => [...x, { q: question, a: (e as Error).message }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card style={{ gap: space.sm }}>
+      <T weight="600">Ask about this meeting</T>
+      {answers.map((x, i) => (
+        <View key={i} style={{ gap: 2 }}>
+          <T size={14} weight="600">{x.q}</T>
+          <T size={14}>{x.a}</T>
+        </View>
+      ))}
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          onSubmitEditing={ask}
+          placeholder="e.g. When does the steel arrive?"
+          placeholderTextColor={t.muted}
+          style={{ flex: 1, borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, color: t.ink, borderRadius: radius.md, paddingHorizontal: space.md, fontSize: 15, minHeight: 44 }}
+          accessibilityLabel="Question"
+        />
+        <Button label="Ask" onPress={ask} loading={busy} disabled={!q.trim()} />
+      </View>
+    </Card>
   );
 }
 

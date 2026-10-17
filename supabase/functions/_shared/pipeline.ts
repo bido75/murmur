@@ -3,6 +3,7 @@
 import { adminClient, claudeStructured, transcribe } from './services.ts';
 import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
 import { normalizeMediaLink } from './links.ts';
+import { notifyUser } from './push.ts';
 import { assignPhotos, attachPhotosToLog, buildKeyterms, siteLogIsEmpty, verifySiteLog, type PhotoMark } from './field.ts';
 import {
   dropRepeats,
@@ -19,7 +20,7 @@ export async function runPipeline(recordingId: string) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
-    .select('user_id, template, title, project_id, custom_template_id, audio_deleted_at')
+    .select('user_id, template, title, project_id, custom_template_id, audio_deleted_at, user_notes')
     .eq('id', recordingId)
     .single();
   if (!rec) return;
@@ -32,52 +33,62 @@ export async function runPipeline(recordingId: string) {
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
     custom = (t?.instructions as string | undefined) ?? null;
   }
-  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at));
+  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at), (rec.user_notes as string | null) ?? null);
 }
 
-async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean) {
+async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null) {
   const admin = adminClient();
   try {
-    const { data: segments, error } = await admin
-      .from('recording_segments')
-      .select('idx, storage_path, source_url, duration_ms')
-      .eq('recording_id', recordingId)
-      .order('idx');
-    if (error) throw error;
-    if (audioDeleted) throw new Error('The audio was removed by your retention setting, so this recording can’t be processed again.');
-    if (!segments?.length) throw new Error('No audio was uploaded for this recording');
+    // Corrected transcripts (and ones whose audio retention removed) are reused, not re-transcribed.
+    const { data: existing } = await admin.from('transcripts').select('utterances, speaker_names, edited_at').eq('recording_id', recordingId).maybeSingle();
+    const speakerNames = ((existing?.speaker_names as Record<string, string> | null) ?? {}) as Record<string, string>;
+    const reuse = Boolean((existing?.edited_at || audioDeleted) && (existing?.utterances as Utterance[] | null)?.length);
 
-    // 0. Hints for the transcriber: the project's words, its name and people's names.
-    const keyterms = await keytermsFor(projectId, template);
-
-    // 1. Transcribe each segment and place it on the recording's timeline.
     let offset = 0;
     let language: string | null = null;
-    const all: Utterance[] = [];
-    for (const seg of segments) {
-      let audioUrl: string;
-      if (seg.storage_path) {
-        const { data: signed, error: signErr } = await admin.storage.from('audio').createSignedUrl(seg.storage_path, 60 * 60);
-        if (signErr || !signed) throw new Error(`Could not read audio segment ${seg.idx}`);
-        audioUrl = signed.signedUrl;
-      } else {
-        // Imported from a link: checked again here, then the transcriber downloads it directly.
-        const check = normalizeMediaLink(String(seg.source_url ?? ''));
-        if (!check.ok) throw new Error(check.reason);
-        audioUrl = check.url;
-      }
-      const result = await transcribe(audioUrl, keyterms).catch((e) => {
-        if (!seg.storage_path) throw new Error(`Couldn't download audio from that link. Check it's public and points to an audio or video file. (${(e as Error).message.slice(0, 160)})`);
-        throw e;
-      });
-      all.push(...offsetUtterances(result.utterances, offset));
-      language = language ?? result.language;
-      offset += result.durationMs || seg.duration_ms;
-    }
+    let all: Utterance[] = [];
+    if (reuse) {
+      all = existing!.utterances as Utterance[];
+      offset = Math.max(0, ...all.map((u) => u.end_ms));
+    } else {
+      const { data: segments, error } = await admin
+        .from('recording_segments')
+        .select('idx, storage_path, source_url, duration_ms')
+        .eq('recording_id', recordingId)
+        .order('idx');
+      if (error) throw error;
+      if (audioDeleted) throw new Error('The audio was removed by your retention setting, so this recording can’t be processed again.');
+      if (!segments?.length) throw new Error('No audio was uploaded for this recording');
 
-    const text = all.map((u) => u.text).join(' ');
-    await admin.from('transcripts').upsert({ recording_id: recordingId, user_id: userId, utterances: all, text });
-    await admin.from('recordings').update({ status: 'summarizing', duration_ms: offset, language }).eq('id', recordingId);
+      // 0. Hints for the transcriber: the project's words, its name and people's names.
+      const keyterms = await keytermsFor(projectId, template);
+
+      // 1. Transcribe each segment and place it on the recording's timeline.
+      for (const seg of segments) {
+        let audioUrl: string;
+        if (seg.storage_path) {
+          const { data: signed, error: signErr } = await admin.storage.from('audio').createSignedUrl(seg.storage_path, 60 * 60);
+          if (signErr || !signed) throw new Error(`Could not read audio segment ${seg.idx}`);
+          audioUrl = signed.signedUrl;
+        } else {
+          // Imported from a link: checked again here, then the transcriber downloads it directly.
+          const check = normalizeMediaLink(String(seg.source_url ?? ''));
+          if (!check.ok) throw new Error(check.reason);
+          audioUrl = check.url;
+        }
+        const result = await transcribe(audioUrl, keyterms).catch((e) => {
+          if (!seg.storage_path) throw new Error(`Couldn't download audio from that link. Check it's public and points to an audio or video file. (${(e as Error).message.slice(0, 160)})`);
+          throw e;
+        });
+        all.push(...offsetUtterances(result.utterances, offset));
+        language = language ?? result.language;
+        offset += result.durationMs || seg.duration_ms;
+      }
+
+      const text = all.map((u) => u.text).join(' ');
+      await admin.from('transcripts').upsert({ recording_id: recordingId, user_id: userId, utterances: all, text });
+    }
+    await admin.from('recordings').update({ status: 'summarizing', duration_ms: offset, ...(language ? { language } : {}) }).eq('id', recordingId);
 
     if (all.length === 0) {
       await admin.from('summaries').upsert({
@@ -96,12 +107,12 @@ async function run(recordingId: string, userId: string, template: string, curren
     // 3. Structured notes from Claude.
     const notes = await claudeStructured<NotesOutput>(
       systemPrompt(template, custom),
-      [{ role: 'user', content: userMessage(formatTranscript(all), refs) }],
+      [{ role: 'user', content: userMessage(formatTranscript(all, speakerNames), refs, userNotes) }],
       notesTool(template),
     );
 
     // 4. Check every task, decision and update against the transcript before saving.
-    const tasks = dropRepeats(verifyActionItems(notes.action_items ?? [], all), openTasks.map((t) => t.text));
+    const tasks = dropRepeats(verifyActionItems(notes.action_items ?? [], all, speakerNames), openTasks.map((t) => t.text));
 
     // Photos taken while recording are linked to what was being said when they were taken.
     const { data: photoRows } = await admin.from('recording_photos').select('id, taken_ms').eq('recording_id', recordingId);
@@ -145,13 +156,24 @@ async function run(recordingId: string, userId: string, template: string, curren
     const update: Record<string, unknown> = { status: 'ready' };
     if (notes.title && (!currentTitle || currentTitle === 'New recording')) update.title = notes.title.slice(0, 120);
     await admin.from('recordings').update(update).eq('id', recordingId);
+    await afterReady(recordingId, userId, (update.title as string | undefined) ?? currentTitle, tasks.filter((t) => !t.needs_review).length);
   } catch (e) {
     console.error('process-recording failed', recordingId, e);
     await admin
       .from('recordings')
       .update({ status: 'failed', error: (e as Error).message.slice(0, 500) })
       .eq('id', recordingId);
+    await notifyUser(userId, { title: 'Couldn’t process a recording', body: (e as Error).message.slice(0, 200), data: { recording_id: recordingId } });
   }
+}
+
+/** Everything that happens once notes are ready: notifications now; webhooks and automations hook in here. */
+export async function afterReady(recordingId: string, userId: string, title: string, taskCount: number) {
+  await notifyUser(userId, {
+    title: 'Notes ready',
+    body: `${title}${taskCount ? ` · ${taskCount} action item${taskCount > 1 ? 's' : ''}` : ''}`,
+    data: { recording_id: recordingId },
+  });
 }
 
 /** Open, confirmed tasks from this project's other recordings (newest first, max 40). */

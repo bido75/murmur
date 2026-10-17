@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { isWeb, notify } from '@/lib/dialog';
 import { recoverInterruptedRecording } from '@/lib/recorder';
+import { listenForNotificationTaps, registerForPush } from '@/lib/push';
 import { supabase } from '@/lib/supabase';
 import { flush, startSyncLoop } from '@/lib/sync';
 import { useTheme } from '@/lib/theme';
@@ -22,12 +23,17 @@ export default function RootLayout() {
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
-      if (s) void flush();
+      if (s) {
+        void flush();
+        void registerForPush();
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   // Recover a recording interrupted by a crash, then keep the upload queue moving.
+  useEffect(() => listenForNotificationTaps(), []);
+
   useEffect(() => {
     recoverInterruptedRecording()
       .then((id) => {
@@ -76,6 +82,7 @@ export default function RootLayout() {
           <Stack.Screen name="privacy" options={{ title: 'Privacy & data' }} />
           <Stack.Screen name="import-link" options={{ title: 'Import from a link', presentation: 'modal' }} />
           <Stack.Screen name="notetaker" options={{ title: 'Send a notetaker', presentation: 'modal' }} />
+          <Stack.Screen name="followup" options={{ title: 'Follow-up email', presentation: 'modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Button, Card, T } from '@/components/ui';
 import { ask, searchRecordings, searchTasks, type SearchHit } from '@/lib/api';
-import { shortDate } from '@/lib/format';
+import { clock, shortDate } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
 import { TEMPLATE_LABELS, type Task } from '@/lib/types';
 
@@ -115,10 +115,16 @@ export default function Search() {
         <View style={{ gap: space.sm }}>
           <T muted size={13} weight="600">RECORDINGS ({shown.hits.length})</T>
           {shown.hits.map((h) => (
-            <Pressable key={h.recording_id} accessibilityRole="button" onPress={() => router.push({ pathname: '/recording/[id]', params: { id: h.recording_id } })}>
+            <Pressable
+              key={h.recording_id}
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/recording/[id]', params: h.at_ms != null ? { id: h.recording_id, t: String(h.at_ms) } : { id: h.recording_id } })}
+            >
               <Card style={{ gap: 4 }}>
                 <T weight="600" numberOfLines={2}>{h.title}</T>
-                <T muted size={12}>{shortDate(h.created_at)} · {TEMPLATE_LABELS[h.template] ?? h.template} · matched in {h.matched}</T>
+                <T muted size={12}>
+                  {shortDate(h.created_at)} · {TEMPLATE_LABELS[h.template] ?? h.template} · {h.at_ms != null ? `said at ${clock(h.at_ms)}` : `matched in ${h.matched}`}
+                </T>
                 {h.snippet ? <Snippet text={h.snippet} /> : null}
               </Card>
             </Pressable>

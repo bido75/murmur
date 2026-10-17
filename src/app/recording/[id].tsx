@@ -1,14 +1,16 @@
 import { useAudioPlayer } from 'expo-audio';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ActionMenu, type MenuAction } from '@/components/ActionMenu';
 import { SendToTracker } from '@/components/SendToTracker';
 import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
+import { PromptModal, type Prompt } from '@/components/PromptModal';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { ask, audioUrl, cancelBot, consentResponses, currentUserId, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
-import { confirm, isWeb, notify } from '@/lib/dialog';
+import { addComment, ask, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
+import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
+import { APP_URL } from '@/lib/config';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -18,10 +20,14 @@ type Data = Awaited<ReturnType<typeof getRecording>>;
 type Tab = 'notes' | 'transcript' | 'tasks' | 'ask';
 
 export default function RecordingDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, t: atParam } = useLocalSearchParams<{ id: string; t?: string }>();
   const t = useTheme();
   const [data, setData] = useState<Data | null>(null);
-  const [tab, setTab] = useState<Tab>('notes');
+  // Opened from search: start on the transcript at the moment the words were said.
+  const focusMs = atParam != null && atParam !== '' ? Number(atParam) : null;
+  const [tab, setTab] = useState<Tab>(focusMs != null ? 'transcript' : 'notes');
+  const [prompt, setPrompt] = useState<Prompt | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [title, setTitle] = useState('');
   const player = useAudioPlayer(null);
   const [loadedSegment, setLoadedSegment] = useState<number | null>(null);
@@ -43,6 +49,7 @@ export default function RecordingDetail() {
           setData(d);
           if (d.recording) setTitle((prev) => prev || d.recording!.title);
           setResponses(await consentResponses(id));
+          setComments(await listComments(id));
           if (d.recording?.source === 'bot') setBot(await getBot(id));
         })
         .catch((e) => notify("Couldn't load recording", (e as Error).message)),
@@ -141,6 +148,69 @@ export default function RecordingDetail() {
   }
 
   const procore = integrations.find((i) => i.provider === 'procore');
+  const isOwnerNow = !!data?.recording && (!data.recording.user_id || data.recording.user_id === me);
+
+  function renameSpeaker(speaker: number) {
+    if (!data?.transcript || !isOwnerNow) return;
+    const names = data.transcript.speaker_names ?? {};
+    setPrompt({
+      title: `Who is ${speakerLabel(speaker, names)}?`,
+      message: 'Used everywhere in this recording. Re-run notes to use the name in tasks and owners too.',
+      initial: names[String(speaker)] ?? '',
+      placeholder: 'Name',
+      onSubmit: async (v) => {
+        const next = await setSpeakerName(id, speaker, v, names);
+        setData((d) => (d && d.transcript ? { ...d, transcript: { ...d.transcript, speaker_names: next } } : d));
+      },
+    });
+  }
+
+  const base = APP_URL || (isWeb ? window.location.origin : '');
+
+  /** Long-press on a transcript line. */
+  function lineMenu(index: number) {
+    const u = data?.transcript?.utterances?.[index];
+    if (!u) return;
+    const actions: MenuAction[] = [
+      { label: `Play from ${clock(u.start_ms)}`, onPress: () => void playAt(u.start_ms) },
+      { label: 'Bookmark this moment', onPress: guard(async () => { await addComment(id, { kind: 'bookmark', at_ms: u.start_ms, body: u.text.slice(0, 140) }); setComments(await listComments(id)); }) },
+      {
+        label: 'Comment on this moment',
+        onPress: () =>
+          setPrompt({ title: `Comment at ${clock(u.start_ms)}`, multiline: true, okLabel: 'Post', onSubmit: async (v) => { if (v.trim()) { await addComment(id, { kind: 'comment', at_ms: u.start_ms, body: v.trim() }); setComments(await listComments(id)); } } }),
+      },
+    ];
+    if (isOwnerNow) {
+      for (const secs of [30, 60, 120]) {
+        actions.push({
+          label: `Share a ${secs < 60 ? `${secs}-second` : `${secs / 60}-minute`} clip from here`,
+          onPress: guard(async () => {
+            if (!base) throw new Error('Set EXPO_PUBLIC_APP_URL so clips have somewhere to open.');
+            const start = Math.max(0, u.start_ms - 2000);
+            const token = await createShareLink(id, { clip_start_ms: start, clip_end_ms: start + secs * 1000, title: u.text.slice(0, 80) });
+            await shareOrCopy(shareUrl(token, base), 'Clip link copied');
+          }),
+        });
+      }
+      actions.push({
+        label: 'Fix the wording',
+        onPress: () =>
+          setPrompt({
+            title: 'Fix the transcript',
+            message: 'Corrections are kept if you re-run the notes.',
+            initial: u.text,
+            multiline: true,
+            onSubmit: async (v) => {
+              if (!v.trim() || !data?.transcript) return;
+              const next = await updateUtteranceText(id, data.transcript.utterances, index, v);
+              setData((d) => (d && d.transcript ? { ...d, transcript: { ...d.transcript, utterances: next } } : d));
+            },
+          }),
+      });
+      actions.push({ label: `Rename ${speakerLabel(u.speaker, data?.transcript?.speaker_names ?? {})}`, onPress: () => renameSpeaker(u.speaker) });
+    }
+    setMenu({ title: `${clock(u.start_ms)} · ${u.text.slice(0, 60)}`, actions });
+  }
 
   async function sendLog() {
     const rec = data?.recording;
@@ -167,6 +237,7 @@ export default function RecordingDetail() {
     const isOwner = !rec.user_id || rec.user_id === me;
     const actions: MenuAction[] = [
       { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
+      { label: 'Draft a follow-up email', onPress: () => router.push({ pathname: '/followup', params: { id: rec.id } }) },
       { label: 'Share, email or export', onPress: () => router.push({ pathname: '/share', params: { id: rec.id } }) },
     ];
     if (isOwner) {
@@ -267,6 +338,12 @@ export default function RecordingDetail() {
               onOpenPhoto={setViewing}
               procore={procore?.config.target ? { target: procore.config.target.name, onSend: sendLog } : null}
               responses={responses}
+              canEdit={isOwnerNow}
+              onSaved={load}
+              comments={comments}
+              onComment={async (body) => { await addComment(id, { kind: 'comment', at_ms: null, body }); setComments(await listComments(id)); }}
+              onDeleteComment={async (c) => { await deleteComment(c.id).catch((e) => notify("Couldn't delete", (e as Error).message)); setComments(await listComments(id)); }}
+              me={me}
             />
           )}
           <PhotoViewer
@@ -284,7 +361,18 @@ export default function RecordingDetail() {
             }}
           />
           <ActionMenu visible={!!menu} title={menu?.title} actions={menu?.actions ?? []} onClose={() => setMenu(null)} />
-          {tab === 'transcript' && <TranscriptView data={data} playAt={playAt} onOpenPhoto={setViewing} />}
+          {tab === 'transcript' && (
+            <TranscriptView
+              data={data}
+              playAt={playAt}
+              onOpenPhoto={setViewing}
+              onLineMenu={lineMenu}
+              onSpeaker={renameSpeaker}
+              focusMs={focusMs}
+              marks={new Set(comments.filter((c) => c.at_ms != null).map((c) => c.at_ms!))}
+            />
+          )}
+          <PromptModal prompt={prompt} onClose={() => setPrompt(null)} />
           {tab === 'tasks' && (
             <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}>
               {data.tasks.some((x) => x.status === 'open' && !x.needs_review) && <SendToTracker tasks={data.tasks} onDone={load} />}
@@ -311,15 +399,40 @@ export default function RecordingDetail() {
   );
 }
 
-function Notes({ data, playAt, onOpenPhoto, procore, responses }: {
+function Notes({ data, playAt, onOpenPhoto, procore, responses, canEdit, onSaved, comments, onComment, onDeleteComment, me }: {
   data: Data;
   playAt: (ms: number) => void;
   onOpenPhoto: (p: Photo) => void;
   procore: { target: string; onSend: () => void } | null;
   responses: ConsentResponse[];
+  canEdit: boolean;
+  onSaved: () => void;
+  comments: Comment[];
+  onComment: (body: string) => Promise<void>;
+  onDeleteComment: (c: Comment) => Promise<void>;
+  me: string | null;
 }) {
   const t = useTheme();
   const s = data.summary;
+  const [editing, setEditing] = useState<{ overview: string; key_points: string; open_questions: string } | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const field = { borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, color: t.ink, borderRadius: radius.md, padding: space.md, fontSize: 16, textAlignVertical: 'top' as const };
+
+  async function saveEdits() {
+    if (!editing || !data.recording) return;
+    setSaving(true);
+    try {
+      const lines = (x: string) => x.split('\n').map((l) => l.replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+      await updateSummary(data.recording.id, { overview: editing.overview.trim(), key_points: lines(editing.key_points), open_questions: lines(editing.open_questions) });
+      setEditing(null);
+      onSaved();
+    } catch (e) {
+      notify("Couldn't save", (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
   const photos = data.photos;
   if (!s) {
     return (
@@ -334,9 +447,40 @@ function Notes({ data, playAt, onOpenPhoto, procore, responses }: {
     );
   }
   const sentTo = s.site_log_external?.procore?.url;
+  if (editing) {
+    return (
+      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: space.xxl }}>
+        <T muted size={13} weight="600">SUMMARY</T>
+        <TextInput value={editing.overview} onChangeText={(v) => setEditing({ ...editing, overview: v })} multiline style={[field, { minHeight: 100 }]} accessibilityLabel="Summary" />
+        <T muted size={13} weight="600">KEY POINTS (one per line)</T>
+        <TextInput value={editing.key_points} onChangeText={(v) => setEditing({ ...editing, key_points: v })} multiline style={[field, { minHeight: 140 }]} accessibilityLabel="Key points" />
+        <T muted size={13} weight="600">OPEN QUESTIONS (one per line)</T>
+        <TextInput value={editing.open_questions} onChangeText={(v) => setEditing({ ...editing, open_questions: v })} multiline style={[field, { minHeight: 80 }]} accessibilityLabel="Open questions" />
+        <T muted size={12}>Decisions and tasks keep their quotes; edit tasks on the Tasks tab.</T>
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <Button label="Cancel" kind="secondary" onPress={() => setEditing(null)} style={{ flex: 1 }} />
+          <Button label="Save" onPress={saveEdits} loading={saving} style={{ flex: 1 }} />
+        </View>
+      </ScrollView>
+    );
+  }
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.xl, paddingBottom: space.xxl }}>
+      {canEdit && (
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -space.md }}>
+          <Button
+            label="Edit notes"
+            kind="ghost"
+            onPress={() => setEditing({ overview: s.overview ?? '', key_points: (s.key_points ?? []).join('\n'), open_questions: (s.open_questions ?? []).join('\n') })}
+          />
+        </View>
+      )}
       {!!s.overview && <T size={17}>{s.overview}</T>}
+      {!!data.recording?.user_notes && (
+        <Section title="Your notes">
+          <T size={15}>{data.recording.user_notes}</T>
+        </Section>
+      )}
       {photos.length > 0 && (
         <Section title={`Photos (${photos.length})`}>
           <PhotoStrip photos={photos} onOpen={onOpenPhoto} />
@@ -397,6 +541,29 @@ function Notes({ data, playAt, onOpenPhoto, procore, responses }: {
           {s.open_questions.map((q, i) => <T key={i}>•  {q}</T>)}
         </Section>
       )}
+      <Section title={`Comments${comments.length ? ` (${comments.length})` : ''}`}>
+        {comments.map((c) => (
+          <View key={c.id} style={{ gap: 2, flexDirection: 'row', alignItems: 'flex-start' }}>
+            <Pressable style={{ flex: 1 }} disabled={c.at_ms == null} onPress={() => c.at_ms != null && playAt(c.at_ms)}>
+              <T size={14}>
+                <T size={14} weight="600">{c.kind === 'bookmark' ? '★ ' : ''}{c.author_email?.split('@')[0] ?? 'Someone'}</T>
+                {c.at_ms != null ? <T muted size={12}>{`  ${clock(c.at_ms)}`}</T> : null}
+              </T>
+              {!!c.body && <T size={14}>{c.body}</T>}
+            </Pressable>
+            {(c.user_id === me || canEdit) && (
+              <Pressable onPress={() => void onDeleteComment(c)} accessibilityLabel="Delete comment" hitSlop={8}>
+                <T muted size={13}>✕</T>
+              </Pressable>
+            )}
+          </View>
+        ))}
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <TextInput value={draft} onChangeText={setDraft} placeholder="Add a comment" placeholderTextColor={t.muted} style={[field, { flex: 1, paddingVertical: space.sm }]} accessibilityLabel="Add a comment" />
+          <Button label="Post" kind="secondary" disabled={!draft.trim()} onPress={() => void onComment(draft.trim()).then(() => setDraft(''))} />
+        </View>
+        <T muted size={12}>Press and hold a transcript line to bookmark or comment on that moment.</T>
+      </Section>
       {responses.length > 0 && (
         <Section title={`Consent link answers (${responses.length})`}>
           {responses.map((r) => (
@@ -431,7 +598,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-type Line = { kind: 'u'; u: NonNullable<Data['transcript']>['utterances'][number]; prevSpeaker: number | null } | { kind: 'p'; photos: Photo[] };
+type Line = { kind: 'u'; u: NonNullable<Data['transcript']>['utterances'][number]; prevSpeaker: number | null; idx: number } | { kind: 'p'; photos: Photo[] };
 
 /** Utterances with the photos taken during them slotted in at the right moment. */
 function withPhotos(u: NonNullable<Data['transcript']>['utterances'], photos: Photo[]): Line[] {
@@ -439,29 +606,41 @@ function withPhotos(u: NonNullable<Data['transcript']>['utterances'], photos: Ph
   const out: Line[] = [];
   let j = 0;
   let prev: number | null = null;
-  for (const item of u) {
+  for (const [idx, item] of u.entries()) {
     const group: Photo[] = [];
     while (j < timed.length && timed[j].taken_ms! < item.start_ms) group.push(timed[j++]);
     if (group.length) {
       out.push({ kind: 'p', photos: group });
       prev = null; // repeat the speaker label after a photo
     }
-    out.push({ kind: 'u', u: item, prevSpeaker: prev });
+    out.push({ kind: 'u', u: item, prevSpeaker: prev, idx });
     prev = item.speaker;
   }
   if (j < timed.length) out.push({ kind: 'p', photos: timed.slice(j) });
   return out;
 }
 
-function TranscriptView({ data, playAt, onOpenPhoto }: { data: Data; playAt: (ms: number) => void; onOpenPhoto: (p: Photo) => void }) {
+function TranscriptView({ data, playAt, onOpenPhoto, onLineMenu, onSpeaker, focusMs, marks }: {
+  data: Data;
+  playAt: (ms: number) => void;
+  onOpenPhoto: (p: Photo) => void;
+  onLineMenu: (index: number) => void;
+  onSpeaker: (speaker: number) => void;
+  focusMs: number | null;
+  marks: Set<number>;
+}) {
   const t = useTheme();
   const u = data.transcript?.utterances ?? [];
   const names = data.transcript?.speaker_names ?? {};
-  if (!u.length) return <Empty title="No transcript yet" />;
   const lines = withPhotos(u, data.photos);
+  // The line containing the moment we were sent to (from search).
+  const focusLine = focusMs == null ? -1 : lines.findIndex((l) => l.kind === 'u' && l.u.start_ms <= focusMs && l.u.end_ms >= focusMs - 1000);
+  if (!u.length) return <Empty title="No transcript yet" />;
   return (
     <FlatList
       data={lines}
+      initialScrollIndex={focusLine > 0 ? focusLine : undefined}
+      onScrollToIndexFailed={() => {}}
       keyExtractor={(_, i) => String(i)}
       contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}
       renderItem={({ item: line }) => {
@@ -474,14 +653,23 @@ function TranscriptView({ data, playAt, onOpenPhoto }: { data: Data; playAt: (ms
         }
         const item = line.u;
         const sameSpeaker = line.prevSpeaker === item.speaker;
+        const focused = lines[focusLine] === line;
         return (
-          <Pressable onPress={() => playAt(item.start_ms)} accessibilityHint="Plays audio from here" style={{ paddingVertical: 6 }}>
+          <Pressable
+            onPress={() => playAt(item.start_ms)}
+            onLongPress={() => onLineMenu(line.idx)}
+            accessibilityHint="Plays audio from here. Press and hold for more."
+            style={{ paddingVertical: 6, backgroundColor: focused ? t.accentSoft : 'transparent', borderRadius: radius.sm, paddingHorizontal: focused ? space.sm : 0 }}
+          >
             {!sameSpeaker && (
               <T size={13} weight="700" style={{ color: t.accent, marginTop: space.sm }}>
-                {speakerLabel(item.speaker, names)}  <T muted size={12}>{clock(item.start_ms)}</T>
+                <T size={13} weight="700" style={{ color: t.accent }} >
+                  <Text onPress={() => onSpeaker(item.speaker)} accessibilityRole="button" accessibilityHint="Rename this speaker">{speakerLabel(item.speaker, names)}</Text>
+                </T>
+                {'  '}<T muted size={12}>{clock(item.start_ms)}</T>
               </T>
             )}
-            <T>{item.text}</T>
+            <T>{marks.has(item.start_ms) ? '★ ' : ''}{item.text}</T>
           </Pressable>
         );
       }}

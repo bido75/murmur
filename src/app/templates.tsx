@@ -4,6 +4,7 @@ import { Button, Card, T } from '@/components/ui';
 import { currentUserId, deleteTemplate, listTemplates, listWorkspaces, saveTemplate } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
 import { radius, space, useTheme } from '@/lib/theme';
+import { LIBRARY_CATEGORIES, TEMPLATE_LIBRARY } from '@/lib/templateLibrary';
 import { TEMPLATE_LABELS, type SummaryTemplate, type Template, type Workspace } from '@/lib/types';
 
 type Draft = { id?: string; name: string; instructions: string; base: Template; workspace_id: string | null };
@@ -21,6 +22,7 @@ export default function Templates() {
   const [me, setMe] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +56,39 @@ export default function Templates() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (browsing) {
+    return (
+      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: space.xxl }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <T muted style={{ flex: 1 }}>{TEMPLATE_LIBRARY.length} ready-made templates. Adding one copies it so you can change it.</T>
+          <Button label="Done" kind="ghost" onPress={() => setBrowsing(false)} />
+        </View>
+        {LIBRARY_CATEGORIES.map((cat) => (
+          <View key={cat} style={{ gap: space.sm }}>
+            <T muted size={13} weight="600">{cat.toUpperCase()}</T>
+            {TEMPLATE_LIBRARY.filter((x) => x.category === cat).map((x) => {
+              const have = items.some((i) => i.name === x.name);
+              return (
+                <Card key={x.name} style={{ gap: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                    <T weight="600" style={{ flex: 1 }}>{x.name}</T>
+                    <Button
+                      label={have ? 'Added' : 'Add'}
+                      kind="secondary"
+                      disabled={have}
+                      onPress={() => void saveTemplate({ name: x.name, instructions: x.instructions, base: x.base, workspace_id: null }).then(load).catch((e) => notify("Couldn't add", (e as Error).message))}
+                    />
+                  </View>
+                  <T muted size={13} numberOfLines={3}>{x.instructions}</T>
+                </Card>
+              );
+            })}
+          </View>
+        ))}
+      </ScrollView>
+    );
   }
 
   if (draft) {
@@ -102,7 +137,10 @@ export default function Templates() {
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: space.xxl }}>
       <T muted>Describe how you want notes laid out for a kind of meeting. Pick the template when you record or import.</T>
-      <Button label="New template" onPress={() => setDraft(EMPTY)} />
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        <Button label="Browse library" kind="secondary" onPress={() => setBrowsing(true)} style={{ flex: 1 }} />
+        <Button label="New template" onPress={() => setDraft(EMPTY)} style={{ flex: 1 }} />
+      </View>
       {items.map((x) => (
         <Card key={x.id} style={{ gap: space.sm }}>
           <T weight="700">{x.name}</T>

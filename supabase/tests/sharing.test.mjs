@@ -56,8 +56,8 @@ test('share links: only the recording owner creates, sees and revokes them', asy
   assert.match(tok, /^[A-Za-z0-9_-]{24}$/);
   assert.ok(await fails(mate, `select create_share_link($1)`, [REC_TEAM]));
   assert.ok(await fails(outsider, `select create_share_link($1)`, [REC_PRIVATE]));
-  assert.equal((await rows(mate, 'select * from share_links')).length, 0);
-  assert.equal((await rows(outsider, 'select * from share_links')).length, 0);
+  assert.equal((await rows(mate, 'select id, token from share_links')).length, 0);
+  assert.equal((await rows(outsider, 'select id, token from share_links')).length, 0);
   assert.ok(await fails(owner, `insert into share_links (token, recording_id) values ('x', $1)`, [REC_TEAM]), 'links only via the function');
   assert.ok(await fails(owner, `update share_links set include_transcript = false`), 'only revoked_at is editable');
   await rows(owner, `update share_links set revoked_at = now()`);

@@ -31,6 +31,7 @@ export type Recording = {
   status: RecordingStatus;
   custom_template_id?: string | null;
   audio_deleted_at?: string | null;
+  user_notes?: string | null;
   duration_ms: number;
   error: string | null;
   created_at: string;
@@ -166,7 +167,21 @@ export const CAL_LABELS: Record<CalProvider, string> = { google: 'Google Calenda
 
 export type SummaryTemplate = { id: string; name: string; instructions: string; base: Template; workspace_id: string | null; user_id: string };
 
-export type ShareLink = { id: string; token: string; include_transcript: boolean; created_at: string; expires_at: string | null; revoked_at: string | null; views: number };
+export type ShareLink = {
+  id: string;
+  token: string;
+  include_transcript: boolean;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  views: number;
+  allow_audio: boolean;
+  allow_questions: boolean;
+  has_password: boolean;
+  clip_start_ms: number | null;
+  clip_end_ms: number | null;
+  title: string | null;
+};
 
 export type ConsentResponse = { id: string; name: string; email: string | null; decision: 'agree' | 'decline'; created_at: string };
 

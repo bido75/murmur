@@ -40,7 +40,13 @@
           "enableBackgroundRecording": true
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "color": "#1F6F5C"
+        }
+      ]
     ],
     "scheme": "murmur",
     "experiments": {
