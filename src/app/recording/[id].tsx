@@ -8,9 +8,10 @@ import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
 import { PromptModal, type Prompt } from '@/components/PromptModal';
 import { TaskRow } from '@/components/TaskRow';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
-import { addComment, ask, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
+import { addComment, ask, translateRecording, type Translation, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { APP_URL } from '@/lib/config';
+import { LANGUAGES } from '@/lib/shared';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -28,6 +29,8 @@ export default function RecordingDetail() {
   const [tab, setTab] = useState<Tab>(focusMs != null ? 'transcript' : 'notes');
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [translation, setTranslation] = useState<Translation | null>(null);
+  const [translating, setTranslating] = useState(false);
   const [title, setTitle] = useState('');
   const player = useAudioPlayer(null);
   const [loadedSegment, setLoadedSegment] = useState<number | null>(null);
@@ -238,6 +241,26 @@ export default function RecordingDetail() {
     const actions: MenuAction[] = [
       { label: 'Make a deck', onPress: () => router.push({ pathname: '/deck', params: { recordingId: rec.id } }) },
       { label: 'Draft a follow-up email', onPress: () => router.push({ pathname: '/followup', params: { id: rec.id } }) },
+      {
+        label: translation ? 'Show original language' : 'Translate…',
+        onPress: () => {
+          if (translation) return setTranslation(null);
+          setMenu({
+            title: 'Translate notes and transcript into',
+            actions: LANGUAGES.map((l) => ({
+              label: l.name,
+              onPress: guard(async () => {
+                setTranslating(true);
+                try {
+                  setTranslation(await translateRecording(rec.id, l.code, true));
+                } finally {
+                  setTranslating(false);
+                }
+              }),
+            })),
+          });
+        },
+      },
       { label: 'Share, email or export', onPress: () => router.push({ pathname: '/share', params: { id: rec.id } }) },
     ];
     if (isOwner) {
@@ -261,6 +284,26 @@ export default function RecordingDetail() {
     setMenu({ title: rec.title, actions });
   }
 
+  // Translated view: same structure, translated words (quotes and times stay as said).
+  const shown: Data | null =
+    data && translation
+      ? {
+          ...data,
+          summary: data.summary && translation.summary
+            ? {
+                ...data.summary,
+                overview: translation.summary.overview ?? data.summary.overview,
+                key_points: translation.summary.key_points ?? data.summary.key_points,
+                open_questions: translation.summary.open_questions ?? data.summary.open_questions,
+                decisions: data.summary.decisions.map((d, i) => ({ ...d, text: translation.summary!.decisions?.[i] ?? d.text })),
+              }
+            : data.summary,
+          tasks: data.tasks.map((tk) => ({ ...tk, text: translation.tasks?.[tk.id] ?? tk.text })),
+          transcript: data.transcript && translation.utterances
+            ? { ...data.transcript, utterances: data.transcript.utterances.map((u, i) => ({ ...u, text: translation.utterances![i] ?? u.text })) }
+            : data.transcript,
+        }
+      : data;
   const rec = data?.recording;
   const reviewCount = data?.tasks.filter((x) => x.needs_review && x.status === 'open').length ?? 0;
 
@@ -313,6 +356,13 @@ export default function RecordingDetail() {
               />
             )}
             {rec.audio_deleted_at && <T muted size={13}>Audio removed by your retention setting; transcript and notes kept.</T>}
+            {translating && <T muted size={13}>Translating…</T>}
+            {translation && (
+              <Banner
+                text={`Showing in ${LANGUAGES.find((l) => l.code === translation.lang)?.name ?? translation.lang}. Quotes stay in the original words.`}
+                action={{ label: 'Original', onPress: () => setTranslation(null) }}
+              />
+            )}
             {rec.status === 'failed' && (
               <Banner
                 text={rec.error ?? 'Processing failed.'}
@@ -333,7 +383,7 @@ export default function RecordingDetail() {
 
           {tab === 'notes' && (
             <Notes
-              data={data}
+              data={shown!}
               playAt={playAt}
               onOpenPhoto={setViewing}
               procore={procore?.config.target ? { target: procore.config.target.name, onSend: sendLog } : null}
@@ -363,7 +413,7 @@ export default function RecordingDetail() {
           <ActionMenu visible={!!menu} title={menu?.title} actions={menu?.actions ?? []} onClose={() => setMenu(null)} />
           {tab === 'transcript' && (
             <TranscriptView
-              data={data}
+              data={shown!}
               playAt={playAt}
               onOpenPhoto={setViewing}
               onLineMenu={lineMenu}

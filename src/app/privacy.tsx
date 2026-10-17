@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Button, Card, T } from '@/components/ui';
-import { deleteAccount, getRetention, getSettings, saveRetention, saveSettings, type Retention, type Settings } from '@/lib/api';
+import { deleteAccount, getRetention, getSettings, getTranscriptionSettings, saveRetention, saveSettings, saveTranscriptionSettings, type Retention, type Settings, type Transcription } from '@/lib/api';
 import { confirm, notify } from '@/lib/dialog';
-import { STATES } from '@/lib/shared';
+import { LANGUAGES, STATES } from '@/lib/shared';
 import { radius, space, useTheme } from '@/lib/theme';
 
 const AUDIO: { label: string; days: number | null }[] = [
@@ -27,11 +27,28 @@ export default function Privacy() {
   const [typed, setTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [stateQuery, setStateQuery] = useState('');
+  const [stt, setStt] = useState<Transcription | null>(null);
+  const [langOpen, setLangOpen] = useState(false);
 
   useEffect(() => {
     getRetention().then(setRet).catch(() => setRet({ audio_retention_days: null, recording_retention_days: null }));
     getSettings().then(setSettings);
+    getTranscriptionSettings().then(setStt).catch(() => setStt({ language: null, redact: [] }));
   }, []);
+
+  function updateStt(patch: Partial<Transcription>) {
+    if (!stt) return;
+    const next = { ...stt, ...patch };
+    setStt(next);
+    void saveTranscriptionSettings(next).catch((e) => notify("Couldn't save", (e as Error).message));
+  }
+  const REDACT: { key: string; label: string }[] = [
+    { key: 'pii', label: 'Personal details (names, emails, phone numbers, addresses)' },
+    { key: 'phi', label: 'Health information' },
+    { key: 'pci', label: 'Card and bank numbers' },
+    { key: 'numbers', label: 'All long numbers' },
+  ];
+  const langLabel = !stt?.language ? 'Detect automatically' : stt.language === 'multi' ? 'Several languages in one recording' : LANGUAGES.find((l) => l.code === stt.language)?.name ?? stt.language;
 
   async function update(patch: Partial<Retention>) {
     if (!ret) return;
@@ -96,6 +113,36 @@ export default function Privacy() {
           </Pressable>
         ))}
         <Button label="I’m outside the US" kind="ghost" onPress={() => setPlace('OTHER')} />
+      </Card>
+
+      <Card style={{ gap: space.md }}>
+        <T size={18} weight="700">Transcription</T>
+        <T size={15}>Language: <T size={15} weight="600">{langLabel}</T></T>
+        <Button label={langOpen ? 'Close' : 'Change language'} kind="ghost" onPress={() => setLangOpen(!langOpen)} />
+        {langOpen && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+            {[{ code: '', name: 'Detect automatically' }, { code: 'multi', name: 'Several languages' }, ...LANGUAGES].map((l) => (
+              <Pressable
+                key={l.code || 'auto'}
+                onPress={() => { updateStt({ language: l.code || null }); setLangOpen(false); }}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: (stt?.language ?? '') === l.code ? t.accent : t.border }}
+              >
+                <T size={13}>{l.name}</T>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        <T muted size={14}>Remove from transcripts (and so from notes):</T>
+        {REDACT.map((r) => {
+          const on = !!stt?.redact.includes(r.key);
+          return (
+            <Pressable key={r.key} onPress={() => updateStt({ redact: on ? stt!.redact.filter((x) => x !== r.key) : [...(stt?.redact ?? []), r.key] })} accessibilityRole="checkbox" accessibilityState={{ checked: on }} style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
+              <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? t.accent : t.muted, backgroundColor: on ? t.accent : 'transparent' }} />
+              <T style={{ flex: 1 }} size={15}>{r.label}</T>
+            </Pressable>
+          );
+        })}
+        <T muted size={12}>Removed details appear as tags like [PII]. Applies to new recordings and re-runs.</T>
       </Card>
 
       <Card style={{ gap: space.md }}>

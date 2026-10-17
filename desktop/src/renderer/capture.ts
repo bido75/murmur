@@ -168,6 +168,11 @@ export class Capture {
     }
   }
 
+  /** The mixed mic + computer audio, e.g. for the live transcript. */
+  get stream(): MediaStream | null {
+    return this.dest?.stream ?? null;
+  }
+
   get elapsedMs(): number {
     return this.doneMs + this.segmentMs();
   }

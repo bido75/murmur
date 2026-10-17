@@ -285,6 +285,26 @@ export async function saveRetention(r: Retention) {
   if (error) throw new Error(error.message);
 }
 
+export type Transcription = { language: string | null; redact: string[] };
+
+export async function getTranscriptionSettings(): Promise<Transcription> {
+  const { data } = await supabase.from('user_settings').select('language, redact').maybeSingle();
+  return { language: (data?.language as string | null) ?? null, redact: (data?.redact as string[] | null) ?? [] };
+}
+
+export async function saveTranscriptionSettings(t: Transcription) {
+  const me = await currentUserId();
+  const { error } = await supabase.from('user_settings').upsert({ user_id: me, language: t.language, redact: t.redact }, { onConflict: 'user_id' });
+  if (error) throw new Error(error.message);
+}
+
+export type Translation = { lang: string; summary: { overview: string; key_points: string[]; decisions: string[]; open_questions: string[] } | null; tasks: Record<string, string> | null; utterances: string[] | null };
+
+export async function translateRecording(recordingId: string, lang: string, includeTranscript: boolean): Promise<Translation> {
+  const r = await callFn<Omit<Translation, 'lang'>>('translate', { recording_id: recordingId, lang, include_transcript: includeTranscript });
+  return { lang, ...r };
+}
+
 export async function deleteAccount() {
   await callFn<{ deleted: boolean }>('account/delete', { confirm: 'DELETE' });
   await AsyncStorage.clear().catch(() => {});

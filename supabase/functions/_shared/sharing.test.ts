@@ -176,3 +176,34 @@ test('push batches: only Expo tokens, deduplicated, 100 per request', async () =
   assert.deepEqual(b.map((x) => x.length), [100, 51]);
   assert.equal(b[0][0].data?.recording_id, 'r1');
 });
+
+test('Deepgram params: auto, multi, chosen language; redaction groups; keyterms only on nova-3', async () => {
+  const { deepgramParams, liveParams } = await import('./stt.ts');
+  const auto = deepgramParams({ keyterms: ['Hilti'] });
+  assert.equal(auto.get('detect_language'), 'true');
+  assert.deepEqual(auto.getAll('keyterm'), ['Hilti']);
+  assert.equal(auto.get('mip_opt_out'), 'true');
+  const multi = deepgramParams({ language: 'multi' });
+  assert.equal(multi.get('language'), 'multi');
+  assert.equal(multi.get('detect_language'), null);
+  assert.equal(deepgramParams({ language: 'pt-BR' }).get('language'), 'pt-BR');
+  assert.equal(deepgramParams({ language: 'pt-BR; drop table' }).get('detect_language'), 'true', 'junk language ignored');
+  assert.deepEqual(deepgramParams({ redact: ['pii', 'pci', 'evil'] }).getAll('redact'), ['pii', 'pci']);
+  assert.deepEqual(deepgramParams({ model: 'nova-2', keyterms: ['x'] }).getAll('keyterm'), []);
+  assert.deepEqual(deepgramParams({ keyterms: ['x'] }, false).getAll('keyterm'), []);
+  assert.equal(deepgramParams({ mipOptOut: false }).get('mip_opt_out'), null);
+  const live = liveParams({ language: 'multi', redact: ['phi'] });
+  assert.equal(live.get('interim_results'), 'true');
+  assert.equal(live.get('endpointing'), '100');
+  assert.deepEqual(live.getAll('redact'), ['phi']);
+});
+
+test('translation chunks keep every line in order', async () => {
+  const { chunkLines, LANGUAGES } = await import('./translate.ts');
+  const lines = Array.from({ length: 300 }, (_, i) => `line ${i}`);
+  const chunks = chunkLines(lines, 120);
+  assert.deepEqual(chunks.map((c) => c.length), [120, 120, 60]);
+  assert.deepEqual(chunks.flat(), lines);
+  assert.equal(chunkLines(['a'.repeat(8000), 'b'.repeat(8000)], 120, 12000).length, 2);
+  assert.ok(LANGUAGES.length >= 30);
+});

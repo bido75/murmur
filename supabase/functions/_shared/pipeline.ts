@@ -60,8 +60,10 @@ async function run(recordingId: string, userId: string, template: string, curren
       if (audioDeleted) throw new Error('The audio was removed by your retention setting, so this recording can’t be processed again.');
       if (!segments?.length) throw new Error('No audio was uploaded for this recording');
 
-      // 0. Hints for the transcriber: the project's words, its name and people's names.
+      // 0. Hints for the transcriber: the project's words, its name and people's names;
+      //    and the owner's language and redaction choices.
       const keyterms = await keytermsFor(projectId, template);
+      const sttOpts = await sttOptionsFor(userId, projectId);
 
       // 1. Transcribe each segment and place it on the recording's timeline.
       for (const seg of segments) {
@@ -76,7 +78,7 @@ async function run(recordingId: string, userId: string, template: string, curren
           if (!check.ok) throw new Error(check.reason);
           audioUrl = check.url;
         }
-        const result = await transcribe(audioUrl, keyterms).catch((e) => {
+        const result = await transcribe(audioUrl, keyterms, sttOpts).catch((e) => {
           if (!seg.storage_path) throw new Error(`Couldn't download audio from that link. Check it's public and points to an audio or video file. (${(e as Error).message.slice(0, 160)})`);
           throw e;
         });
@@ -206,4 +208,19 @@ async function keytermsFor(projectId: string | null, template: string): Promise<
     for (const t of (ts ?? []) as { speaker_names: Record<string, string> | null }[]) names.push(...Object.values(t.speaker_names ?? {}));
   }
   return buildKeyterms({ vocabulary: project?.vocabulary ?? [], projectName: project?.name ?? null, names, template });
+}
+
+/** The recording owner's language and redaction settings; a team's redaction policy adds to them. */
+async function sttOptionsFor(userId: string, projectId: string | null): Promise<{ language: string | null; redact: string[] }> {
+  const admin = adminClient();
+  const { data } = await admin.from('user_settings').select('language, redact').eq('user_id', userId).maybeSingle();
+  const redact = new Set<string>((data?.redact as string[] | null) ?? []);
+  if (projectId) {
+    const { data: p } = await admin.from('projects').select('workspace_id').eq('id', projectId).maybeSingle();
+    if (p?.workspace_id) {
+      const { data: w } = await admin.from('workspace_policies').select('redact').eq('workspace_id', p.workspace_id).maybeSingle();
+      for (const r of (w?.redact as string[] | null) ?? []) redact.add(r);
+    }
+  }
+  return { language: (data?.language as string | null) ?? null, redact: [...redact] };
 }

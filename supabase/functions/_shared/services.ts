@@ -1,6 +1,7 @@
 // Deno-side helpers: Supabase clients, Deepgram and Claude calls.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { Utterance } from './verify.ts';
+import { deepgramParams } from './stt.ts';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,33 +52,32 @@ export class HttpError extends Error {
 type DeepgramUtterance = { start: number; end: number; speaker?: number; transcript: string };
 
 /** Transcribe one audio URL with speaker labels. Times come back in ms, relative to the file. */
-export async function transcribe(audioUrl: string, keyterms: string[] = []): Promise<{ utterances: Utterance[]; durationMs: number; language: string | null }> {
-  const model = env('DEEPGRAM_MODEL', 'nova-3');
-  const params = new URLSearchParams({
-    model,
-    smart_format: 'true',
-    punctuate: 'true',
-    diarize: 'true',
-    utterances: 'true',
-    detect_language: 'true',
-  });
-  // Keep customer audio out of Deepgram's model-improvement program (on by default here,
-  // because the app promises recordings aren't used to train AI). Set DEEPGRAM_MIP_OPT_OUT=false to change.
-  if ((Deno.env.get('DEEPGRAM_MIP_OPT_OUT') ?? 'true') !== 'false') params.set('mip_opt_out', 'true');
+export async function transcribe(
+  audioUrl: string,
+  keyterms: string[] = [],
+  opts: { language?: string | null; redact?: string[] } = {},
+): Promise<{ utterances: Utterance[]; durationMs: number; language: string | null }> {
+  const o = {
+    model: env('DEEPGRAM_MODEL', 'nova-3'),
+    keyterms,
+    language: opts.language ?? null,
+    redact: opts.redact ?? [],
+    // Keep customer audio out of Deepgram's model-improvement program (the app promises
+    // recordings aren't used to train AI). Set DEEPGRAM_MIP_OPT_OUT=false to change.
+    mipOptOut: (Deno.env.get('DEEPGRAM_MIP_OPT_OUT') ?? 'true') !== 'false',
+  };
   const send = (p: URLSearchParams) =>
     fetch(`https://api.deepgram.com/v1/listen?${p}`, {
       method: 'POST',
       headers: { Authorization: `Token ${env('DEEPGRAM_API_KEY')}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: audioUrl }),
     });
-  // Project words, names and site jargon ("keyterm prompting", nova-3 only; one param per term).
-  const hinted = new URLSearchParams(params);
-  if (model.startsWith('nova-3')) for (const term of keyterms) hinted.append('keyterm', term);
+  const hinted = deepgramParams(o, true);
   let res = await send(hinted);
   // Hints are a bonus: if Deepgram rejects them, transcribe without rather than fail.
   if (res.status === 400 && hinted.has('keyterm')) {
     console.warn('Deepgram rejected keyterms, retrying without', (await res.text()).slice(0, 200));
-    res = await send(params);
+    res = await send(deepgramParams(o, false));
   }
   if (!res.ok) throw new Error(`Transcription failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();

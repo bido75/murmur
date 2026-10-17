@@ -2,6 +2,7 @@
 import type { Bridge } from '../shared/bridge';
 import { pendingSegments } from '../shared/queue';
 import { Capture } from './capture';
+import { startLive } from './live';
 import { APP_NAME, APP_URL } from './config';
 import { isConfigured, supabase } from './supabase';
 import { enqueue, flush, getQueue, onQueueChange, recoverInterrupted } from './sync';
@@ -158,6 +159,9 @@ function recordingView(): Child[] {
     h('p', { class: 'muted', style: 'text-align:center' },
       capture?.systemAudio === 'on' ? 'Recording your mic and computer audio' : 'Recording your mic'),
     state.warning && h('div', { class: 'banner' }, state.warning),
+    stopLive
+      ? h('div', { class: 'live', id: 'live', 'aria-live': 'polite' }, h('p', { class: 'muted' }, 'Listening…'))
+      : h('button', { class: 'secondary', onclick: () => void toggleLive() }, 'Show live transcript'),
     h('div', { class: 'row2' },
       h('button', { class: 'secondary', onclick: () => { if (capture?.paused) capture.resume(); else capture?.pause(); render(); } }, capture?.paused ? 'Resume' : 'Pause'),
       h('button', { class: 'record', onclick: () => void stopRecording() }, 'Stop')),
@@ -203,8 +207,33 @@ async function startRecording() {
   }
 }
 
+let stopLive: (() => void) | null = null;
+
+async function toggleLive() {
+  if (stopLive) {
+    stopLive();
+    stopLive = null;
+    render();
+    return;
+  }
+  const stream = capture?.stream;
+  if (!stream) return;
+  stopLive = () => {};
+  render();
+  stopLive = await startLive(
+    stream,
+    (lines) => {
+      const el = document.getElementById('live');
+      if (el) el.replaceChildren(...lines.map((l) => h('p', { class: l.final ? '' : 'muted' }, l.text) as Node));
+    },
+    (m) => { state.warning = m; stopLive = null; render(); },
+  );
+}
+
 async function stopRecording() {
   if (!capture || !recordingId) return;
+  stopLive?.();
+  stopLive = null;
   const id = recordingId;
   const total = await capture.stop();
   await enqueue({ kind: 'finalize', recordingId: id, durationMs: total });

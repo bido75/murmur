@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActionMenu } from '@/components/ActionMenu';
@@ -12,6 +12,7 @@ import { consentAdvice, STATES } from '@/lib/shared';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { enqueue } from '@/lib/sync';
+import { startLive, type LiveLine } from '@/lib/live';
 import { clock } from '@/lib/format';
 import { useSegmentedRecorder } from '@/lib/recorder';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -46,6 +47,18 @@ export default function Record() {
   const [otherQuery, setOtherQuery] = useState('');
   const [consentToken, setConsentToken] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
+  const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
+  const [liveOn, setLiveOn] = useState(false);
+  const stopLive = useRef<(() => void) | null>(null);
+
+  // Live transcript (browser only): starts with the recording, stops with it.
+  async function toggleLive(on: boolean) {
+    stopLive.current?.();
+    stopLive.current = null;
+    setLiveOn(on);
+    if (on) stopLive.current = await startLive(setLiveLines, (m) => { setLiveOn(false); notify('Live transcript', m); });
+  }
+  useEffect(() => () => stopLive.current?.(), []);
   const [showNotes, setShowNotes] = useState(false);
 
   useEffect(() => {
@@ -135,6 +148,7 @@ export default function Record() {
     if (!ok) return;
     // Typed notes go before the recording is finalized, so the AI sees them.
     if (recordingId && typed.trim()) await enqueue({ kind: 'notes', recordingId, text: typed.trim() });
+    stopLive.current?.();
     await rec.stop();
     if (recordingId) router.replace({ pathname: '/recording/[id]', params: { id: recordingId } });
     else router.back();
@@ -296,6 +310,21 @@ export default function Record() {
         )}
 
         {rec.warning && <Banner text={rec.warning} action={{ label: 'Restart mic', onPress: () => void rec.restartMic() }} />}
+
+        {isWeb && (
+          liveOn ? (
+            <View style={{ gap: 4, borderWidth: 1, borderColor: t.border, borderRadius: radius.md, padding: space.md, minHeight: 80 }}>
+              <T muted size={12} weight="600">LIVE TRANSCRIPT · draft</T>
+              {liveLines.length === 0 ? <T muted size={14}>Listening…</T> : liveLines.map((l, i) => <T key={i} size={15} muted={!l.final}>{l.text}</T>)}
+              <Pressable onPress={() => void toggleLive(false)}><T size={13} style={{ color: t.accent }}>Hide</T></Pressable>
+            </View>
+          ) : (
+            <Pressable onPress={() => void toggleLive(true)} accessibilityRole="button" style={[styles.micRow, { borderColor: t.border }]}>
+              <T size={big ? 17 : 14}>Show live transcript</T>
+              <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>On</T>
+            </Pressable>
+          )
+        )}
 
         {showNotes ? (
           <TextInput

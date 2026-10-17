@@ -35,3 +35,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .item { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
 .pill.ok { background: var(--accent-soft); color: var(--accent); }
+
+.live { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-height: 64px; max-height: 180px; overflow: auto; }
+.live p { margin: 2px 0; }
