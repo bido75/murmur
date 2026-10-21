@@ -4,6 +4,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { Banner, Button, Card, Empty, StatusPill, T } from '@/components/ui';
 import { ActionMenu } from '@/components/ActionMenu';
 import { botAvailable, getSettings, importAudio, listRecordings, localOnlyRecordings, upcomingEvents } from '@/lib/api';
+import { getBilling, limitText, meterDetail, meterTitle, waitingRecordings, waitingText, warningText, type Billing } from '@/lib/billing';
 import { briefParams, dayLabel, timeRange } from '@/lib/calendarUi';
 import { minutes, shortDate } from '@/lib/format';
 import { subscribe } from '@/lib/sync';
@@ -19,6 +20,8 @@ export default function Recordings() {
   const [next, setNext] = useState<CalendarEvent | null>(null);
   const [addMenu, setAddMenu] = useState(false);
   const [hasBot, setHasBot] = useState(false);
+  const [billing, setBilling] = useState<Billing | null>(null);
+  const [waiting, setWaiting] = useState<string[]>([]);
   useEffect(() => {
     botAvailable().then(setHasBot);
   }, []);
@@ -51,6 +54,14 @@ export default function Recordings() {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useEffect(() => subscribe(() => void load()), [load]);
 
+  // The plan and the minutes: the server decides, this screen shows the answer.
+  const loadBilling = useCallback(async () => {
+    const [plan, ids] = await Promise.all([getBilling(), waitingRecordings().catch(() => [] as string[])]);
+    setBilling(plan);
+    setWaiting(ids);
+  }, []);
+  useFocusEffect(useCallback(() => { void loadBilling(); }, [loadBilling]));
+
   // While anything is processing, refresh every few seconds.
   const processing = items.some((r) => !['ready', 'failed', 'scheduled', 'cancelled'].includes(r.status));
   useEffect(() => {
@@ -79,6 +90,16 @@ export default function Recordings() {
         ListHeaderComponent={
           <View style={{ gap: space.md }}>
             {offline ? <Banner text="You're offline. Recordings will upload when you're back online." /> : null}
+            {billing?.paywall ? (
+              <Card style={{ gap: space.sm }}>
+                <T weight="600">{meterTitle(billing)}</T>
+                <T muted size={13}>{meterDetail(billing)}</T>
+                {billing.overLimit ? <T size={13} style={{ color: t.warn }}>{limitText(billing)}</T> : null}
+                {billing.warn && !billing.overLimit ? <T size={13} style={{ color: t.warn }}>{warningText(billing)}</T> : null}
+                <Button label="See your plan" kind="secondary" onPress={() => router.push('/settings')} />
+              </Card>
+            ) : null}
+            {billing?.waiting ? <Banner text={waitingText(billing.waiting)} tone="info" /> : null}
             {next ? (
               <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/brief', params: briefParams(next) })}>
                 <Card style={{ gap: 4, borderColor: t.accent }}>
@@ -101,7 +122,11 @@ export default function Recordings() {
               <T muted size={13}>
                 {shortDate(item.created_at)} · {TEMPLATE_LABELS[item.template]}{item.duration_ms ? ` · ${minutes(item.duration_ms)}` : ''}
               </T>
-              {item.status !== 'ready' && <StatusPill status={item.status} />}
+              {waiting.includes(item.id) ? (
+                <T muted size={13}>Notes are waiting. Your audio is safe.</T>
+              ) : item.status !== 'ready' ? (
+                <StatusPill status={item.status} />
+              ) : null}
             </Card>
           </Pressable>
         )}

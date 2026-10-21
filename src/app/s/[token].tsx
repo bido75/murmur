@@ -13,7 +13,7 @@ type Notes = {
   date: string;
   duration_ms: number;
   overview: string;
-  key_points: string[];
+  key_points: { text: string; verified: boolean }[];
   decisions: { text: string; quote: string | null }[];
   tasks: { text: string; owner: string | null; due: string | null; done: boolean }[];
   open_questions: string[];
@@ -138,7 +138,12 @@ export default function SharedNotes() {
       )}
       {n.key_points.length > 0 && (
         <Section title="Key points">
-          {n.key_points.map((k, i) => <T key={i}>•  {k}</T>)}
+          {n.key_points.map((k, i) => (
+            <View key={i} style={{ gap: 2 }}>
+              <T>•  {k.text}</T>
+              {!k.verified ? <T muted size={12}>Not checked against the transcript</T> : null}
+            </View>
+          ))}
         </Section>
       )}
       {n.open_questions.length > 0 && (
@@ -158,7 +163,7 @@ export default function SharedNotes() {
           ))}
         </Section>
       )}
-      <T muted size={12}>AI-generated notes from a recording, checked against the transcript. Shared with {data.app}.</T>
+      <T muted size={12}>AI-generated notes from a recording. Key points that could not be checked against the transcript are marked. Shared with {data.app}.</T>
     </ScrollView>
   );
 }

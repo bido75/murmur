@@ -40,6 +40,7 @@ export function systemPrompt(template: string, custom: string | null = null): st
     '- Write in the language spoken in the transcript.',
     '- Do not invent facts, names, numbers or dates. If something is unclear, put it in open_questions.',
     '- Decisions also need a word-for-word quote.',
+    '- Each key point needs a word-for-word quote from the transcript (5 to 25 words) that shows where the point came from. Keep the point short.',
     '- Keep the overview to 2–4 sentences. Key points are short bullets.',
     '',
     'If a list of open tasks from earlier recordings is given:',
@@ -72,7 +73,17 @@ export const NOTES_TOOL = {
     properties: {
       title: { type: 'string', description: 'Short title, max 8 words.' },
       overview: { type: 'string' },
-      key_points: { type: 'array', items: { type: 'string' } },
+      key_points: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'Short key point, one line.' },
+            quote: { type: 'string', description: 'Word-for-word words from the transcript that this point came from (5 to 25 words).' },
+          },
+          required: ['text', 'quote'],
+        },
+      },
       decisions: {
         type: 'array',
         items: {
@@ -132,7 +143,7 @@ export function notesTool(template: string) {
 export type NotesOutput = {
   title: string;
   overview: string;
-  key_points: string[];
+  key_points: { text: string; quote: string }[];
   decisions: { text: string; quote: string }[];
   action_items: {
     task: string;

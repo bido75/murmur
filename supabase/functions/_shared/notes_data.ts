@@ -7,7 +7,7 @@ export type RecordingRow = { id: string; user_id: string; title: string; created
 export async function loadNotes(db: SupabaseClient, recordingId: string): Promise<{ rec: RecordingRow; notes: PublicNotes } | null> {
   const [{ data: rec }, { data: sum }, { data: tasks }] = await Promise.all([
     db.from('recordings').select('id, user_id, title, created_at, duration_ms, template, status, project_id, consent_method').eq('id', recordingId).maybeSingle(),
-    db.from('summaries').select('overview, key_points, decisions, open_questions, site_log').eq('recording_id', recordingId).maybeSingle(),
+    db.from('summaries').select('overview, key_points, key_point_details, decisions, open_questions, site_log').eq('recording_id', recordingId).maybeSingle(),
     db.from('tasks').select('text, owner, due_text, status, needs_review').eq('recording_id', recordingId).order('created_at'),
   ]);
   if (!rec) return null;

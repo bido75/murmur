@@ -112,7 +112,7 @@ export default function Share() {
 
       <Card style={{ gap: space.md }}>
         <T size={18} weight="700">Link</T>
-        <T muted size={14}>Anyone with the link can read the notes (no sign-in). Only confirmed tasks and checked decisions are shown; nothing waiting for review.</T>
+        <T muted size={14}>Anyone with the link can read the notes (no sign-in). Tasks still waiting for review are left out, and decisions that don&rsquo;t match the transcript are dropped. Key points are shown as written; the ones we couldn&rsquo;t check against the transcript are marked on the page.</T>
         <Row label="Include the transcript" value={withTranscript} onChange={setWithTranscript} />
         <Row label="Let people play the audio" value={withAudio} onChange={setWithAudio} />
         <Row label="Let people ask questions about it" value={withQuestions} onChange={setWithQuestions} />

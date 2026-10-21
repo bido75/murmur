@@ -1,5 +1,6 @@
 // "Export my data": readable files for each recording. Pure; tested.
 import type { PublicNotes } from './share.ts';
+import { keyPointText } from './share.ts';
 
 export function slug(s: string): string {
   return s.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'recording';
@@ -22,7 +23,7 @@ export function folderNames(recs: { id: string; title: string; created_at: strin
 export function notesMarkdown(n: PublicNotes): string {
   const lines = [`# ${n.title}`, '', `${n.date.slice(0, 16).replace('T', ' ')} UTC · ${Math.round(n.duration_ms / 60000)} min · ${n.template.replace('_', ' ')}`, ''];
   if (n.overview) lines.push('## Summary', '', n.overview, '');
-  if (n.key_points.length) lines.push('## Key points', '', ...n.key_points.map((k) => `- ${k}`), '');
+  if (n.key_points.length) lines.push('## Key points', '', ...n.key_points.map((k) => `- ${keyPointText(k)}`), '');
   if (n.decisions.length) lines.push('## Decisions', '', ...n.decisions.map((d) => `- ${d.text}${d.quote ? ` — “${d.quote}”` : ''}`), '');
   if (n.tasks.length) lines.push('## Tasks', '', ...n.tasks.map((t) => `- [${t.done ? 'x' : ' '}] ${t.text}${t.owner ? ` (${t.owner})` : ''}${t.due ? ` — due ${t.due}` : ''}`), '');
   if (n.open_questions.length) lines.push('## Open questions', '', ...n.open_questions.map((q) => `- ${q}`), '');

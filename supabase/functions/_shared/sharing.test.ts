@@ -61,7 +61,8 @@ const src = {
   recording: { title: 'OAC meeting #12', created_at: '2026-10-15T14:00:00Z', duration_ms: 1800000, template: 'meeting' },
   summary: {
     overview: 'Schedule holds.',
-    key_points: ['Steel arrives Oct 22'],
+    key_points: ['Steel arrives Oct 22', 'Concrete pour moved'],
+    key_point_details: [{ text: 'Steel arrives Oct 22', quote: 'steel arrives on the 22nd', quote_ms: 61000, verified: true }],
     decisions: [{ text: 'Use Hilti anchors', quote: 'we go with Hilti', verified: true }, { text: 'Invented', quote: 'nope', verified: false }],
     open_questions: ['Who pays for the redesign?'],
     site_log: null,
@@ -83,6 +84,19 @@ test('shared notes include only confirmed material; transcript only when allowed
   assert.equal(n.transcript, null);
   assert.ok(!JSON.stringify(n).includes('user_id'));
   assert.deepEqual(publicNotes(src, true).transcript, [{ at: '1:01', speaker: 'Maya', text: 'we go with Hilti' }]);
+});
+
+test('key points say whether they were checked against the transcript', () => {
+  const n = publicNotes(src, false);
+  assert.deepEqual(n.key_points, [
+    { text: 'Steel arrives Oct 22', verified: true },
+    { text: 'Concrete pour moved', verified: false },
+  ]);
+  const legacy = publicNotes({ ...src, summary: { ...src.summary, key_point_details: null } }, false);
+  assert.deepEqual(legacy.key_points.map((k) => k.verified), [false, false], 'key points with no quote are not verified');
+  const e = recapEmail(n, { appName: 'Murmur', sender: 'olivia@acme.com', link: null, dateLabel: 'Oct 15' });
+  assert.match(e.html, /not checked against the transcript/);
+  assert.ok(!e.html.includes('Steel arrives Oct 22 (not checked'), 'checked key points are not marked');
 });
 
 test('link status', () => {

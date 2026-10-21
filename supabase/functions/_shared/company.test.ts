@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, zip } from './zip.ts';
+import { pythonCommand, pythonRun, pythonSkip } from './python.ts';
 import { folderNames, notesMarkdown, slug, tasksCsv, transcriptText } from './export_data.ts';
 import { activeFrom, emailOf, listResponse, parseFilter, userResource } from './scim.ts';
 import type { PublicNotes } from './share.ts';
@@ -13,17 +13,19 @@ test('crc32 matches the standard check value', () => {
   assert.equal(crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
 });
 
-test('zip files open with a standard unzip tool', () => {
+test('zip files open with a standard unzip tool', { skip: pythonSkip() }, () => {
+  const py = pythonCommand();
+  assert.ok(py, 'python interpreter is available');
   const z = zip([{ name: 'a.txt', data: 'hello' }, { name: 'recordings/2026-10-15-oac/notes.md', data: '# OAC — “ok”' }]);
   const dir = mkdtempSync(join(tmpdir(), 'zip-'));
   writeFileSync(join(dir, 'x.zip'), z);
-  const out = execFileSync('python3', ['-I', '-c', 'import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print("|".join(z.namelist()));print(z.read("recordings/2026-10-15-oac/notes.md").decode())', join(dir, 'x.zip')]).toString();
+  const out = pythonRun('import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print("|".join(z.namelist()));print(z.read("recordings/2026-10-15-oac/notes.md").decode())', [join(dir, 'x.zip')]);
   assert.match(out, /a\.txt\|recordings\/2026-10-15-oac\/notes\.md/);
   assert.match(out, /# OAC — “ok”/);
 });
 
 const n: PublicNotes = {
-  title: 'OAC #12', date: '2026-10-15T14:00:00Z', duration_ms: 1800000, template: 'site_walk', overview: 'Holds.', key_points: ['Steel Oct 22'],
+  title: 'OAC #12', date: '2026-10-15T14:00:00Z', duration_ms: 1800000, template: 'site_walk', overview: 'Holds.', key_points: [{ text: 'Steel Oct 22', verified: true }],
   decisions: [{ text: 'Hilti', quote: 'go with Hilti' }], tasks: [{ text: 'RFI 14', owner: 'Maya', due: 'Fri', done: true }], open_questions: [],
   site_log: [{ title: 'Safety', items: ['Guardrail'] }], transcript: [{ at: '0:05', speaker: 'Vinny', text: 'Morning.' }],
 };

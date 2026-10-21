@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { aircallTitle, callAllowed, keypadToE164, parseAircall, spokenNumber, twilioSignature, twimlAskPin, twimlDial, verifyTwilio, xml } from './phone.ts';
 import { cleanLocalTranscript, segmentPath, uploadType, whisperToUtterances } from './ingest.ts';
+import { pythonCommand, pythonRun, pythonSkip } from './python.ts';
 
 test('Twilio signatures match an independent HMAC and reject tampering', async () => {
   const url = 'https://x.supabase.co/functions/v1/phone/recording?rid=abc';
@@ -81,7 +82,7 @@ test('on-device transcripts: whisper segments become paragraphs; bad input refus
   assert.equal(cleanLocalTranscript([{ start_ms: 0, end_ms: 10, text: '   ' }]), null);
 });
 
-test('WAV header and PCM level', async () => {
+test('WAV header and PCM level', { skip: pythonSkip() }, async () => {
   const { wavHeader, pcmLevelDb } = await import('./ingest.ts');
   const h = wavHeader(32000);
   const v = new DataView(h.buffer);
@@ -98,13 +99,14 @@ test('WAV header and PCM level', async () => {
   assert.ok(Math.abs(pcmLevelDb(loud)) < 0.01);
   assert.equal(pcmLevelDb(new Uint8Array(400)), -160);
   // Python reads the file as valid 16 kHz mono audio.
-  const { execFileSync } = await import('node:child_process');
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
+  const py = pythonCommand();
+  assert.ok(py, 'python interpreter is available');
   const f = join(mkdtempSync(join(tmpdir(), 'wav-')), 'a.wav');
   writeFileSync(f, Buffer.concat([wavHeader(400), loud]));
-  const out = execFileSync('python3', ['-I', '-c', 'import wave,sys;w=wave.open(sys.argv[1]);print(w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes())', f]).toString().trim();
+  const out = pythonRun('import wave,sys;w=wave.open(sys.argv[1]);print(w.getframerate(),w.getnchannels(),w.getsampwidth(),w.getnframes())', [f]).trim();
   assert.equal(out, '16000 1 2 200');
 });
 

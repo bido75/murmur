@@ -90,6 +90,18 @@ An AI note taker in the same category as Wave: record meetings, calls, lectures 
 
 Still to come: phone-call recording, on-device transcription for no-signal sites, emailed team invites, Zoom cloud-recording import (needs a Zoom app).
 
+### Plans, minutes and upgrades
+
+| Feature | Where |
+| --- | --- |
+| **Minutes meter**: how much of this period's transcription minutes is left, on the home screen and in Settings, with a warning once 80% is used | `src/app/(tabs)/index.tsx`, `src/app/(tabs)/settings.tsx`, `src/lib/billing.ts` |
+| **Free plan** 60 minutes a month, **paid** 300 a month or 3,600 a year; the server decides and stores it per user | `supabase/migrations/20261021130000_entitlements.sql`, `_shared/entitlements.ts` (+ tests) |
+| **Over the limit**: the recording and its audio are kept, the notes wait and say why, and you can retry when your minutes reset or after you upgrade | `_shared/pipeline.ts`, `_shared/billing_store.ts` |
+| **Upgrade** by card (Stripe) or with the web purchase link (RevenueCat) | `supabase/functions/billing`, `src/app/(tabs)/settings.tsx` |
+| **Cancel in two taps**: "Cancel plan", then "Yes, cancel my plan"; you keep the plan until the period ends | `src/app/(tabs)/settings.tsx`, `_shared/billing_store.ts` |
+| **Provider webhooks** for Stripe and RevenueCat: verified, then applied once per event, so a replayed event cannot change your plan twice | `supabase/functions/billing-webhook` (+ tests) |
+| Limits only apply once the server turns them on (`app_features`), so the app behaves as it does today until you enable billing | `feature_enabled()` |
+
 ## Setup
 
 You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+, and the [Supabase CLI](https://supabase.com/docs/guides/cli).
@@ -233,6 +245,32 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
 21. **Zapier**: see `zapier/README.md` to publish the Zapier app.
 22. **Desktop screen recording** needs nothing extra on Windows. On macOS, allow Murmur under System Settings → Privacy & Security →
     Screen & System Audio Recording.
+23. **Plans and billing** (optional). Nothing is charged and no limit applies until you turn billing on for your project.
+    ```bash
+    supabase functions deploy billing
+    supabase functions deploy billing-webhook --no-verify-jwt   # Stripe and RevenueCat call this server to server
+    # Stripe
+    supabase secrets set STRIPE_SECRET_KEY=sk_... STRIPE_WEBHOOK_SECRET=whsec_... \
+      STRIPE_PRICE_MONTHLY=price_... STRIPE_PRICE_YEARLY=price_...
+    # or RevenueCat
+    supabase secrets set REVENUECAT_WEBHOOK_SECRET=... REVENUECAT_API_KEY=... REVENUECAT_WEB_PURCHASE_URL=https://...
+    ```
+    Turn the minutes limit on (SQL editor):
+    ```sql
+    insert into app_features (name, enabled) values ('billing', true) on conflict (name) do update set enabled = true;
+    ```
+     Point the provider webhook at `https://YOUR-PROJECT.supabase.co/functions/v1/billing-webhook`.
+     - **Stripe**: send `customer.subscription.created`, `customer.subscription.updated` and
+       `customer.subscription.deleted` - those are the events the webhook acts on (the list is
+       `STRIPE_PLAN_EVENTS` in `supabase/functions/_shared/entitlements.ts`). `checkout.session.completed`
+       is not needed: the checkout sends the user's id on the subscription it creates, so the
+       subscription events already say who paid. Any other event is ignored and logged.
+     - **RevenueCat**: send purchase, cancellation and renewal events.
+     Stripe is verified with `STRIPE_WEBHOOK_SECRET` (`stripe-signature`; when a secret is rotated Stripe sends
+     one signature per secret and the webhook accepts any of them), RevenueCat with the
+     `Authorization: Bearer <REVENUECAT_WEBHOOK_SECRET>` header. Keep those secrets out of `.env` - they live only in Supabase
+     Edge Function secrets.
+
 
 ## Checks
 
@@ -240,8 +278,12 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
 npm run typecheck   # TypeScript, app code
 npm run lint        # Expo / React hooks rules
 npm test            # logic tests + database security tests (PGlite, no Docker needed)
+npm run test:logic  # just the logic tests
+npm run test:db     # just the database security tests
 cd supabase/functions && deno check */index.ts && deno test --allow-all _shared/
 ```
+
+`npm test` always runs both halves and reports each one, so a failing logic suite can no longer hide the database suite; it exits non-zero if either half fails.
 
 ## Test on a real device before trusting it
 
@@ -313,12 +355,17 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Invite a teammate by email (with Resend set up): they get the email with the code.
 - [ ] RingCentral sandbox: connect, make a recorded call, it imports once.
 - [ ] Zapier: connect with a token, turn on a "New Notes" Zap, record something: the Zap runs.
+- [ ] With billing turned on: the minutes meter shows what is left. Record until it warns at 80%, then keep going past the limit: the recording and its audio are kept, the notes say they are waiting, and Retry works after you upgrade. Then cancel the plan in Settings (two taps) and confirm you keep the plan until the period ends.
 
 ## What still needs doing outside the code
 
 Everything identified as a gap has been built. What remains can't be done from code alone:
 
-**Paid plans** — deliberately left for the production push (billing, in-app purchases, plan limits).
+**Paid plans** — the code side is built (entitlements, minutes meter, over-limit handling, Stripe and RevenueCat
+webhooks, upgrade and two-tap cancel) and stays switched off until the server turns it on. What is left needs
+things outside the code: live Stripe/RevenueCat accounts and their products and prices, the real store purchase
+path on iOS and Android (the native RevenueCat SDK needs the app store products, which in-app purchase rules
+also require before release), and the decision of what the free plan should include.
 
 **Testing against the real services.** Everything was built from the providers' documentation and
 tested with mocked responses; none has been run against a live account yet. The device checklist

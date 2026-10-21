@@ -6,6 +6,7 @@ import {
   calendarProviders, createWorkspace, disconnectCalendar, getSettings, listCalendarConnections, listWorkspaces, saveSettings,
   startCalendarConnect, type Settings,
 } from '@/lib/api';
+import { buyPlan, cancelPlan, getBilling, meterDetail, meterTitle, planName, resetDate, type Billing } from '@/lib/billing';
 import { calendarReturnUrl } from '@/lib/calendarUi';
 import { APP_NAME } from '@/lib/config';
 import { confirm, isWeb, notify } from '@/lib/dialog';
@@ -23,6 +24,9 @@ export default function SettingsScreen() {
   const [teamName, setTeamName] = useState('');
   const [calProviders, setCalProviders] = useState<CalProvider[]>([]);
   const [calendars, setCalendars] = useState<{ provider: CalProvider; account_email: string | null }[]>([]);
+  const [billing, setBilling] = useState<Billing | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [buying, setBuying] = useState(false);
 
   useEffect(() => {
     getSettings().then(setSettings);
@@ -31,6 +35,7 @@ export default function SettingsScreen() {
     listWorkspaces().then(setTeams).catch(() => setTeams([]));
     calendarProviders().then(setCalProviders);
     listCalendarConnections().then(setCalendars).catch(() => setCalendars([]));
+    getBilling().then(setBilling);
   }, []);
 
   async function connectCalendar(provider: CalProvider) {
@@ -66,10 +71,63 @@ export default function SettingsScreen() {
     void saveSettings(next);
   }
 
+  async function upgrade() {
+    setBuying(true);
+    try {
+      const url = await buyPlan('monthly');
+      if (!url) throw new Error('Buying is not set up on the server yet.');
+      if (isWeb) window.location.assign(url);
+      else await Linking.openURL(url);
+    } catch (e) {
+      notify("Couldn't start the purchase", (e as Error).message);
+    } finally {
+      setBuying(false);
+    }
+  }
+
+  // Cancelling takes two taps: the first one asks, the second one does it.
+  async function doCancel() {
+    try {
+      const endsOn = await cancelPlan();
+      setCancelling(false);
+      setBilling(await getBilling());
+      notify(
+        'Plan cancelled',
+        endsOn ? `Your plan stays until ${new Date(endsOn).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.` : 'You are on the free plan now.',
+      );
+    } catch (e) {
+      notify("Couldn't cancel your plan", (e as Error).message);
+    }
+  }
+
   if (!settings) return null;
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+      {billing?.paywall ? (
+        <Card style={{ gap: space.sm }}>
+          <T weight="600">Your plan</T>
+          <T>{planName(billing)}</T>
+          <T muted size={13}>{meterTitle(billing)}</T>
+          <T muted size={13}>{meterDetail(billing)}</T>
+          {billing.plan === 'paid' ? (
+            cancelling ? (
+              <View style={{ gap: space.sm }}>
+                <T muted size={13}>Your plan stays until {resetDate(billing)}. Tap again to cancel it.</T>
+                <Button label="Yes, cancel my plan" kind="danger" onPress={() => void doCancel()} />
+                <Button label="Keep my plan" kind="ghost" onPress={() => setCancelling(false)} />
+              </View>
+            ) : (
+              <Button label="Cancel plan" kind="ghost" onPress={() => setCancelling(true)} />
+            )
+          ) : (
+            <Button label="Upgrade" kind="primary" loading={buying} onPress={() => void upgrade()} />
+          )}
+          {billing.cancelAt ? <T muted size={13}>Your plan ends on {resetDate(billing)}.</T> : null}
+          {!billing.canBuy ? <T muted size={13}>Buying is not set up on the server yet.</T> : null}
+        </Card>
+      ) : null}
+
       <Card style={{ gap: space.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
           <View style={{ flex: 1 }}>

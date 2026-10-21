@@ -45,6 +45,9 @@ export type Transcript = { utterances: Utterance[]; speaker_names: Record<string
 
 export type Decision = { text: string; quote: string; quote_ms: number | null; verified: boolean };
 
+/** Where a key point came from. quote_ms is only set when the quote was found. */
+export type KeyPointDetail = { text: string; quote: string | null; quote_ms: number | null; verified: boolean };
+
 export type TaskUpdate = {
   task_id: string;
   text: string;
@@ -58,6 +61,7 @@ export type TaskUpdate = {
 export type Summary = {
   overview: string;
   key_points: string[];
+  key_point_details?: KeyPointDetail[] | null;
   decisions: Decision[];
   open_questions: string[];
   task_updates?: TaskUpdate[];

@@ -1,6 +1,7 @@
 // Word (.docx) export of a recording's notes. Built from the same confirmed material as a share link.
 import { AlignmentType, BorderStyle, Document, HeadingLevel, Packer, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } from 'npm:docx@9';
 import type { PublicNotes } from './share.ts';
+import { keyPointText } from './share.ts';
 
 const ACCENT = '1F6F5C';
 const MUTED = '6B6F6A';
@@ -57,7 +58,7 @@ export async function buildDocx(n: PublicNotes, o: { appName: string; dateLabel:
 
   if (n.key_points.length) {
     children.push(heading('Key points'));
-    children.push(...n.key_points.map(bullet));
+    children.push(...n.key_points.map((k) => bullet(keyPointText(k))));
   }
   if (n.open_questions.length) {
     children.push(heading('Open questions'));
@@ -85,7 +86,7 @@ export async function buildDocx(n: PublicNotes, o: { appName: string; dateLabel:
       alignment: AlignmentType.LEFT,
       children: [
         new TextRun({
-          text: `${o.consent ? `Recording notice: ${o.consent}. ` : ''}AI-generated notes, checked against the transcript. Exported from ${o.appName}.`,
+          text: `${o.consent ? `Recording notice: ${o.consent}. ` : ''}AI-generated notes from a recording. Key points that could not be checked against the transcript are marked. Exported from ${o.appName}.`,
           color: MUTED,
           size: 18,
         }),

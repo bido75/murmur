@@ -2,6 +2,7 @@
 // Returns 202 immediately; the work continues in the background and the app polls status.
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { internalSecret, runPipeline } from '../_shared/pipeline.ts';
+import { deferNotes, notesAllowed } from '../_shared/billing_store.ts';
 import { assignPhotos, attachPhotosToLog, type PhotoMark, type SiteLog } from '../_shared/field.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -13,7 +14,7 @@ Deno.serve(async (req) => {
     const secret = internalSecret();
     if (!secret || req.headers.get('x-internal-secret') !== secret) return json({ error: 'Forbidden' }, 403);
     const { recording_id } = await req.json();
-    EdgeRuntime.waitUntil(runPipeline(String(recording_id)));
+    EdgeRuntime.waitUntil(runPipeline(String(recording_id), { skipLimit: true }));
     return json({ status: 'continuing' }, 202);
   }
   try {
@@ -31,8 +32,16 @@ Deno.serve(async (req) => {
       return json({ status: rec.status }, 202);
     }
 
+    // Out of minutes: the recording waits for its notes and the audio stays exactly where it is.
+    const gate = await notesAllowed(userId, new Date());
+    if (!gate.allowed) {
+      await deferNotes(recording_id, gate.message);
+      return json({ status: 'waiting', message: gate.message }, 202);
+    }
+
     const admin = adminClient();
-    await admin.from('recordings').update({ status: 'transcribing', error: null, process_attempts: 0 }).eq('id', recording_id);
+    // The notes are being made, so the recording is no longer waiting for minutes.
+    await admin.from('recordings').update({ status: 'transcribing', error: null, notes_queued_at: null, process_attempts: 0 }).eq('id', recording_id);
     EdgeRuntime.waitUntil(runPipeline(recording_id));
     return json({ status: 'transcribing' }, 202);
   } catch (e) {

@@ -29,12 +29,12 @@ Deno.serve(async (req) => {
       }
       return out;
     };
-    type Sum = { recording_id: string; overview: string; key_points: string[]; decisions: { text: string; quote?: string | null; verified?: boolean }[]; open_questions: string[]; site_log: null };
+    type Sum = { recording_id: string; overview: string; key_points: string[]; key_point_details?: { text: string; verified?: boolean }[] | null; decisions: { text: string; quote?: string | null; verified?: boolean }[]; open_questions: string[]; site_log: null };
     type Tr = { recording_id: string; utterances: { start_ms: number; end_ms: number; speaker: number; text: string }[]; speaker_names: Record<string, string> };
     type Tk = { recording_id: string; text: string; owner: string | null; due_text: string | null; status: string; needs_review: boolean; quote: string | null; created_at: string };
     type Seg = { recording_id: string; idx: number; storage_path: string | null };
     const [sums, trs, tasks, segs] = await Promise.all([
-      byChunks<Sum>('summaries', 'recording_id, overview, key_points, decisions, open_questions, site_log'),
+      byChunks<Sum>('summaries', 'recording_id, overview, key_points, key_point_details, decisions, open_questions, site_log'),
       byChunks<Tr>('transcripts', 'recording_id, utterances, speaker_names'),
       byChunks<Tk>('tasks', 'recording_id, text, owner, due_text, status, needs_review, quote, created_at'),
       byChunks<Seg>('recording_segments', 'recording_id, idx, storage_path'),

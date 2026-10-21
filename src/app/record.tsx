@@ -276,7 +276,9 @@ export default function Record() {
 
           <Button label="Start recording" onPress={start} loading={starting} disabled={needConsent && !consented} />
           <T muted size={13} style={{ textAlign: 'center' }}>
-            Keeps recording with the screen locked. Audio is saved every 5 minutes, so nothing is lost if your phone dies.
+            {isWeb
+              ? 'Keeps recording with the screen locked. Audio is saved in ~5-second slices on the web.'
+              : 'Keeps recording with the screen locked. Audio is saved in 5-minute parts on the phone; the part in progress may be lost if interrupted.'}
           </T>
         </ScrollView>
       </SafeAreaView>
@@ -339,6 +341,7 @@ export default function Record() {
             </Pressable>
           )
         )}
+        {!isWeb && <T muted size={13}>Live transcript is available in the web app only.</T>}
 
         {showNotes ? (
           <TextInput

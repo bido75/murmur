@@ -8,7 +8,7 @@ import { uuid } from './format';
 import { APP_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import { supabase } from './supabase';
 import { enqueue, keepFile, pendingOps, pendingPhotos, processRecording, type CreateOp } from './sync';
-import type { CalendarEvent, CalProvider, ConsentMethod, ConsentResponse, ConnKey, Integration, Invite, MeetingBot, Member, Photo, Project, Provider, Recording, Role, ShareLink, Summary, SummaryTemplate, Task, Template, Transcript, Workspace } from './types';
+import type { CalendarEvent, CalProvider, ConsentMethod, ConsentResponse, ConnKey, Integration, Invite, KeyPointDetail, MeetingBot, Member, Photo, Project, Provider, Recording, Role, ShareLink, Summary, SummaryTemplate, Task, Template, Transcript, Workspace } from './types';
 import { normalizeMediaLink, titleFromLink } from './shared';
 
 /** Register a new recording locally; it syncs to the server when there's a connection. */
@@ -94,7 +94,7 @@ export async function getRecording(id: string) {
   const [rec, tr, sum, tasks, segs, photos] = await Promise.all([
     supabase.from('recordings').select('*').eq('id', id).maybeSingle(),
     supabase.from('transcripts').select('utterances, speaker_names').eq('recording_id', id).maybeSingle(),
-    supabase.from('summaries').select('overview, key_points, decisions, open_questions, task_updates, site_log, site_log_external').eq('recording_id', id).maybeSingle(),
+    supabase.from('summaries').select('overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external').eq('recording_id', id).maybeSingle(),
     supabase.from('tasks').select('*').eq('recording_id', id).neq('status', 'dismissed').order('created_at'),
     supabase.from('recording_segments').select('idx, storage_path, source_url, duration_ms').eq('recording_id', id).order('idx'),
     listPhotos(id),
@@ -350,7 +350,19 @@ export async function updateUtteranceText(recordingId: string, utterances: { sta
 }
 
 export async function updateSummary(recordingId: string, patch: Partial<Pick<Summary, 'overview' | 'key_points' | 'open_questions' | 'decisions'>>) {
-  const { error } = await supabase.from('summaries').update({ ...patch, edited_at: new Date().toISOString() }).eq('recording_id', recordingId);
+  const body: Record<string, unknown> = { ...patch, edited_at: new Date().toISOString() };
+  if (patch.key_points) {
+    // A key point that was edited no longer matches the quote it came from, so its time
+    // chip goes away. The points that were left alone keep theirs.
+    const { data, error } = await supabase.from('summaries').select('key_point_details').eq('recording_id', recordingId).maybeSingle();
+    // If the details could not be read, leave them alone: writing an empty list would
+    // take the time chip off every point, including the ones that were not edited.
+    if (!error) {
+      const details = ((data?.key_point_details ?? []) as KeyPointDetail[]).filter((d) => patch.key_points!.includes(d.text));
+      body.key_point_details = details;
+    }
+  }
+  const { error } = await supabase.from('summaries').update(body).eq('recording_id', recordingId);
   if (error) throw new Error(error.message);
 }
 

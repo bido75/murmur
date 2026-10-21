@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dropRepeats, findQuote, formatClock, makeRefs, offsetUtterances, verifyActionItems, verifyTaskUpdates, type Utterance } from './verify.ts';
+import { dropRepeats, findQuote, formatClock, makeRefs, offsetUtterances, verifyActionItems, verifyKeyPoints, verifyTaskUpdates, type Utterance } from './verify.ts';
 
 const transcript: Utterance[] = [
   { start_ms: 0, end_ms: 4000, speaker: 0, text: "Okay, let's get started with the site review." },
@@ -114,4 +114,30 @@ test('carry-over: repeated tasks are not created twice', () => {
     ['Send revised quote to client'],
   );
   assert.deepEqual(out.map((o) => o.text), ['Order rebar from new supplier']);
+});
+
+test('key point with a quote from the transcript gets its time', () => {
+  const out = verifyKeyPoints([{ text: 'Revised quote due Thursday', quote: 'can you send the revised quote by Thursday' }], transcript);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].text, 'Revised quote due Thursday');
+  assert.equal(out[0].verified, true);
+  assert.equal(out[0].quote_ms, 4000);
+});
+
+test('key point whose quote is not in the transcript keeps no time', () => {
+  const out = verifyKeyPoints([{ text: 'Crane booked for Monday', quote: 'the crane is booked for Monday' }], transcript);
+  assert.equal(out[0].verified, false);
+  assert.equal(out[0].quote_ms, null);
+});
+
+test('key point without a quote is kept but gets no time', () => {
+  const out = verifyKeyPoints([{ text: 'Steel arrives on 22 October' }], transcript);
+  assert.equal(out[0].text, 'Steel arrives on 22 October');
+  assert.equal(out[0].verified, false);
+  assert.equal(out[0].quote_ms, null);
+});
+
+test('key points given as plain strings are kept, and duplicates are dropped', () => {
+  const out = verifyKeyPoints(['Steel arrives Oct 22', 'Steel arrives Oct 22', '  '], transcript);
+  assert.deepEqual(out.map((o) => o.text), ['Steel arrives Oct 22']);
 });

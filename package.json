@@ -46,7 +46,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test supabase/functions/_shared/*.test.ts && node --test supabase/tests/*.test.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "test:logic": "node --experimental-strip-types --test supabase/functions/_shared/*.test.ts",
     "lint": "expo lint",
     "test:db": "node --test supabase/tests/*.test.mjs"
   },

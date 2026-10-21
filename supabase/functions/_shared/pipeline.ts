@@ -1,6 +1,7 @@
 // The processing pipeline: transcribe every segment, write notes and verified tasks, link photos.
 // Shared by process-recording (user-triggered) and the meeting bot webhook.
 import { adminClient, claudeStructured, transcribe } from './services.ts';
+import { deferNotes, notesAllowed } from './billing_store.ts';
 import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
 import { boundaryExcerpt, joinParts, mapLimited, mergeChannels, parseSpeakerMap, speakersIn, sttCacheKey } from './parts.ts';
 import { normalizeMediaLink } from './links.ts';
@@ -14,11 +15,12 @@ import {
   makeRefs,
   offsetUtterances,
   verifyActionItems,
+  verifyKeyPoints,
   verifyTaskUpdates,
   type Utterance,
 } from './verify.ts';
 
-export async function runPipeline(recordingId: string) {
+export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean } = {}) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
@@ -30,6 +32,16 @@ export async function runPipeline(recordingId: string) {
   const template = rec.template as string;
   const currentTitle = rec.title as string;
   const projectId = rec.project_id as string | null;
+
+  // A recording made on a plan that has run out waits for more minutes. The audio stays put.
+  if (!opts.skipLimit) {
+    const gate = await notesAllowed(userId, new Date());
+    if (!gate.allowed) {
+      await deferNotes(recordingId, gate.message);
+      return;
+    }
+  }
+
   let custom: string | null = null;
   if (rec.custom_template_id) {
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
@@ -133,7 +145,7 @@ async function run(recordingId: string, userId: string, template: string, curren
         user_id: userId,
         overview: 'No speech was detected in this recording.',
       });
-      await admin.from('recordings').update({ status: 'ready' }).eq('id', recordingId);
+      await admin.from('recordings').update({ status: 'ready', notes_queued_at: null }).eq('id', recordingId);
       return;
     }
 
@@ -171,12 +183,16 @@ async function run(recordingId: string, userId: string, template: string, curren
       const m = findQuote(d.quote, all);
       return { text: d.text, quote: d.quote, quote_ms: m.start_ms, verified: m.found };
     });
+    // Key points keep their text for sharing, search and export; the details carry the
+    // quote and the time so the app can show where a point came from.
+    const keyPoints = verifyKeyPoints(notes.key_points ?? [], all);
 
     await admin.from('summaries').upsert({
       recording_id: recordingId,
       user_id: userId,
       overview: notes.overview ?? '',
-      key_points: notes.key_points ?? [],
+      key_points: keyPoints.map((k) => k.text),
+      key_point_details: keyPoints,
       decisions,
       open_questions: notes.open_questions ?? [],
       task_updates: updates,
@@ -190,7 +206,8 @@ async function run(recordingId: string, userId: string, template: string, curren
       await admin.from('tasks').insert(tasks.map((t, i) => ({ ...t, photo_ids: taskPhotos[i], recording_id: recordingId, user_id: userId })));
     }
 
-    const update: Record<string, unknown> = { status: 'ready' };
+    // notes_queued_at is cleared too: the notes exist now, so the recording is no longer waiting.
+    const update: Record<string, unknown> = { status: 'ready', notes_queued_at: null };
     if (notes.title && (!currentTitle || currentTitle === 'New recording')) update.title = notes.title.slice(0, 120);
     await admin.from('recordings').update(update).eq('id', recordingId);
     await afterReady(recordingId, userId, (update.title as string | undefined) ?? currentTitle, tasks.filter((t) => !t.needs_review).length);

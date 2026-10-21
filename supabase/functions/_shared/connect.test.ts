@@ -14,7 +14,7 @@ const n: PublicNotes = {
   duration_ms: 1800000,
   template: 'meeting',
   overview: 'Schedule holds.',
-  key_points: ['Steel arrives Oct 22'],
+  key_points: [{ text: 'Steel arrives Oct 22', verified: true }],
   decisions: [{ text: 'Use Hilti anchors', quote: 'we go with Hilti' }],
   tasks: [
     { text: 'Send RFI 14', owner: 'Maya', due: 'Friday', done: false },

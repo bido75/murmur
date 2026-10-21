@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
 async function gather(db: any, recordingId: string, withTranscript: boolean) {
   const [{ data: rec }, { data: sum }, { data: tasks }, tr] = await Promise.all([
     db.from('recordings').select('id, user_id, title, created_at, duration_ms, template, status, consent_method, audio_deleted_at').eq('id', recordingId).maybeSingle(),
-    db.from('summaries').select('overview, key_points, decisions, open_questions, site_log').eq('recording_id', recordingId).maybeSingle(),
+    db.from('summaries').select('overview, key_points, key_point_details, decisions, open_questions, site_log').eq('recording_id', recordingId).maybeSingle(),
     db.from('tasks').select('text, owner, due_text, status, needs_review').eq('recording_id', recordingId).order('created_at'),
     withTranscript ? db.from('transcripts').select('utterances, speaker_names').eq('recording_id', recordingId).maybeSingle() : Promise.resolve({ data: null }),
   ]);

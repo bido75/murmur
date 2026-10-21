@@ -31,6 +31,15 @@ export type VerifiedActionItem = {
 
 export type QuoteMatch = { found: boolean; start_ms: number | null };
 
+export type RawKeyPoint = { text: string; quote?: string | null } | string;
+
+export type VerifiedKeyPoint = {
+  text: string;
+  quote: string | null;
+  quote_ms: number | null;
+  verified: boolean;
+};
+
 /** Lowercase, expand contractions, drop punctuation, collapse whitespace. */
 export function normalize(s: string): string {
   return s
@@ -192,6 +201,27 @@ export function verifyActionItems(
 /** Shift segment-relative utterances onto the recording's timeline. */
 export function offsetUtterances(utterances: Utterance[], offsetMs: number): Utterance[] {
   return utterances.map((u) => ({ ...u, start_ms: u.start_ms + offsetMs, end_ms: u.end_ms + offsetMs }));
+}
+
+/**
+ * Check each key point against the transcript. A key point only gets a time when the
+ * quote it was written from is really in the transcript, so a chip always points at the
+ * moment that was said. Key points without a quote are kept, but they get no chip.
+ */
+export function verifyKeyPoints(items: RawKeyPoint[], utterances: Utterance[]): VerifiedKeyPoint[] {
+  const seen = new Set<string>();
+  const out: VerifiedKeyPoint[] = [];
+  for (const item of items ?? []) {
+    const raw = typeof item === 'string' ? { text: item, quote: null } : item;
+    const text = (raw?.text ?? '').trim();
+    if (!text) continue;
+    const key = normalize(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const m = findQuote(raw.quote, utterances);
+    out.push({ text, quote: raw.quote?.trim() || null, quote_ms: m.start_ms, verified: m.found });
+  }
+  return out;
 }
 
 // ---------- Carry-over: earlier tasks discussed in a later recording ----------

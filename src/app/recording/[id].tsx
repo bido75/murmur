@@ -1,12 +1,13 @@
-import { useAudioPlayer } from 'expo-audio';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ActionMenu, type MenuAction } from '@/components/ActionMenu';
 import { SendToTracker } from '@/components/SendToTracker';
 import { PhotoStrip, PhotoViewer, SiteLogView } from '@/components/SiteLog';
 import { PromptModal, type Prompt } from '@/components/PromptModal';
+import { PlayerBar } from '@/components/PlayerBar';
 import { TaskRow } from '@/components/TaskRow';
+import { TimestampChip } from '@/components/TimestampChip';
 import { Banner, Button, Card, Empty, Segmented, StatusPill, T } from '@/components/ui';
 import { addComment, addToReel, createReel, listReels, ask, DESTINATIONS, exportNotes, type Destination, translateRecording, type Translation, audioUrl, cancelBot, consentResponses, createShareLink, currentUserId, deleteComment, listComments, setSpeakerName, shareUrl, updateSummary, updateUtteranceText, type Comment, deletePhoto, getBot, deleteRecording, getRecording, listIntegrations, listProjects, renameRecording, retryProcessing, sendSiteLogToProcore, setPhotoCaption, setRecordingProject, updateTask } from '@/lib/api';
 import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
@@ -14,6 +15,7 @@ import { APP_URL } from '@/lib/config';
 import { LANGUAGES, photoMoment } from '@/lib/shared';
 import { queuePhoto, takePhoto } from '@/lib/photos';
 import { clock, minutes, shortDate, speakerLabel } from '@/lib/format';
+import { useRecordingPlayer } from '@/lib/player';
 import { radius, space, useTheme } from '@/lib/theme';
 import { CONSENT_LABELS, PROVIDER_LABELS, TEMPLATE_LABELS, type ConsentResponse, type Integration, type MeetingBot, type Photo, type Project, type Task } from '@/lib/types';
 
@@ -32,8 +34,6 @@ export default function RecordingDetail() {
   const [translation, setTranslation] = useState<Translation | null>(null);
   const [translating, setTranslating] = useState(false);
   const [title, setTitle] = useState('');
-  const player = useAudioPlayer(null);
-  const [loadedSegment, setLoadedSegment] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ title?: string; actions: MenuAction[] } | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [viewing, setViewing] = useState<Photo | null>(null);
@@ -71,37 +71,22 @@ export default function RecordingDetail() {
   }, [status, load]);
 
   /** Play from a moment in the recording, across segment files. */
-  async function playAt(ms: number) {
-    const segs = data?.segments ?? [];
-    if (!segs.length) return;
+  const segments = useMemo(() => data?.segments ?? [], [data?.segments]);
+  const utterances = useMemo(() => data?.transcript?.utterances ?? [], [data?.transcript?.utterances]);
+  const player = useRecordingPlayer(segments, data?.recording?.duration_ms ?? 0, utterances);
+  const [following, setFollowing] = useState(true);
+
+  function playAt(ms: number) {
     if (data?.recording?.audio_deleted_at) {
       notify('Audio removed', 'The audio was deleted by your retention setting. The transcript and notes are kept.');
       return;
     }
-    // Walk the segments to find the file containing `ms`. A segment with unknown
-    // duration (recovered or imported) is treated as running to the end.
-    let offset = 0;
-    let seg = segs[0];
-    for (let i = 0; i < segs.length; i++) {
-      seg = segs[i];
-      const last = i === segs.length - 1;
-      if (last || !seg.duration_ms || ms < offset + seg.duration_ms) break;
-      offset += seg.duration_ms;
-    }
-    try {
-      if (loadedSegment !== seg.idx) {
-        // Link imports play straight from the link.
-        const url = seg.storage_path ? await audioUrl(seg.storage_path) : seg.source_url;
-        if (!url) throw new Error('Audio is not available');
-        player.replace({ uri: url });
-        setLoadedSegment(seg.idx);
-      }
-      await player.seekTo(Math.max(0, (ms - offset) / 1000 - 1));
-      player.play();
-    } catch (e) {
-      notify("Can't play audio", (e as Error).message);
-    }
+    void player.seekToMs(ms, true);
   }
+
+  useEffect(() => {
+    if (player.error) notify("Can't play audio", player.error);
+  }, [player.error]);
 
   async function setTask(task: Task, patch: Partial<Task>) {
     setData((d) => (d ? { ...d, tasks: d.tasks.map((x) => (x.id === task.id ? { ...x, ...patch } : x)) } : d));
@@ -463,21 +448,57 @@ export default function RecordingDetail() {
             />
           </View>
 
-          {tab === 'notes' && (
-            <Notes
-              data={shown!}
-              playAt={playAt}
-              onOpenPhoto={setViewing}
-              procore={procore?.config.target ? { target: procore.config.target.name, onSend: sendLog } : null}
-              responses={responses}
-              canEdit={isOwnerNow}
-              onSaved={load}
-              comments={comments}
-              onComment={async (body) => { await addComment(id, { kind: 'comment', at_ms: null, body }); setComments(await listComments(id)); }}
-              onDeleteComment={async (c) => { await deleteComment(c.id).catch((e) => notify("Couldn't delete", (e as Error).message)); setComments(await listComments(id)); }}
-              me={me}
-            />
-          )}
+          <View style={{ flex: 1 }}>
+            {tab === 'notes' && (
+              <Notes
+                data={shown!}
+                playAt={playAt}
+                onOpenPhoto={setViewing}
+                procore={procore?.config.target ? { target: procore.config.target.name, onSend: sendLog } : null}
+                responses={responses}
+                canEdit={isOwnerNow}
+                onSaved={load}
+                comments={comments}
+                onComment={async (body) => { await addComment(id, { kind: 'comment', at_ms: null, body }); setComments(await listComments(id)); }}
+                onDeleteComment={async (c) => { await deleteComment(c.id).catch((e) => notify("Couldn't delete", (e as Error).message)); setComments(await listComments(id)); }}
+                me={me}
+              />
+            )}
+            {tab === 'transcript' && (
+              <TranscriptView
+                data={shown!}
+                playAt={playAt}
+                onOpenPhoto={setViewing}
+                onLineMenu={lineMenu}
+                onSpeaker={renameSpeaker}
+                focusMs={focusMs}
+                marks={new Set(comments.filter((c) => c.at_ms != null).map((c) => c.at_ms!))}
+                positionMs={player.positionMs}
+                following={following}
+                onUserScroll={() => setFollowing(false)}
+              />
+            )}
+            {tab === 'tasks' && (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}>
+                {data.tasks.some((x) => x.status === 'open' && !x.needs_review) && <SendToTracker tasks={data.tasks} onDone={load} />}
+                {data.tasks.length === 0 ? (
+                  <Empty title={rec.status === 'ready' ? 'No action items' : 'Tasks appear when notes are ready'} />
+                ) : (
+                  data.tasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onToggle={() => setTask(task, { status: task.status === 'done' ? 'open' : 'done' })}
+                      onAccept={() => setTask(task, { needs_review: false, kind: 'commitment' })}
+                      onDismiss={() => setTask(task, { status: 'dismissed' })}
+                      onQuotePress={task.quote_ms != null ? () => playAt(task.quote_ms!) : undefined}
+                    />
+                  ))
+                )}
+              </ScrollView>
+            )}
+            {tab === 'ask' && <AskView recordingId={rec.id} />}
+          </View>
           <PhotoViewer
             photo={viewing}
             onClose={() => setViewing(null)}
@@ -493,38 +514,25 @@ export default function RecordingDetail() {
             }}
           />
           <ActionMenu visible={!!menu} title={menu?.title} actions={menu?.actions ?? []} onClose={() => setMenu(null)} />
-          {tab === 'transcript' && (
-            <TranscriptView
-              data={shown!}
-              playAt={playAt}
-              onOpenPhoto={setViewing}
-              onLineMenu={lineMenu}
-              onSpeaker={renameSpeaker}
-              focusMs={focusMs}
-              marks={new Set(comments.filter((c) => c.at_ms != null).map((c) => c.at_ms!))}
+          <PromptModal prompt={prompt} onClose={() => setPrompt(null)} />
+          {data.segments.length > 0 && !rec.audio_deleted_at && (
+            <PlayerBar
+              playing={player.playing}
+              positionMs={player.positionMs}
+              durationMs={player.durationMs}
+              speed={player.speed}
+              speaker={player.speaker != null ? speakerLabel(player.speaker, data?.transcript?.speaker_names ?? {}) : null}
+              following={following}
+              onToggle={() => {
+                setFollowing(true);
+                player.toggle();
+              }}
+              onSeek={(ms) => void player.seekToMs(ms, player.playing)}
+              onSkip={(delta) => player.skip(delta)}
+              onSpeed={player.changeSpeed}
+              onToggleFollow={() => setFollowing((f) => !f)}
             />
           )}
-          <PromptModal prompt={prompt} onClose={() => setPrompt(null)} />
-          {tab === 'tasks' && (
-            <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}>
-              {data.tasks.some((x) => x.status === 'open' && !x.needs_review) && <SendToTracker tasks={data.tasks} onDone={load} />}
-              {data.tasks.length === 0 ? (
-                <Empty title={rec.status === 'ready' ? 'No action items' : 'Tasks appear when notes are ready'} />
-              ) : (
-                data.tasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onToggle={() => setTask(task, { status: task.status === 'done' ? 'open' : 'done' })}
-                    onAccept={() => setTask(task, { needs_review: false, kind: 'commitment' })}
-                    onDismiss={() => setTask(task, { status: 'dismissed' })}
-                    onQuotePress={task.quote_ms != null ? () => playAt(task.quote_ms!) : undefined}
-                  />
-                ))
-              )}
-            </ScrollView>
-          )}
-          {tab === 'ask' && <AskView recordingId={rec.id} />}
         </>
       )}
     </View>
@@ -568,7 +576,7 @@ function Notes({ data, playAt, onOpenPhoto, procore, responses, canEdit, onSaved
   const photos = data.photos;
   if (!s) {
     return (
-      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.xl }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: space.lg, gap: space.xl }}>
         {photos.length > 0 && (
           <Section title={`Photos (${photos.length})`}>
             <PhotoStrip photos={photos} onOpen={onOpenPhoto} />
@@ -581,7 +589,7 @@ function Notes({ data, playAt, onOpenPhoto, procore, responses, canEdit, onSaved
   const sentTo = s.site_log_external?.procore?.url;
   if (editing) {
     return (
-      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: space.xxl }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: space.xxl }}>
         <T muted size={13} weight="600">SUMMARY</T>
         <TextInput value={editing.overview} onChangeText={(v) => setEditing({ ...editing, overview: v })} multiline style={[field, { minHeight: 100 }]} accessibilityLabel="Summary" />
         <T muted size={13} weight="600">KEY POINTS (one per line)</T>
@@ -597,7 +605,7 @@ function Notes({ data, playAt, onOpenPhoto, procore, responses, canEdit, onSaved
     );
   }
   return (
-    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.xl, paddingBottom: space.xxl }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: space.lg, gap: space.xl, paddingBottom: space.xxl }}>
       {canEdit && (
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -space.md }}>
           <Button
@@ -630,7 +638,16 @@ function Notes({ data, playAt, onOpenPhoto, procore, responses, canEdit, onSaved
       )}
       {s.key_points.length > 0 && (
         <Section title="Key points">
-          {s.key_points.map((p, i) => <T key={i}>•  {p}</T>)}
+          {s.key_points.map((p, i) => {
+            const detail = (s.key_point_details ?? []).find((d) => d.text === p);
+            const ms = detail?.verified ? detail.quote_ms : null;
+            return (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.xs }}>
+                <T style={{ flex: 1 }}>•  {p}</T>
+                {ms != null ? <TimestampChip ms={ms} onPress={() => playAt(ms)} /> : null}
+              </View>
+            );
+          })}
         </Section>
       )}
       {s.decisions.length > 0 && (
@@ -752,7 +769,7 @@ function withPhotos(u: NonNullable<Data['transcript']>['utterances'], photos: Ph
   return out;
 }
 
-function TranscriptView({ data, playAt, onOpenPhoto, onLineMenu, onSpeaker, focusMs, marks }: {
+function TranscriptView({ data, playAt, onOpenPhoto, onLineMenu, onSpeaker, focusMs, marks, positionMs, following, onUserScroll }: {
   data: Data;
   playAt: (ms: number) => void;
   onOpenPhoto: (p: Photo) => void;
@@ -760,6 +777,9 @@ function TranscriptView({ data, playAt, onOpenPhoto, onLineMenu, onSpeaker, focu
   onSpeaker: (speaker: number) => void;
   focusMs: number | null;
   marks: Set<number>;
+  positionMs: number;
+  following: boolean;
+  onUserScroll: () => void;
 }) {
   const t = useTheme();
   const u = data.transcript?.utterances ?? [];
@@ -767,12 +787,42 @@ function TranscriptView({ data, playAt, onOpenPhoto, onLineMenu, onSpeaker, focu
   const lines = withPhotos(u, data.photos);
   // The line containing the moment we were sent to (from search).
   const focusLine = focusMs == null ? -1 : lines.findIndex((l) => l.kind === 'u' && l.u.start_ms <= focusMs && l.u.end_ms >= focusMs - 1000);
+  // The line being spoken right now.
+  const activeLine = useMemo(() => {
+    if (positionMs <= 0) return -1;
+    let idx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.kind !== 'u') continue;
+      if (line.u.start_ms <= positionMs + 250) idx = i;
+      else break;
+    }
+    return idx;
+  }, [lines, positionMs]);
+  const list = useRef<FlatList<Line>>(null);
+
+  // Follow the audio: keep the line being spoken in view.
+  useEffect(() => {
+    if (!following || activeLine < 0) return;
+    try {
+      list.current?.scrollToIndex({ index: activeLine, animated: true, viewPosition: 0.3 });
+    } catch {
+      // The line is not measured yet; the next update catches up.
+    }
+  }, [activeLine, following]);
+
   if (!u.length) return <Empty title="No transcript yet" />;
   return (
     <FlatList
+      ref={list}
+      style={{ flex: 1 }}
       data={lines}
       initialScrollIndex={focusLine > 0 ? focusLine : undefined}
-      onScrollToIndexFailed={() => {}}
+      onScrollBeginDrag={onUserScroll}
+      onScrollToIndexFailed={(info) => {
+        // Lines have different heights, so an off-screen index cannot be measured: guess.
+        list.current?.scrollToOffset({ offset: info.index * 56, animated: true });
+      }}
       keyExtractor={(_, i) => String(i)}
       contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl }}
       renderItem={({ item: line }) => {
@@ -786,12 +836,20 @@ function TranscriptView({ data, playAt, onOpenPhoto, onLineMenu, onSpeaker, focu
         const item = line.u;
         const sameSpeaker = line.prevSpeaker === item.speaker;
         const focused = lines[focusLine] === line;
+        const active = lines[activeLine] === line;
         return (
           <Pressable
             onPress={() => playAt(item.start_ms)}
             onLongPress={() => onLineMenu(line.idx)}
             accessibilityHint="Plays audio from here. Press and hold for more."
-            style={{ paddingVertical: 6, backgroundColor: focused ? t.accentSoft : 'transparent', borderRadius: radius.sm, paddingHorizontal: focused ? space.sm : 0 }}
+            style={{
+              paddingVertical: 6,
+              backgroundColor: active || focused ? t.accentSoft : 'transparent',
+              borderRadius: radius.sm,
+              paddingHorizontal: active || focused ? space.sm : 0,
+              borderLeftWidth: active ? 3 : 0,
+              borderLeftColor: t.accent,
+            }}
           >
             {!sameSpeaker && (
               <T size={13} weight="700" style={{ color: t.accent, marginTop: space.sm }}>

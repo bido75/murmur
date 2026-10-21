@@ -1,6 +1,7 @@
 // Pure builders for webhooks, destinations, automations, alerts and the weekly digest.
 // Everything here is unit-tested; the fetch calls live in destinations_live.ts.
 import type { PublicNotes } from './share.ts';
+import { keyPointText } from './share.ts';
 
 // ---------- Webhooks ----------
 
@@ -90,7 +91,7 @@ export function notionBlocks(n: PublicNotes, link: string | null) {
   }
   if (n.key_points.length) {
     h('Key points');
-    n.key_points.forEach(li);
+    n.key_points.forEach((k) => li(keyPointText(k)));
   }
   if (n.open_questions.length) {
     h('Open questions');
@@ -111,7 +112,7 @@ ${n.overview ? `<p>${esc(n.overview)}</p>` : ''}
 ${n.tasks.length ? `<h2>Action items</h2>${n.tasks.map((t) => `<p data-tag="to-do${t.done ? ':completed' : ''}">${esc(t.text)}${t.owner ? ` — ${esc(t.owner)}` : ''}${t.due ? ` (due ${esc(t.due)})` : ''}</p>`).join('')}` : ''}
 ${n.decisions.length ? `<h2>Decisions</h2>${list(n.decisions.map((d) => d.text))}` : ''}
 ${n.site_log.map((s) => `<h2>${esc(s.title)}</h2>${list(s.items)}`).join('')}
-${n.key_points.length ? `<h2>Key points</h2>${list(n.key_points)}` : ''}
+${n.key_points.length ? `<h2>Key points</h2>${list(n.key_points.map(keyPointText))}` : ''}
 ${n.open_questions.length ? `<h2>Open questions</h2>${list(n.open_questions)}` : ''}
 ${link ? `<p><a href="${esc(link)}">Full notes and recording</a></p>` : ''}
 </body></html>`;

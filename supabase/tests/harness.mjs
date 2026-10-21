@@ -4,6 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const STUBS = `
 create schema if not exists extensions;
@@ -43,7 +44,7 @@ grant execute on function storage.foldername(text) to anon, authenticated, servi
 export async function freshDb() {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(STUBS);
-  const dir = new URL('../migrations/', import.meta.url).pathname;
+  const dir = fileURLToPath(new URL('../migrations/', import.meta.url));
   for (const f of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
     try {
       await db.exec(readFileSync(join(dir, f), 'utf8'));
