@@ -22,7 +22,7 @@ jobs:
           ref: ${{ github.head_ref }}
           # The whole history, so the push back to the branch is not rejected as shallow.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
