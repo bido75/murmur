@@ -9,6 +9,6 @@
   },
   "engines": { "node": ">=18" },
   "dependencies": {
-    "zapier-platform-core": "19.1.0"
+    "zapier-platform-core": "19.2.1"
   }
 }
