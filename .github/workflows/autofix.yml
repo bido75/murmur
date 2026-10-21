@@ -1,0 +1,47 @@
+name: Autofix
+# Fixes what can be fixed by itself and pushes the fix back onto the pull request branch.
+# It never touches main: main is what CI deploys, so it only changes after a merge.
+# Forks get a read-only token, so the job is skipped for them.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: autofix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  eslint:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          # The whole history, so the push back to the branch is not rejected as shallow.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fix what ESLint can fix
+        run: npx eslint src --fix
+      - name: Commit and push the fixes
+        # The branch name comes from the pull request, so it goes through the environment
+        # instead of straight into the command.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Nothing to fix."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "Fix lint findings"
+          git push origin "HEAD:$HEAD_REF"

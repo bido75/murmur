@@ -1,0 +1,154 @@
+name: Deploy
+# Publishes what CI has already checked: the database schema, the edge functions and the
+# web app. Nothing here runs before the checks pass on the same commit.
+#
+# Secrets needed in the repository settings (Settings > Secrets and variables > Actions):
+#   SUPABASE_ACCESS_TOKEN  a personal access token from https://supabase.com/dashboard/account/tokens
+#   SUPABASE_PROJECT_REF   the project id (the ref in https://<ref>.supabase.co)
+#   VERCEL_TOKEN          a Vercel access token
+#   VERCEL_ORG_ID         the Vercel organisation id
+#   VERCEL_PROJECT_ID     the Vercel project id
+#   EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY, EXPO_PUBLIC_APP_URL
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  ready:
+    # The deploy only runs where it is set up. Until the secrets are in the repository
+    # settings this job says so and the rest of the pipeline is skipped, so a push never
+    # fails because a project has not been configured yet.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      supabase: ${{ steps.check.outputs.supabase }}
+      web: ${{ steps.check.outputs.web }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then
+            echo "supabase=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supabase=false" >> "$GITHUB_OUTPUT"
+            echo "No Supabase token or project ref, so nothing is published to Supabase."
+          fi
+          if [ -n "$EXPO_PUBLIC_SUPABASE_URL" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "web=false" >> "$GITHUB_OUTPUT"
+            echo "No EXPO_PUBLIC_SUPABASE_URL, so the web app is not built or published."
+          fi
+
+  schema:
+    # The migrations first: the functions read the tables they are about to write.
+    needs: ready
+    if: needs.ready.outputs.supabase == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+        with:
+          version: latest
+      - name: Link to the project
+        shell: bash
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Apply the migrations
+        shell: bash
+        run: supabase db push --project-ref "$SUPABASE_PROJECT_REF"
+
+  functions:
+    needs: [ready, schema]
+    if: needs.ready.outputs.supabase == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+        with:
+          version: latest
+      - name: Link to the project
+        shell: bash
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Deploy the functions the app calls
+        shell: bash
+        run: |
+          supabase functions deploy \
+            process-recording ask integrations push-tasks make-deck account live translate \
+            export admin export-data billing \
+            --project-ref "$SUPABASE_PROJECT_REF" --use-api --jobs 5
+      - name: Deploy the functions the providers and the schedule call
+        # These have no session: the provider signs the request, or the schedule sends a
+        # secret, or the route is public. The list is the one in the README.
+        shell: bash
+        run: |
+          supabase functions deploy \
+            mcp oauth calendar procore share consent retention bot connect api scheduler \
+            phone aircall ingest scim ringcentral billing-webhook \
+            --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF" --use-api --jobs 5
+
+  web:
+    # The web app on Vercel. The build runs here first so a broken build never reaches
+    # Vercel; the publish is skipped until the Vercel secrets are set.
+    needs: ready
+    if: needs.ready.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Write the hosting config
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+        run: node scripts/hosting-config.mjs
+      - name: Build the web app
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_APP_URL: ${{ secrets.EXPO_PUBLIC_APP_URL }}
+        run: npx expo export --platform web
+      - name: Deploy to Vercel
+        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_APP_URL: ${{ secrets.EXPO_PUBLIC_APP_URL }}
+        run: |
+          npx vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" \
+            --build-env "EXPO_PUBLIC_SUPABASE_URL=$EXPO_PUBLIC_SUPABASE_URL" \
+            --build-env "EXPO_PUBLIC_SUPABASE_ANON_KEY=$EXPO_PUBLIC_SUPABASE_ANON_KEY" \
+            --build-env "EXPO_PUBLIC_APP_URL=$EXPO_PUBLIC_APP_URL" \
+            --env "EXPO_PUBLIC_SUPABASE_URL=$EXPO_PUBLIC_SUPABASE_URL" \
+            --env "EXPO_PUBLIC_SUPABASE_ANON_KEY=$EXPO_PUBLIC_SUPABASE_ANON_KEY" \
+            --env "EXPO_PUBLIC_APP_URL=$EXPO_PUBLIC_APP_URL"
+      - name: Skip the Vercel deploy
+        if: ${{ secrets.VERCEL_TOKEN == '' }}
+        run: echo "No Vercel token, so the web app was built but not published."

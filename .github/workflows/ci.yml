@@ -3,18 +3,26 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+# A new push cancels the run it replaces: no wasted minutes, and the newest code wins.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           deno-version: v2.x
       - run: npm ci
@@ -25,6 +33,9 @@ jobs:
       - name: Type-check server functions
         working-directory: supabase/functions
         run: for f in */index.ts; do deno check "$f"; done
+      - name: Server function tests
+        working-directory: supabase/functions
+        run: deno test --allow-all _shared/
       - name: Desktop app
         working-directory: desktop
         run: npm ci && npx tsc --noEmit -p . && npm test

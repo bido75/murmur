@@ -285,6 +285,29 @@ cd supabase/functions && deno check */index.ts && deno test --allow-all _shared/
 
 `npm test` always runs both halves and reports each one, so a failing logic suite can no longer hide the database suite; it exits non-zero if either half fails.
 
+## Continuous integration and delivery
+
+GitHub Actions does the rest, on every pull request and every push to `main`:
+
+| Workflow | What it does | When |
+| --- | --- | --- |
+| `ci.yml` | The checks above, plus the desktop, Zapier and extension builds | every pull request and push |
+| `deploy.yml` | Pushes the migrations, deploys the edge functions, builds and publishes the web app | after a push to `main`, when the secrets are set |
+| `autofix.yml` | Runs ESLint with `--fix` and pushes the fixes back onto the pull request branch | every pull request |
+| `automerge.yml` | Merges the Dependabot pull requests whose checks have all passed | weekly |
+| `native-builds.yml` | Compiles the Wear OS, Apple Watch and native Android/iOS projects | by hand, and weekly |
+
+Nothing pushes to `main` without either a person merging a pull request or a green check on a
+Dependabot update. The deploy only runs where it is set up: until the secrets below are in the
+repository settings (Settings > Secrets and variables > Actions), `deploy.yml` says so and skips
+the publishing steps, so a push never fails because a project has not been configured yet.
+
+| Secret | Used for |
+| --- | --- |
+| `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF` | the migrations and the edge functions |
+| `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` | publishing the web app |
+| `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_APP_URL` | building the web app |
+
 ## Test on a real device before trusting it
 
 The code compiles and bundles for iOS and Android, but it has not been run on a phone yet. Please try:

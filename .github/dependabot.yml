@@ -1,0 +1,41 @@
+# Keeps the dependencies current without a person: Dependabot opens the pull requests and
+# the Automerge workflow merges them once the checks pass.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      expo:
+        patterns:
+          - "expo*"
+          - "react-native*"
+      react:
+        patterns:
+          - "react*"
+    labels:
+      - dependencies
+  - package-ecosystem: npm
+    directory: "/desktop"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+  - package-ecosystem: npm
+    directory: "/zapier"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci

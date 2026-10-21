@@ -1,0 +1,53 @@
+name: Automerge
+# Merges the dependency pull requests on their own once their checks have passed.
+# Nothing else is merged without a person: this only ever touches pull requests
+# Dependabot opened, and only when every check on them is green.
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: automerge
+  cancel-in-progress: false
+jobs:
+  dependabot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Merge the Dependabot pull requests whose checks passed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          failed=0
+          gh pr list --repo "$GITHUB_REPOSITORY" --author "app/dependabot" --state open \
+            --json number,statusCheckRollup --jq '.[] | .number' > prs.txt
+          while read -r pr; do
+            [ -z "$pr" ] && continue
+            # Only merge when every check has finished and none failed.
+            checks=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json statusCheckRollup \
+              --jq '[.statusCheckRollup[]? | select(.status != "" or .conclusion != "") | (.status // "") + ":" + (.conclusion // "")] | join(",")')
+            echo "#$pr checks: $checks"
+            case "$checks" in
+              *FAILURE*|*CANCELLED*|*TIMED_OUT*|*ACTION_REQUIRED*)
+                echo "Leaving #$pr alone: a check did not pass."
+                continue
+                ;;
+            esac
+            if [ -z "$checks" ] || echo "$checks" | grep -q "PENDING\|QUEUED\|IN_PROGRESS\|EXPECTED"; then
+              echo "Leaving #$pr alone: a check has not finished."
+              continue
+            fi
+            echo "Merging #$pr"
+            if ! gh pr merge "$pr" --repo "$GITHUB_REPOSITORY" --squash --delete-branch; then
+              echo "Could not merge #$pr."
+              failed=$((failed + 1))
+            fi
+          done < prs.txt
+          if [ "$failed" -gt 0 ]; then
+            echo "$failed pull request(s) could not be merged."
+            exit 1
+          fi
