@@ -23,7 +23,7 @@ jobs:
       - name: Build Wear OS app
         working-directory: wear
         run: gradle :app:assembleDebug -PmurmurServerUrl=https://example.supabase.co -PmurmurAnonKey=ci
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: murmur-wear-debug
           path: wear/app/build/outputs/apk/debug/*.apk
