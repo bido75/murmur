@@ -3,18 +3,51 @@
 // a run with a Recall.ai account.
 import { detectMeetingLink } from './calendar.ts';
 
-export type RecallEnv = { apiKey: string; region: string; webhookSecret: string; botName: string };
+export type RecallEnv = { apiKey: string; region: string; webhookSecret: string; botName: string; publicApiBaseUrl: string };
 
 export function recallEnv(get: (k: string) => string | undefined): RecallEnv {
   return {
     apiKey: get('RECALL_API_KEY') ?? '',
     region: get('RECALL_REGION') ?? 'us-west-2',
-    webhookSecret: get('RECALL_WEBHOOK_SECRET') ?? '',
+    // The workspace verification secret, which is what Recall signs its dashboard
+    // webhooks with. The name follows Recall's own guidance so it is clear which
+    // secret belongs to which side.
+    webhookSecret: get('RECALL_WEBHOOK_VERIFICATION_SECRET') ?? '',
     botName: get('BOT_NAME') ?? 'Murmur Notetaker',
+    // The public address of this server. Recall can only reach a stable https URL, so
+    // a local address is never sent to it.
+    publicApiBaseUrl: (get('PUBLIC_API_BASE_URL') ?? '').replace(/\/$/, ''),
   };
 }
 
 export const apiBase = (e: RecallEnv) => `https://${e.region}.recall.ai/api/v1`;
+
+/** Where Recall sends the bot's status events. */
+export function botWebhookUrl(e: RecallEnv): string {
+  return `${e.publicApiBaseUrl}/functions/v1/bot/webhook`;
+}
+
+/**
+ * When the bot gives up on a call. A notetaker that cannot get in, or that sits in an
+ * empty room, costs everyone, so these are the timeouts from Recall's own defaults,
+ * with one exception: the recording is left to run for as long as the meeting lasts.
+ */
+const automaticLeave = {
+  // Not let in within ten minutes: leave the waiting room.
+  waiting_room_timeout: 600,
+  // In the call but nobody else came: leave.
+  noone_joined_timeout: 600,
+  // Everyone else left: leave half a minute later.
+  everyone_left_timeout: { timeout: 30 },
+  // The host said no: leave.
+  recording_permission_denied_timeout: 30,
+  // In the call but not recording for half an hour: leave.
+  in_call_not_recording_timeout: 1800,
+  // Only other bots are left in the room: leave.
+  bot_detection: {
+    using_participant_names: { matches: ['notetaker', 'recorder', 'assistant'], timeout: 600, activate_after: 120 },
+  },
+};
 
 /** Only real meeting links (Zoom, Meet, Teams, Webex); the bot can't join anything else. */
 export function meetingPlatform(url: string): 'zoom' | 'meet' | 'teams' | 'webex' | null {
@@ -35,7 +68,7 @@ export function createBotBody(o: {
   recordingId: string;
   userId: string;
   announcement: string;
-}) {
+}, now = Date.now()) {
   const body: Record<string, unknown> = {
     meeting_url: o.meetingUrl,
     bot_name: o.botName.slice(0, 100),
@@ -43,10 +76,41 @@ export function createBotBody(o: {
     metadata: { recording_id: o.recordingId, user_id: o.userId },
     recording_config: { audio_mixed_mp3: {} },
     chat: { on_bot_join: { send_to: 'everyone', message: o.announcement.slice(0, 500) } },
+    automatic_leave: automaticLeave,
   };
-  // Scheduling ahead avoids last-minute capacity errors; join_at must be in the future.
-  if (o.joinAt && new Date(o.joinAt).getTime() > Date.now() + 60_000) body.join_at = new Date(o.joinAt).toISOString();
+  // Every bot goes through the scheduling path, even one that joins straight away, so it
+  // can be cancelled before it joins. A meeting that starts too soon for a held bot is
+  // joined as soon as it can be; the caller decides that with scheduledInTime.
+  const at = o.joinAt ? new Date(o.joinAt).getTime() : NaN;
+  body.join_at = new Date(Number.isFinite(at) && at > now ? at : now + 60_000).toISOString();
   return body;
+}
+
+/**
+ * Should a failed request be tried again, and how long to wait first.
+ *
+ * Recall asks for no more than 120 bot creations a minute, and the pool of bots for
+ * meetings that start now is sometimes empty (507) or the service is briefly busy
+ * (503). Those are worth another try. Anything else is a real answer.
+ */
+export function retryPlan(
+  status: number,
+  attempt: number,
+  retryAfter: string | null,
+  now = Date.now(),
+  random: () => number = Math.random,
+): { retry: boolean; waitMs: number } {
+  if (![429, 503, 507].includes(status)) return { retry: false, waitMs: 0 };
+  const header = (retryAfter ?? '').trim();
+  // Retry-After is either a number of seconds or a date. The number is checked first,
+  // because a date parser reads "12" as the year 12 rather than twelve seconds.
+  if (/^\d+$/.test(header)) return { retry: true, waitMs: Number(header) * 1000 };
+  const asDate = header ? Date.parse(header) : NaN;
+  if (Number.isFinite(asDate)) return { retry: true, waitMs: Math.max(0, asDate - now) };
+  // No hint: wait longer each time, with a little jitter so many bots do not all
+  // come back at the same moment.
+  const wait = Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(random() * 500);
+  return { retry: true, waitMs: wait };
 }
 
 // ---------- Webhook verification (webhook-* or legacy svix-* headers, HMAC-SHA256) ----------
@@ -95,6 +159,23 @@ export async function verifyWebhook(headers: Headers, body: string, secret: stri
 // ---------- Events and media ----------
 
 export type BotEvent = { event: string; botId: string | null; recordingId: string | null; code: string | null; subCode: string | null };
+
+/** The bot events this app acts on. The webhook endpoint is subscribed to these. */
+export const BOT_EVENTS = [
+  'bot.joining_call',
+  'bot.in_waiting_room',
+  'bot.in_call_not_recording',
+  'bot.recording_permission_denied',
+  'bot.in_call_recording',
+  'bot.call_ended',
+  'bot.done',
+  'bot.fatal',
+];
+
+/** True when the notes for a recording have already been made, so a repeated event must not make them again. */
+export function alreadyCollected(recordingStatus: string | null): boolean {
+  return recordingStatus === 'ready' || recordingStatus === 'summarizing' || recordingStatus === 'transcribing';
+}
 
 export function parseBotEvent(payload: unknown): BotEvent {
   const p = payload as { event?: string; data?: { bot?: { id?: string; metadata?: Record<string, string> }; data?: { code?: string; sub_code?: string | null } } };

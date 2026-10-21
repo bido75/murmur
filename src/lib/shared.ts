@@ -3,3 +3,4 @@ export { consentAdvice, STATES, stateByCode, type Advice, type Kind, type StateL
 export { normalizeMediaLink, titleFromLink } from '../../supabase/functions/_shared/links';
 export { LANGUAGES } from '../../supabase/functions/_shared/translate';
 export { exifTakenAt, pcmLevelDb, photoMoment, wavHeader, whisperToUtterances } from '../../supabase/functions/_shared/ingest';
+export { scheduledInTime, SCHEDULED_LEAD_MS } from '../../supabase/functions/_shared/bot_timing';

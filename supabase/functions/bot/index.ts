@@ -5,7 +5,8 @@
 //   POST /webhook  Recall bot status events; on "done" the audio is copied in and processed
 import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { runPipeline } from '../_shared/pipeline.ts';
-import { audioDownloadUrl, firstRecordingId, meetingPlatform, parseBotEvent, recallEnv, statusForEvent, verifyWebhook } from '../_shared/recall.ts';
+import { alreadyCollected, audioDownloadUrl, firstRecordingId, meetingPlatform, parseBotEvent, recallEnv, statusForEvent, verifyWebhook } from '../_shared/recall.ts';
+import { scheduledInTime } from '../_shared/bot_timing.ts';
 import { createBot, env, recall } from '../_shared/bot_core.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -35,6 +36,9 @@ async function schedule(req: Request) {
   if (!meetingPlatform(meetingUrl)) throw new HttpError(400, 'Paste a Zoom, Google Meet, Microsoft Teams or Webex meeting link.');
   const joinAt = body.join_at ? new Date(body.join_at) : null;
   if (joinAt && (!Number.isFinite(joinAt.getTime()) || joinAt.getTime() > Date.now() + 30 * 86400_000)) throw new HttpError(400, 'Choose a time within the next 30 days.');
+  // A bot needs ten minutes of notice to be held for a meeting. With less, Recall may
+  // have none free, so we say so instead of failing later with an empty pool.
+  if (joinAt && !scheduledInTime(joinAt.toISOString())) throw new HttpError(400, 'A notetaker needs at least ten minutes of notice so one is ready for it. Pick a later time, or send it to join now.');
 
   const { data: me } = await client.auth.getUser();
   const recordingId = crypto.randomUUID();
@@ -105,6 +109,9 @@ async function webhook(req: Request) {
     // A fatal error mid-call is followed by bot.done with partial media; only fail if nothing comes.
     await admin.from('recordings').update({ error: next.detail }).eq('id', b.recording_id);
   } else if (next.status === 'done') {
+    // A repeated event must not write the notes twice.
+    const { data: rec } = await admin.from('recordings').select('status').eq('id', b.recording_id).maybeSingle();
+    if (alreadyCollected(rec?.status ?? null)) return json({ ok: true });
     // Respond quickly; copy the audio and process in the background.
     EdgeRuntime.waitUntil(collect(ev.botId, b.recording_id, b.user_id));
   }

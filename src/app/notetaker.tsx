@@ -5,6 +5,7 @@ import { ProjectPicker } from '@/components/ProjectPicker';
 import { Button, Card, T } from '@/components/ui';
 import { scheduleBot } from '@/lib/api';
 import { notify } from '@/lib/dialog';
+import { scheduledInTime } from '@/lib/shared';
 import { radius, space, useTheme } from '@/lib/theme';
 
 /**
@@ -21,12 +22,16 @@ export default function Notetaker() {
   const start = p.start ? new Date(p.start) : null;
   // Decided once when the screen opens: join at the meeting's start if it's still ahead.
   const [future] = useState(() => !!start && start.getTime() > Date.now() + 60_000);
+  // A notetaker can only be held for a meeting that starts at least ten minutes from now.
+  // With less notice it joins straight away, and the host may have to let it in.
+  const reserved = future && scheduledInTime(start!.toISOString());
+  const joinAt = reserved ? start!.toISOString() : null;
 
   async function send() {
     setBusy(true);
     try {
-      const { recording_id } = await scheduleBot({ meetingUrl: url.trim(), joinAt: future ? start!.toISOString() : null, title, projectId, eventKey: p.key || null });
-      notify(future ? 'Notetaker scheduled' : 'Notetaker on its way', future ? `It will join at ${start!.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.` : 'It joins in about a minute. The host may need to let it in.');
+      const { recording_id } = await scheduleBot({ meetingUrl: url.trim(), joinAt, title, projectId, eventKey: p.key || null });
+      notify(reserved ? 'Notetaker scheduled' : 'Notetaker on its way', reserved ? `It will join at ${start!.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.` : 'It joins in about a minute. The host may need to let it in.');
       router.replace({ pathname: '/recording/[id]', params: { id: recording_id } });
     } catch (e) {
       notify("Couldn't send the notetaker", (e as Error).message);
@@ -51,7 +56,10 @@ export default function Notetaker() {
         <T size={14}>It joins as “Notetaker” and posts in the meeting chat that it’s recording, for whom, and how to remove it. Zoom hosts are asked to allow recording.</T>
         <T muted size={13}>Where everyone must agree to be recorded, make sure they do. You can send the consent link with the invite.</T>
       </Card>
-      <Button label={future ? `Join at ${start!.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : 'Join now'} onPress={send} loading={busy} disabled={!url.trim()} />
+      <Button label={reserved ? `Join at ${start!.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : 'Join now'} onPress={send} loading={busy} disabled={!url.trim()} />
+      {future && !reserved ? (
+        <T muted size={13}>This meeting starts too soon to hold a notetaker for it, so it will join straight away instead. The host may need to let it in.</T>
+      ) : null}
     </ScrollView>
   );
 }

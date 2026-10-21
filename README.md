@@ -192,8 +192,23 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
     ```
 12. **Notetaker bot** (optional). Create a [Recall.ai](https://recall.ai) account and API key. In Recall's dashboard add a webhook
     to `https://YOUR-PROJECT.supabase.co/functions/v1/bot/webhook` for bot status events and copy its signing secret (starts with `whsec_`):
-    `supabase secrets set RECALL_API_KEY=... RECALL_REGION=us-west-2 RECALL_WEBHOOK_SECRET=whsec_...` (optional `BOT_NAME="Acme Notetaker"`).
+    `supabase secrets set RECALL_API_KEY=... RECALL_REGION=us-west-2 RECALL_WEBHOOK_VERIFICATION_SECRET=whsec_... PUBLIC_API_BASE_URL=https://YOUR-PROJECT.supabase.co` (optional `BOT_NAME="Acme Notetaker"`).
+    The webhook URL must be the public address of this server: Recall cannot reach a
+    local one, so for a tunnel use its https address in `PUBLIC_API_BASE_URL`.
+    The events to subscribe to are the ones the app acts on: `bot.joining_call`,
+    `bot.in_waiting_room`, `bot.in_call_not_recording`, `bot.recording_permission_denied`,
+    `bot.in_call_recording`, `bot.call_ended`, `bot.done` and `bot.fatal`.
     Recall charges per bot hour. Zoom bots may need Recall's Zoom app setup for recording permission in some accounts.
+
+    Two decisions worth knowing:
+    - **Calendar**: Murmur already syncs Google and Microsoft calendars itself, so the notetaker
+      is scheduled from those events and nothing is sent to Recall's Calendar V2. A second
+      calendar integration would duplicate the OAuth and event sync Murmur already owns.
+      The `murmur-autobot` schedule runs every ten minutes, which is what gives a bot its
+      ten minutes of notice before the meeting starts.
+    - **Transcription**: a bot recording is transcribed by Murmur, with the same Deepgram
+      settings, project words and redaction as a phone recording, so every recording lands in
+      one place and one pipeline. Recall's own transcription would split the two.
 13. **Share and consent links** open in the web app, so set `EXPO_PUBLIC_APP_URL` and `APP_URL` (step 7). Optional: `supabase secrets set APP_NAME=YourName`.
    Browser recordings upload during the session; if the tab is closed before upload finishes, that audio is lost (phones keep it on disk).
 14. **Live transcript, translation, connections, automations, API.**

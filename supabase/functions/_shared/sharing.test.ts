@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { consentAdvice, STATES, stateByCode } from './consent.ts';
 import { normalizeMediaLink, titleFromLink } from './links.ts';
 import { linkStatus, parseRecipients, publicNotes, recapEmail } from './share.ts';
-import { audioDownloadUrl, botAnnouncement, createBotBody, meetingPlatform, parseBotEvent, signWebhook, statusForEvent, verifyWebhook } from './recall.ts';
+import { alreadyCollected, audioDownloadUrl, botAnnouncement, BOT_EVENTS, botWebhookUrl, createBotBody, meetingPlatform, parseBotEvent, recallEnv, retryPlan, signWebhook, statusForEvent, verifyWebhook } from './recall.ts';
+import { SCHEDULED_LEAD_MS, scheduledInTime } from './bot_timing.ts';
 
 // ---------- consent ----------
 
@@ -145,7 +146,82 @@ test('bot: only meeting links; announces itself; schedules ahead', () => {
   assert.equal(body.chat.on_bot_join.send_to, 'everyone');
   assert.match(body.chat.on_bot_join.message, /recording this meeting for olivia@acme.com/);
   const now = createBotBody({ meetingUrl: 'x', joinAt: new Date().toISOString(), botName: 'b', recordingId: 'r', userId: 'u', announcement: 'a' }) as Record<string, unknown>;
-  assert.equal(now.join_at, undefined, 'past or immediate joins are sent without join_at');
+  assert.ok(now.join_at, 'a bot that joins now still goes through the scheduling path, so it can be cancelled');
+  assert.ok(Date.parse(String(now.join_at)) > Date.now(), 'and it joins in the near future');
+});
+
+test('bot: a failed request is only tried again when it is worth it', () => {
+  const noJitter = () => 0;
+  // A busy service, a rate limit and an empty pool of bots are all worth another try.
+  assert.equal(retryPlan(429, 0, null, 0, noJitter).retry, true);
+  assert.equal(retryPlan(503, 0, null, 0, noJitter).retry, true);
+  assert.equal(retryPlan(507, 0, null, 0, noJitter).retry, true);
+  // A wrong request or a missing bot will fail the same way again, so it is not retried.
+  assert.equal(retryPlan(400, 0, null, 0, noJitter).retry, false);
+  assert.equal(retryPlan(404, 0, null, 0, noJitter).retry, false);
+  // Recall says how long to wait, so that is what we wait.
+  assert.equal(retryPlan(429, 0, '12', 0, noJitter).waitMs, 12_000);
+  assert.equal(retryPlan(429, 0, '2026-10-21T12:00:30.000Z', Date.parse('2026-10-21T12:00:00.000Z'), noJitter).waitMs, 30_000);
+  // With no hint it waits longer each time.
+  assert.equal(retryPlan(503, 0, null, 0, noJitter).waitMs, 1000);
+  assert.equal(retryPlan(503, 1, null, 0, noJitter).waitMs, 2000);
+  assert.ok(retryPlan(503, 2, null, 0, () => 0.9).waitMs > 4000, 'and never waits more than half a minute');
+  assert.ok(retryPlan(503, 8, null, 0, noJitter).waitMs <= 30_000);
+});
+
+test('bot: the events we subscribe to are the ones we act on', () => {
+  for (const event of BOT_EVENTS) {
+    assert.ok(statusForEvent({ event, botId: 'b1', recordingId: 'r1', code: null, subCode: null }), `${event} has no status`);
+  }
+  // A repeated event must not write the notes twice.
+  assert.equal(alreadyCollected('ready'), true);
+  assert.equal(alreadyCollected('summarizing'), true);
+  assert.equal(alreadyCollected('transcribing'), true);
+  assert.equal(alreadyCollected('failed'), false);
+  assert.equal(alreadyCollected(null), false);
+});
+
+test('bot: the settings come from the environment, and the webhook address is public', () => {
+  const e = recallEnv((k) => ({ RECALL_API_KEY: 'key', RECALL_REGION: 'us-west-2', RECALL_WEBHOOK_VERIFICATION_SECRET: 'whsec_x', PUBLIC_API_BASE_URL: 'https://app.example.com/' })[k]);
+  assert.equal(e.apiKey, 'key');
+  assert.equal(e.region, 'us-west-2');
+  assert.equal(e.webhookSecret, 'whsec_x');
+  assert.equal(e.publicApiBaseUrl, 'https://app.example.com', 'the trailing slash is dropped');
+  assert.equal(botWebhookUrl(e), 'https://app.example.com/functions/v1/bot/webhook');
+  // Nothing is set: the bot is simply not set up yet.
+  const empty = recallEnv(() => undefined);
+  assert.equal(empty.apiKey, '');
+  assert.equal(empty.webhookSecret, '');
+});
+
+test('bot: a bot can only be held for a meeting at least ten minutes away', () => {
+  const now = Date.parse('2026-10-21T12:00:00.000Z');
+  const inTen = new Date(now + SCHEDULED_LEAD_MS).toISOString();
+  const inNine = new Date(now + SCHEDULED_LEAD_MS - 60_000).toISOString();
+  assert.equal(scheduledInTime(inTen, now), true);
+  assert.equal(scheduledInTime(inNine, now), false, 'nine minutes is not enough notice');
+  assert.equal(scheduledInTime(new Date(now + 3 * 3600_000).toISOString(), now), true);
+  assert.equal(scheduledInTime(null, now), false, 'joining now is not a held bot');
+  assert.equal(scheduledInTime('not a date', now), false);
+});
+
+test('bot: it gives up on a call it cannot use, but records a real meeting to the end', () => {
+  const body = createBotBody({
+    meetingUrl: 'https://meet.google.com/abc-defg-hij',
+    joinAt: null,
+    botName: 'Murmur Notetaker',
+    recordingId: 'r1',
+    userId: 'u1',
+    announcement: 'a',
+  }) as Record<string, any>;
+  const leave = body.automatic_leave;
+  assert.ok(leave, 'the bot is told when to give up');
+  assert.ok(leave.waiting_room_timeout > 0, 'it leaves the waiting room');
+  assert.ok(leave.noone_joined_timeout > 0, 'it leaves an empty call');
+  assert.ok(leave.everyone_left_timeout.timeout > 0, 'it leaves when everyone else does');
+  assert.ok(leave.recording_permission_denied_timeout > 0, 'it leaves when the host says no');
+  assert.ok(leave.bot_detection.using_participant_names.matches.includes('notetaker'), 'it leaves a room of bots');
+  assert.equal(leave.in_call_recording_timeout, undefined, 'a meeting it is recording runs to the end');
 });
 
 test('bot webhook signatures: valid, tampered, stale, rotated', async () => {
