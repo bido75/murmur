@@ -162,7 +162,12 @@ export default function Record() {
     // Typed notes go before the recording is finalized, so the AI sees them.
     if (recordingId && typed.trim()) await enqueue({ kind: 'notes', recordingId, text: typed.trim() });
     stopLive.current?.();
-    await rec.stop();
+    try {
+      await rec.stop();
+    } catch (e) {
+      // Say what happened: the audio that was captured is still on the device.
+      notify("Couldn't finish the recording", (e as Error).message);
+    }
     if (recordingId) router.replace({ pathname: '/recording/[id]', params: { id: recordingId } });
     else router.back();
   }

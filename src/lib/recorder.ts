@@ -85,6 +85,8 @@ export function useSegmentedRecorder() {
   const [segmentsSaved, setSegmentsSaved] = useState(0);
   const session = useRef<Active | null>(null);
   const busy = useRef(false);
+  // The work in flight (a part being rotated), so stopping can wait for it.
+  const busyWork = useRef<Promise<void> | null>(null);
   const silenceSince = useRef<number | null>(null);
   const lastProgress = useRef({ ms: 0, at: 0 });
   const [doneMs, setDoneMs] = useState(0);
@@ -167,14 +169,20 @@ export function useSegmentedRecorder() {
   const rotate = useCallback(async () => {
     if (busy.current) return;
     busy.current = true;
+    busyWork.current = (async () => {
+      try {
+        await finishSegment();
+        await beginSegment();
+        setWarning(null);
+      } catch (e) {
+        setWarning(`Couldn't restart the microphone: ${(e as Error).message}`);
+      }
+    })();
     try {
-      await finishSegment();
-      await beginSegment();
-      setWarning(null);
-    } catch (e) {
-      setWarning(`Couldn't restart the microphone: ${(e as Error).message}`);
+      await busyWork.current;
     } finally {
       busy.current = false;
+      busyWork.current = null;
     }
   }, [beginSegment, finishSegment]);
 
@@ -220,8 +228,16 @@ export function useSegmentedRecorder() {
 
   /** Stop, save the last segment and hand the recording to the upload queue. */
   const stop = useCallback(async () => {
+    // A part may be being rotated right now. Wait for it, so pressing Stop is never a no-op.
+    if (busyWork.current) {
+      setPhase('stopping');
+      await busyWork.current.catch(() => undefined);
+    }
     const s = session.current;
-    if (!s || busy.current) return;
+    if (!s) {
+      setPhase('idle');
+      return;
+    }
     busy.current = true;
     setPhase('stopping');
     try {

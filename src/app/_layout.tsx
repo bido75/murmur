@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { joinDomainTeams } from '@/lib/api';
+import { Alerts } from '@/components/Alerts';
 import { isWeb, notify } from '@/lib/dialog';
 import { recoverInterruptedRecording } from '@/lib/recorder';
 import { listenForNotificationTaps, registerForPush } from '@/lib/push';
@@ -49,6 +50,9 @@ export default function RootLayout() {
   if (!ready) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg }}>
+        {/* The host is here too, so a question asked while the app is still starting is
+            answered in the app instead of a browser dialog that freezes the page. */}
+        <Alerts />
         <ActivityIndicator color={t.accent} />
       </View>
     );
@@ -57,6 +61,8 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
+      {/* The app's own questions and notices, so a browser dialog never freezes a recording. */}
+      <Alerts />
       {/* On wide browser windows, keep content at a readable width. */}
       <View style={{ flex: 1, backgroundColor: t.bg }}>
       <View style={isWeb ? { flex: 1, width: '100%', maxWidth: 860, alignSelf: 'center' } : { flex: 1 }}>
