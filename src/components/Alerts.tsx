@@ -8,7 +8,7 @@
 //
 // The questions live in a small store outside React, so one asked before the host is
 // ready is still shown as soon as it is. The host is mounted once, in the root layout.
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button } from '@/components/ui';
 import { radius, space, useTheme } from '@/lib/theme';
@@ -51,14 +51,13 @@ export function tellInApp(title: string, message?: string): void {
 export function Alerts() {
   const t = useTheme();
   const { question, notices } = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  const [gone, setGone] = useState<number[]>([]);
 
   // A notice goes away by itself; it must never wait for a tap.
   useEffect(() => {
     if (!notices.length) return;
+    const id = notices[0].id;
     const timer = setTimeout(() => {
-      const id = notices[0].id;
-      setGone((g) => [...g, id]);
+      publish({ ...store, notices: store.notices.filter((n) => n.id !== id) });
     }, 4500);
     return () => clearTimeout(timer);
   }, [notices]);
@@ -70,11 +69,9 @@ export function Alerts() {
     q.resolve(ok);
   };
 
-  const shown = notices.filter((n) => !gone.includes(n.id));
-
   return (
     <>
-      {shown.map((n) => (
+      {notices.map((n) => (
         <View key={n.id} style={[styles.notice, { backgroundColor: t.ink }]} accessibilityRole="alert">
           <Text style={{ color: t.bg, fontSize: 15, fontWeight: '600' }}>{n.title}</Text>
           {n.message ? <Text style={{ color: t.bg, fontSize: 13, marginTop: 2, opacity: 0.9 }}>{n.message}</Text> : null}
