@@ -7,7 +7,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   RecordingPresets,
-  requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
@@ -19,6 +18,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from './config';
 import { isWeb } from './dialog';
+import { requestMic } from './mic';
 import { AppState, Platform } from 'react-native';
 import { LOCAL_RECORDING } from './localStt';
 import { PcmWavRecorder, repairWav } from './pcmRecorder';
@@ -180,8 +180,7 @@ export function useSegmentedRecorder() {
 
   const start = useCallback(
     async (recordingId: string, opts: { local?: boolean } = {}) => {
-      const perm = await requestRecordingPermissionsAsync();
-      if (!perm.granted) throw new Error('Microphone permission is off. Turn it on in Settings to record.');
+      await requestMic();
       await setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
