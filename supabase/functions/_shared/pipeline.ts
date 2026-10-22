@@ -1,6 +1,7 @@
 // The processing pipeline: transcribe every segment, write notes and verified tasks, link photos.
 // Shared by process-recording (user-triggered) and the meeting bot webhook.
 import { adminClient, claudeStructured, transcribe } from './services.ts';
+import { userFacingError } from './errors.ts';
 import { deferNotes, notesAllowed } from './billing_store.ts';
 import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
 import { boundaryExcerpt, joinParts, mapLimited, mergeChannels, parseSpeakerMap, speakersIn, sttCacheKey } from './parts.ts';
@@ -215,7 +216,7 @@ async function run(recordingId: string, userId: string, template: string, curren
     console.error('process-recording failed', recordingId, e);
     await admin
       .from('recordings')
-      .update({ status: 'failed', error: (e as Error).message.slice(0, 500) })
+      .update({ status: 'failed', error: userFacingError((e as Error).message).slice(0, 500) })
       .eq('id', recordingId);
     await notifyUser(userId, { title: 'Couldn’t process a recording', body: (e as Error).message.slice(0, 200), data: { recording_id: recordingId } });
     await runFailedHooks(recordingId, (e as Error).message.slice(0, 500)).catch(() => {});
