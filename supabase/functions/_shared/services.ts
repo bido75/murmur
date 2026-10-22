@@ -21,9 +21,26 @@ function env(name: string, fallback?: string): string {
   return v;
 }
 
+/**
+ * The keys this project publishes. New projects publish an sb_publishable_ key and an
+ * sb_secret_ key; older ones publish the anon and service_role keys. Both work with
+ * supabase-js, so the new ones are used when they are there.
+ */
+function publishableKey(): string {
+  const key = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY');
+  if (!key) throw new Error('Missing secret SUPABASE_PUBLISHABLE_KEY');
+  return key;
+}
+
+function secretKey(): string {
+  const key = Deno.env.get('SUPABASE_SECRET_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!key) throw new Error('Missing secret SUPABASE_SECRET_KEY');
+  return key;
+}
+
 /** Client acting as the caller (RLS applies). */
 export function userClient(req: Request): SupabaseClient {
-  return createClient(env('SUPABASE_URL'), env('SUPABASE_ANON_KEY'), {
+  return createClient(env('SUPABASE_URL'), publishableKey(), {
     global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     auth: { persistSession: false },
   });
@@ -31,7 +48,7 @@ export function userClient(req: Request): SupabaseClient {
 
 /** Service client for background writes, used only after ownership is checked. */
 export function adminClient(): SupabaseClient {
-  return createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {
+  return createClient(env('SUPABASE_URL'), secretKey(), {
     auth: { persistSession: false },
   });
 }
