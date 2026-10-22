@@ -234,6 +234,17 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
+# The sign-in email shows a six-digit code, which is what the app asks for.
+# The magic-link template carries the code too, because the app asks for a code and
+# not a link (see README step 3).
+[auth.email.template.email_otp]
+subject = "Your Murmur sign-in code"
+content_path = "./supabase/templates/email_otp.html"
+
+[auth.email.template.magic_link]
+subject = "Your Murmur sign-in code"
+content_path = "./supabase/templates/magiclink.html"
+
 # Use a production-ready SMTP server
 # [auth.email.smtp]
 # enabled = true
