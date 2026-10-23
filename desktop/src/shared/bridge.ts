@@ -13,7 +13,34 @@ export type Bridge = {
   info(): Promise<{ platform: string; version: string }>;
   openExternal(url: string): Promise<void>;
   micPermission(): Promise<boolean>;
-  macAudioStart(): Promise<{ ok: boolean; error?: string; sampleRate?: number }>;
+  macAudioStart(): Promise<{
+    ok: boolean;
+    error?: string;
+    sampleRate?: number;
+  }>;
   macAudioStop(): Promise<void>;
-  on(channel: 'macaudio:data' | 'macaudio:status' | 'meeting:detected' | 'meeting:state' | 'tray:start' | 'tray:stop', fn: (payload: unknown) => void): () => void;
+  /**
+   * Transcribe an audio file on this computer, without sending it anywhere.
+   *
+   * The main process runs the speech model; the file never leaves the machine and no
+   * speech service is contacted. It refuses when the local runtime is not installed.
+   */
+  transcribeLocal(
+    path: string,
+    options?: { language?: string | null },
+  ): Promise<{
+    utterances: { start_ms: number; end_ms: number; speaker: number; text: string }[];
+    durationMs: number;
+    language: string | null;
+  }>;
+  on(
+    channel:
+      | "macaudio:data"
+      | "macaudio:status"
+      | "meeting:detected"
+      | "meeting:state"
+      | "tray:start"
+      | "tray:stop",
+    fn: (payload: unknown) => void,
+  ): () => void;
 };

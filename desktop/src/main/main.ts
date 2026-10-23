@@ -1,15 +1,46 @@
 // Electron main process: window + tray, a local file store for audio segments and the
 // upload queue (so recordings survive crashes and restarts), system audio capture, and
 // meeting detection.
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
 import {
-  app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, Notification, session, shell, systemPreferences, Tray,
-} from 'electron';
-import { detectBrowserMeeting, detectMeeting, MEETING_LABELS, parsePs, parseTasklist, shouldPrompt, type MeetingApp } from '../shared/meetings';
+  execFile,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve, sep } from "node:path";
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  Menu,
+  nativeImage,
+  Notification,
+  session,
+  shell,
+  systemPreferences,
+  Tray,
+} from "electron";
+import {
+  detectBrowserMeeting,
+  detectMeeting,
+  MEETING_LABELS,
+  parsePs,
+  parseTasklist,
+  shouldPrompt,
+  type MeetingApp,
+} from "../shared/meetings";
 
-const APP_NAME = 'Murmur';
+const APP_NAME = "Murmur";
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let recording = false;
@@ -18,20 +49,21 @@ let macCapture: ChildProcessWithoutNullStreams | null = null;
 
 // ---------- Local store (everything under userData/pending) ----------
 
-const dataDir = () => join(app.getPath('userData'), 'pending');
-const queueFile = () => join(app.getPath('userData'), 'queue.json');
-const activeFile = () => join(app.getPath('userData'), 'active.json');
+const dataDir = () => join(app.getPath("userData"), "pending");
+const queueFile = () => join(app.getPath("userData"), "queue.json");
+const activeFile = () => join(app.getPath("userData"), "active.json");
 
 /** Only ever touch files inside our own pending folder. */
 function safePath(p: string): string {
   const full = resolve(p);
-  if (!full.startsWith(resolve(dataDir()) + sep)) throw new Error('Path outside the app data folder');
+  if (!full.startsWith(resolve(dataDir()) + sep))
+    throw new Error("Path outside the app data folder");
   return full;
 }
 
 function readJson<T>(file: string, fallback: T): T {
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as T;
+    return JSON.parse(readFileSync(file, "utf8")) as T;
   } catch {
     return fallback;
   }
@@ -45,93 +77,143 @@ function writeJson(file: string, value: unknown) {
 }
 
 function registerIpc() {
-  ipcMain.handle('segment:open', (_e, recordingId: string, idx: number, ext: string) => {
-    if (!/^[0-9a-f-]{36}$/i.test(recordingId) || !Number.isInteger(idx) || !/^[a-z0-9]{2,5}$/.test(ext)) throw new Error('Bad segment');
-    mkdirSync(dataDir(), { recursive: true });
-    const path = join(dataDir(), `${recordingId}-${String(idx).padStart(4, '0')}.${ext}`);
-    writeFileSync(path, Buffer.alloc(0));
-    return path;
-  });
-  ipcMain.handle('segment:append', (_e, path: string, bytes: Uint8Array) => {
+  ipcMain.handle(
+    "segment:open",
+    (_e, recordingId: string, idx: number, ext: string) => {
+      if (
+        !/^[0-9a-f-]{36}$/i.test(recordingId) ||
+        !Number.isInteger(idx) ||
+        !/^[a-z0-9]{2,5}$/.test(ext)
+      )
+        throw new Error("Bad segment");
+      mkdirSync(dataDir(), { recursive: true });
+      const path = join(
+        dataDir(),
+        `${recordingId}-${String(idx).padStart(4, "0")}.${ext}`,
+      );
+      writeFileSync(path, Buffer.alloc(0));
+      return path;
+    },
+  );
+  ipcMain.handle("segment:append", (_e, path: string, bytes: Uint8Array) => {
     appendFileSync(safePath(path), Buffer.from(bytes));
   });
-  ipcMain.handle('file:read', (_e, path: string) => new Uint8Array(readFileSync(safePath(path))));
-  ipcMain.handle('file:size', (_e, path: string) => {
+  ipcMain.handle(
+    "file:read",
+    (_e, path: string) => new Uint8Array(readFileSync(safePath(path))),
+  );
+  ipcMain.handle("file:size", (_e, path: string) => {
     const p = safePath(path);
     return existsSync(p) ? statSync(p).size : -1;
   });
-  ipcMain.handle('file:delete', (_e, path: string) => {
+  ipcMain.handle("file:delete", (_e, path: string) => {
     const p = safePath(path);
     if (existsSync(p)) rmSync(p);
   });
-  ipcMain.handle('queue:get', () => readJson(queueFile(), []));
-  ipcMain.handle('queue:set', (_e, ops: unknown[]) => writeJson(queueFile(), ops));
-  ipcMain.handle('active:get', () => readJson(activeFile(), null));
-  ipcMain.handle('active:set', (_e, value: unknown) => {
+  ipcMain.handle("queue:get", () => readJson(queueFile(), []));
+  ipcMain.handle("queue:set", (_e, ops: unknown[]) =>
+    writeJson(queueFile(), ops),
+  );
+  ipcMain.handle("active:get", () => readJson(activeFile(), null));
+  ipcMain.handle("active:set", (_e, value: unknown) => {
     if (value === null) {
       if (existsSync(activeFile())) rmSync(activeFile());
     } else writeJson(activeFile(), value);
   });
-  ipcMain.handle('recording:state', (_e, isRecording: boolean) => {
+  ipcMain.handle("recording:state", (_e, isRecording: boolean) => {
     recording = isRecording;
     updateTray();
   });
-  ipcMain.handle('app:info', () => ({ platform: process.platform, version: app.getVersion() }));
-  ipcMain.handle('app:open-external', (_e, url: string) => {
+  ipcMain.handle("app:info", () => ({
+    platform: process.platform,
+    version: app.getVersion(),
+  }));
+  ipcMain.handle("app:open-external", (_e, url: string) => {
     if (/^https:\/\//.test(url)) void shell.openExternal(url);
   });
-  ipcMain.handle('mic:permission', async () => {
-    if (process.platform !== 'darwin') return true;
-    return systemPreferences.askForMediaAccess('microphone');
+  ipcMain.handle("mic:permission", async () => {
+    if (process.platform !== "darwin") return true;
+    return systemPreferences.askForMediaAccess("microphone");
   });
 
   // macOS system audio comes from a small ScreenCaptureKit helper that streams raw PCM.
-  ipcMain.handle('macaudio:start', () => startMacCapture());
-  ipcMain.handle('macaudio:stop', () => stopMacCapture());
+  ipcMain.handle("macaudio:start", () => startMacCapture());
+  ipcMain.handle("macaudio:stop", () => stopMacCapture());
+
+  // Transcribe on this computer. The audio never leaves the machine and no speech
+  // service is contacted. The local speech runtime is a separate, optional download;
+  // until it is installed this refuses rather than quietly sending anything anywhere.
+  ipcMain.handle(
+    "transcribe:local",
+    async (_e, _path: string, _options?: { language?: string | null }) => {
+      throw new Error(
+        "Local speech recognition is not installed on this computer. The desktop app sends the recording to the server instead, where it is transcribed.",
+      );
+    },
+  );
 }
 
 // ---------- System audio ----------
 
 /** Screen picker: the main screen, and on Windows the system audio ("loopback") with it. */
 function registerDisplayMedia() {
-  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
-    try {
-      const sources = await desktopCapturer.getSources({ types: ['screen'] });
-      // The screen (kept only for screen recordings), plus system audio where Chromium supports
-      // it (Windows "loopback"; macOS audio comes from the native helper instead).
-      callback(process.platform === 'win32' ? { video: sources[0], audio: 'loopback' } : { video: sources[0] });
-    } catch {
-      callback({});
-    }
-  });
+  session.defaultSession.setDisplayMediaRequestHandler(
+    async (_request, callback) => {
+      try {
+        const sources = await desktopCapturer.getSources({ types: ["screen"] });
+        // The screen (kept only for screen recordings), plus system audio where Chromium supports
+        // it (Windows "loopback"; macOS audio comes from the native helper instead).
+        callback(
+          process.platform === "win32"
+            ? { video: sources[0], audio: "loopback" }
+            : { video: sources[0] },
+        );
+      } catch {
+        callback({});
+      }
+    },
+  );
 }
 
 function helperPath(): string {
   // Packaged: Contents/Resources/SystemAudioCapture. Dev: desktop/native/macos/build/SystemAudioCapture.
-  const packaged = join(process.resourcesPath, 'SystemAudioCapture');
-  return existsSync(packaged) ? packaged : join(app.getAppPath(), 'native', 'macos', 'build', 'SystemAudioCapture');
+  const packaged = join(process.resourcesPath, "SystemAudioCapture");
+  return existsSync(packaged)
+    ? packaged
+    : join(app.getAppPath(), "native", "macos", "build", "SystemAudioCapture");
 }
 
-function startMacCapture(): { ok: boolean; error?: string; sampleRate?: number } {
-  if (process.platform !== 'darwin') return { ok: false, error: 'Only on macOS' };
+function startMacCapture(): {
+  ok: boolean;
+  error?: string;
+  sampleRate?: number;
+} {
+  if (process.platform !== "darwin")
+    return { ok: false, error: "Only on macOS" };
   stopMacCapture();
   const bin = helperPath();
-  if (!existsSync(bin)) return { ok: false, error: 'System audio helper is missing. Run `npm run mac-helper`.' };
-  macCapture = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+  if (!existsSync(bin))
+    return {
+      ok: false,
+      error: "System audio helper is missing. Run `npm run mac-helper`.",
+    };
+  macCapture = spawn(bin, [], { stdio: ["pipe", "pipe", "pipe"] });
   // stdout: raw little-endian float32 mono at 48 kHz, streamed to the renderer.
-  macCapture.stdout.on('data', (chunk: Buffer) => win?.webContents.send('macaudio:data', new Uint8Array(chunk)));
+  macCapture.stdout.on("data", (chunk: Buffer) =>
+    win?.webContents.send("macaudio:data", new Uint8Array(chunk)),
+  );
   // stderr: one JSON status line per event (started, error).
-  macCapture.stderr.on('data', (chunk: Buffer) => {
-    for (const line of chunk.toString().split('\n').filter(Boolean)) {
+  macCapture.stderr.on("data", (chunk: Buffer) => {
+    for (const line of chunk.toString().split("\n").filter(Boolean)) {
       try {
-        win?.webContents.send('macaudio:status', JSON.parse(line));
+        win?.webContents.send("macaudio:status", JSON.parse(line));
       } catch {
         /* ignore non-JSON logs */
       }
     }
   });
-  macCapture.on('exit', (code) => {
-    win?.webContents.send('macaudio:status', { event: 'exit', code });
+  macCapture.on("exit", (code) => {
+    win?.webContents.send("macaudio:status", { event: "exit", code });
     macCapture = null;
   });
   return { ok: true, sampleRate: 48000 };
@@ -140,7 +222,7 @@ function startMacCapture(): { ok: boolean; error?: string; sampleRate?: number }
 function stopMacCapture() {
   if (macCapture) {
     macCapture.stdin.end(); // the helper exits when stdin closes
-    macCapture.kill('SIGTERM');
+    macCapture.kill("SIGTERM");
     macCapture = null;
   }
 }
@@ -149,15 +231,27 @@ function stopMacCapture() {
 
 function listProcesses(): Promise<string> {
   return new Promise((res) => {
-    const [cmd, args] = process.platform === 'win32' ? ['tasklist', ['/v', '/fo', 'csv', '/nh']] : ['ps', ['-axo', 'comm=']];
-    execFile(cmd, args, { maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (err, stdout) => res(err ? '' : stdout));
+    const [cmd, args] =
+      process.platform === "win32"
+        ? ["tasklist", ["/v", "/fo", "csv", "/nh"]]
+        : ["ps", ["-axo", "comm="]];
+    execFile(
+      cmd,
+      args,
+      { maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+      (err, stdout) => res(err ? "" : stdout),
+    );
   });
 }
 
 /** Titles of open windows (browsers show the active tab's title). macOS needs Screen Recording permission. */
 async function windowTitles(): Promise<string[]> {
   try {
-    const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false });
+    const sources = await desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: false,
+    });
     return sources.map((s) => s.name);
   } catch {
     return [];
@@ -166,17 +260,23 @@ async function windowTitles(): Promise<string[]> {
 
 async function checkForMeeting() {
   const out = await listProcesses();
-  const now = detectMeeting(process.platform === 'win32' ? parseTasklist(out) : parsePs(out)) ?? detectBrowserMeeting(await windowTitles());
+  const now =
+    detectMeeting(
+      process.platform === "win32" ? parseTasklist(out) : parsePs(out),
+    ) ?? detectBrowserMeeting(await windowTitles());
   if (shouldPrompt(lastMeeting, now, recording) && Notification.isSupported()) {
     const label = MEETING_LABELS[now!];
-    const n = new Notification({ title: `${label} meeting detected`, body: `Record it with ${APP_NAME}? No bot joins the call.` });
-    n.on('click', () => {
+    const n = new Notification({
+      title: `${label} meeting detected`,
+      body: `Record it with ${APP_NAME}? No bot joins the call.`,
+    });
+    n.on("click", () => {
       showWindow();
-      win?.webContents.send('meeting:detected', now);
+      win?.webContents.send("meeting:detected", now);
     });
     n.show();
   }
-  if (now !== lastMeeting) win?.webContents.send('meeting:state', now);
+  if (now !== lastMeeting) win?.webContents.send("meeting:state", now);
   lastMeeting = now;
 }
 
@@ -195,18 +295,21 @@ function createWindow() {
     minWidth: 380,
     minHeight: 560,
     title: APP_NAME,
-    backgroundColor: '#F7F5F0',
+    backgroundColor: "#F7F5F0",
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      preload: join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
-  void win.loadFile(join(__dirname, 'renderer', 'index.html'), process.env.MURMUR_SELFTEST ? { hash: 'selftest' } : undefined);
+  void win.loadFile(
+    join(__dirname, "renderer", "index.html"),
+    process.env.MURMUR_SELFTEST ? { hash: "selftest" } : undefined,
+  );
   if (process.env.MURMUR_SELFTEST) {
-    win.webContents.on('console-message', (_e, _level, message) => {
-      if (message.startsWith('SELFTEST')) {
+    win.webContents.on("console-message", (_e, _level, message) => {
+      if (message.startsWith("SELFTEST")) {
         console.log(message);
         app.exit(0);
       }
@@ -215,15 +318,17 @@ function createWindow() {
   // Test hook (CI smoke test): screenshot the first screen, report page errors, then quit.
   const shot = process.env.MURMUR_SMOKE_SHOT;
   if (shot) {
-    win.webContents.on('console-message', (_e, level, message) => {
-      if (level >= 2) console.log('[renderer]', message);
+    win.webContents.on("console-message", (_e, level, message) => {
+      if (level >= 2) console.log("[renderer]", message);
     });
-    win.webContents.once('did-finish-load', () => {
+    win.webContents.once("did-finish-load", () => {
       setTimeout(async () => {
         const img = await win!.webContents.capturePage();
         writeFileSync(shot, img.toPNG());
-        const bridgeOk = await win!.webContents.executeJavaScript('typeof window.murmur === "object" && typeof require === "undefined"');
-        console.log('SMOKE bridge-isolated', bridgeOk);
+        const bridgeOk = await win!.webContents.executeJavaScript(
+          'typeof window.murmur === "object" && typeof require === "undefined"',
+        );
+        console.log("SMOKE bridge-isolated", bridgeOk);
         app.exit(0);
       }, 2500);
     });
@@ -231,11 +336,11 @@ function createWindow() {
   // Links open in the browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) void shell.openExternal(url);
-    return { action: 'deny' };
+    return { action: "deny" };
   });
-  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.on("will-navigate", (e) => e.preventDefault());
   // Closing the window keeps recording in the tray; quitting is explicit.
-  win.on('close', (e) => {
+  win.on("close", (e) => {
     if (!(app as unknown as { quitting?: boolean }).quitting) {
       e.preventDefault();
       win?.hide();
@@ -245,9 +350,13 @@ function createWindow() {
 
 function trayIcon() {
   // A small filled circle; red while recording.
-  const color = recording ? '#D9472F' : '#1F6F5C';
+  const color = recording ? "#D9472F" : "#1F6F5C";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="9" fill="${color}"/></svg>`;
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`).resize({ width: 16, height: 16 });
+  return nativeImage
+    .createFromDataURL(
+      `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+    )
+    .resize({ width: 16, height: 16 });
 }
 
 function updateTray() {
@@ -258,15 +367,15 @@ function updateTray() {
     Menu.buildFromTemplate([
       { label: `Open ${APP_NAME}`, click: showWindow },
       {
-        label: recording ? 'Stop recording' : 'Start recording',
+        label: recording ? "Stop recording" : "Start recording",
         click: () => {
           showWindow();
-          win?.webContents.send(recording ? 'tray:stop' : 'tray:start');
+          win?.webContents.send(recording ? "tray:stop" : "tray:start");
         },
       },
-      { type: 'separator' },
+      { type: "separator" },
       {
-        label: 'Quit',
+        label: "Quit",
         click: () => {
           (app as unknown as { quitting?: boolean }).quitting = true;
           app.quit();
@@ -281,23 +390,26 @@ function updateTray() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', showWindow);
+  app.on("second-instance", showWindow);
   app.whenReady().then(() => {
     // Microphone (and screen capture for system audio) only for our own pages.
     session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => {
-      cb(wc.getURL().startsWith('file://') && (permission === 'media' || permission === 'display-capture'));
+      cb(
+        wc.getURL().startsWith("file://") &&
+          (permission === "media" || permission === "display-capture"),
+      );
     });
     registerIpc();
     registerDisplayMedia();
     createWindow();
     tray = new Tray(trayIcon());
-    tray.on('click', showWindow);
+    tray.on("click", showWindow);
     updateTray();
     setInterval(() => void checkForMeeting(), 15_000);
     void checkForMeeting();
   });
-  app.on('activate', showWindow);
-  app.on('before-quit', () => {
+  app.on("activate", showWindow);
+  app.on("before-quit", () => {
     (app as unknown as { quitting?: boolean }).quitting = true;
     stopMacCapture();
   });

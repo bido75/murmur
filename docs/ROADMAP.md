@@ -22,8 +22,10 @@ misheard words, and billing frustration.
    Add a sticky player bar: play/pause, scrubber with elapsed/total, skip back 15 s / forward 30 s, speed 0.75×–2×,
    current speaker. The transcript highlights and follows the line being played. Works across 5-minute parts
    (the code already maps ms → part with an offset). Accessible labels on every control.
-2. [ ] **Timestamp chips on notes.** Every key point, decision and action item shows a small time chip that plays that moment
+2. [x] **Timestamp chips on notes.** Every key point, decision and action item shows a small time chip that plays that moment
    (tasks already have `quote_ms`; add source times to key points/decisions in the summary prompt + `verify.ts`, with tests).
+   Done: the summary prompt, `verify.ts` and the migration that stores the times were already in place; the display was
+   missing. Chips are now on key points, decisions, task updates, site-log entries and marked transcript lines.
 3. [ ] **Smaller loss window.** Phone parts are 5 min and web parts 2 min, so a crash can lose up to that much.
    Web: use `MediaRecorder.start(timeslice)` with ~5 s slices written to IndexedDB (`src/lib/webStore.ts`) and stitched per part.
    Phone: lower the part length (try 60 s) if processing cost allows, or document why not. Add tests for the stitching/ordering.
