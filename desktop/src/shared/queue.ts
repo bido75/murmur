@@ -21,7 +21,6 @@ export type CreateOp = Base & {
 export type SegmentOp = Base & {
   kind: "segment";
   idx: number;
-  path: string;
   ext: string;
   durationMs: number;
   video?: boolean;
@@ -34,7 +33,7 @@ export type FinalizeOp = Base & { kind: "finalize"; durationMs: number };
 export type LocalSegmentOp = Base & {
   kind: "local_segment";
   idx: number;
-  path: string;
+  ext: string;
   offsetMs: number;
   durationMs: number;
 };

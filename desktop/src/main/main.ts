@@ -16,7 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { join } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -83,14 +83,6 @@ function runtimeInstalled(): boolean {
   return engineReady;
 }
 
-/** Only ever touch files inside our own pending folder. */
-function safePath(p: string): string {
-  const full = resolve(p);
-  if (!full.startsWith(resolve(dataDir()) + sep))
-    throw new Error("Path outside the app data folder");
-  return full;
-}
-
 function readJson<T>(file: string, fallback: T): T {
   try {
     return JSON.parse(readFileSync(file, "utf8")) as T;
@@ -106,38 +98,55 @@ function writeJson(file: string, value: unknown) {
   renameSync(tmp, file);
 }
 
+/**
+ * The file a recording's part is kept in.
+ *
+ * The renderer never names a file. It says which recording and which part, and the
+ * path is worked out here, so a page that has been tampered with cannot ask for a file
+ * it did not make.
+ */
+function segmentPath(recordingId: string, idx: number, ext: string): string {
+  if (
+    !/^[0-9a-f-]{36}$/i.test(recordingId) ||
+    !Number.isInteger(idx) ||
+    idx < 1 ||
+    idx > 2000 ||
+    !/^[a-z0-9]{2,5}$/.test(ext)
+  )
+    throw new Error("Bad segment");
+  return join(
+    dataDir(),
+    `${recordingId}-${String(idx).padStart(4, "0")}.${ext}`,
+  );
+}
+
 function registerIpc() {
   ipcMain.handle(
     "segment:open",
     (_e, recordingId: string, idx: number, ext: string) => {
-      if (
-        !/^[0-9a-f-]{36}$/i.test(recordingId) ||
-        !Number.isInteger(idx) ||
-        !/^[a-z0-9]{2,5}$/.test(ext)
-      )
-        throw new Error("Bad segment");
+      const path = segmentPath(recordingId, idx, ext);
       mkdirSync(dataDir(), { recursive: true });
-      const path = join(
-        dataDir(),
-        `${recordingId}-${String(idx).padStart(4, "0")}.${ext}`,
-      );
       writeFileSync(path, Buffer.alloc(0));
-      return path;
+      return true;
     },
   );
-  ipcMain.handle("segment:append", (_e, path: string, bytes: Uint8Array) => {
-    appendFileSync(safePath(path), Buffer.from(bytes));
-  });
+  ipcMain.handle(
+    "segment:append",
+    (_e, recordingId: string, idx: number, ext: string, bytes: Uint8Array) => {
+      appendFileSync(segmentPath(recordingId, idx, ext), Buffer.from(bytes));
+    },
+  );
   ipcMain.handle(
     "file:read",
-    (_e, path: string) => new Uint8Array(readFileSync(safePath(path))),
+    (_e, recordingId: string, idx: number, ext: string) =>
+      new Uint8Array(readFileSync(segmentPath(recordingId, idx, ext))),
   );
-  ipcMain.handle("file:size", (_e, path: string) => {
-    const p = safePath(path);
+  ipcMain.handle("file:size", (_e, recordingId: string, idx: number, ext: string) => {
+    const p = segmentPath(recordingId, idx, ext);
     return existsSync(p) ? statSync(p).size : -1;
   });
-  ipcMain.handle("file:delete", (_e, path: string) => {
-    const p = safePath(path);
+  ipcMain.handle("file:delete", (_e, recordingId: string, idx: number, ext: string) => {
+    const p = segmentPath(recordingId, idx, ext);
     if (existsSync(p)) rmSync(p);
   });
   ipcMain.handle("queue:get", () => readJson(queueFile(), []));

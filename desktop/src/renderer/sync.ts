@@ -91,9 +91,9 @@ async function perform(op: Op, userId: string) {
   }
   if (op.kind === "segment") {
     const path = storagePath(userId, op);
-    const size = await bridge().fileSize(op.path);
+    const size = await bridge().fileSize(op.recordingId, op.idx, op.ext);
     if (size > 0) {
-      const bytes = await bridge().fileRead(op.path);
+      const bytes = await bridge().fileRead(op.recordingId, op.idx, op.ext);
       const type = op.video ? "video/webm" : "audio/webm";
       const { error } = await supabase.storage
         .from("audio")
@@ -103,7 +103,7 @@ async function perform(op: Op, userId: string) {
         });
       if (error) throw new Error(error.message);
     } else if (size === 0) {
-      await bridge().fileDelete(op.path); // empty part (stopped instantly): nothing to send
+      await bridge().fileDelete(op.recordingId, op.idx, op.ext); // empty part (stopped instantly): nothing to send
       return;
     }
     const { error } = await supabase
@@ -119,7 +119,7 @@ async function perform(op: Op, userId: string) {
         { onConflict: "recording_id,idx" },
       );
     if (error) throw new Error(error.message);
-    await bridge().fileDelete(op.path); // only after the upload and its row are saved
+    await bridge().fileDelete(op.recordingId, op.idx, op.ext); // only after the upload and its row are saved
     return;
   }
   if (op.kind === "local_segment") {
@@ -131,14 +131,14 @@ async function perform(op: Op, userId: string) {
         await supabase.from("user_settings").select("language").maybeSingle()
       ).data?.language;
       const utterances = await transcribeSegment(
-        op.path,
+        await bridge().fileRead(op.recordingId, op.idx, op.ext),
         op.offsetMs,
         (language as string | null) ?? null,
       );
       await bridge().textSet(key, JSON.stringify(utterances));
     }
     // The words are the record now, so the audio on this computer can go.
-    await bridge().fileDelete(op.path);
+    await bridge().fileDelete(op.recordingId, op.idx, op.ext);
     return;
   }
 
@@ -196,20 +196,20 @@ export async function recoverInterrupted(): Promise<boolean> {
   const a = (await bridge().activeGet()) as {
     recordingId: string;
     idx: number;
-    path: string;
+    ext: string;
     doneMs: number;
     local?: boolean;
   } | null;
   if (!a) return false;
   const local = Boolean(a.local);
-  if ((await bridge().fileSize(a.path)) > 0) {
+  if ((await bridge().fileSize(a.recordingId, a.idx, a.ext)) > 0) {
     await enqueue(
       local
         ? {
             kind: "local_segment",
             recordingId: a.recordingId,
             idx: a.idx,
-            path: a.path,
+            ext: a.ext,
             offsetMs: a.doneMs,
             durationMs: 0,
           }
@@ -217,8 +217,7 @@ export async function recoverInterrupted(): Promise<boolean> {
             kind: "segment",
             recordingId: a.recordingId,
             idx: a.idx,
-            path: a.path,
-            ext: "webm",
+            ext: a.ext,
             durationMs: 0,
           },
     );

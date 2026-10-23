@@ -111,11 +111,10 @@ export function onSpeechProgress(fn: (p: SpeechModelProgress) => void): () => vo
  * its own. The words are returned on the recording's own timeline.
  */
 export async function transcribeSegment(
-  path: string,
+  bytes: Uint8Array,
   offsetMs: number,
   language: string | null,
 ): Promise<LocalUtterance[]> {
-  const bytes = await bridge().fileRead(path);
   if (!bytes.length) return [];
 
   const ctx = new AudioContext();

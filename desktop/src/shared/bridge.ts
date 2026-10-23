@@ -36,11 +36,27 @@ export type ResourceStats = {
 };
 
 export type Bridge = {
-  segmentOpen(recordingId: string, idx: number, ext: string): Promise<string>;
-  segmentAppend(path: string, bytes: Uint8Array): Promise<void>;
-  fileRead(path: string): Promise<Uint8Array>;
-  fileSize(path: string): Promise<number>;
-  fileDelete(path: string): Promise<void>;
+  /**
+   * Start a new part of a recording.
+   *
+   * The renderer names the recording and the part, never a file: the path is worked
+   * out in the main process, so a page that has been tampered with cannot ask for a
+   * file it did not make.
+   */
+  segmentOpen(recordingId: string, idx: number, ext: string): Promise<boolean>;
+  segmentAppend(
+    recordingId: string,
+    idx: number,
+    ext: string,
+    bytes: Uint8Array,
+  ): Promise<void>;
+  fileRead(
+    recordingId: string,
+    idx: number,
+    ext: string,
+  ): Promise<Uint8Array>;
+  fileSize(recordingId: string, idx: number, ext: string): Promise<number>;
+  fileDelete(recordingId: string, idx: number, ext: string): Promise<void>;
   queueGet(): Promise<unknown[]>;
   queueSet(ops: unknown[]): Promise<void>;
   /** A small store for the words made from each part, until the whole recording is sent. */

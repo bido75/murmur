@@ -10,7 +10,6 @@ const bridge = () => window.murmur;
 
 export type SegmentDone = {
   idx: number;
-  path: string;
   ext: string;
   durationMs: number;
   /** How far into the recording this part starts, so the times line up. */
@@ -35,7 +34,6 @@ export class Capture {
   private inputs: MediaStream[] = [];
   private recorder: MediaRecorder | null = null;
   private segIdx = 0;
-  private segPath = "";
   private segActiveMs = 0;
   private segResumedAt = 0;
   private writes: Promise<void> = Promise.resolve();
@@ -194,17 +192,13 @@ export class Capture {
 
   private async openSegment() {
     this.segIdx += 1;
-    this.segPath = await bridge().segmentOpen(
-      this.recordingId,
-      this.segIdx,
-      EXT,
-    );
+    await bridge().segmentOpen(this.recordingId, this.segIdx, EXT);
     this.segActiveMs = 0;
     this.segResumedAt = Date.now();
     await bridge().activeSet({
       recordingId: this.recordingId,
       idx: this.segIdx,
-      path: this.segPath,
+      ext: EXT,
       doneMs: this.doneMs,
       // Whether this recording is made on this computer, so a crash recovers it the
       // same way it was made.
@@ -224,13 +218,14 @@ export class Capture {
           mimeType: MIME,
           audioBitsPerSecond: 96000,
         });
-    const path = this.segPath;
     rec.ondataavailable = (e) => {
       if (!e.data.size) return;
       // Serialize writes so chunks land in order.
       this.writes = this.writes.then(async () =>
         bridge().segmentAppend(
-          path,
+          this.recordingId,
+          this.segIdx,
+          EXT,
           new Uint8Array(await e.data.arrayBuffer()),
         ),
       );
@@ -264,12 +259,11 @@ export class Capture {
     if (durationMs > 500)
       await this.events.onSegment({
         idx: this.segIdx,
-        path: this.segPath,
         ext: EXT,
         durationMs,
         offsetMs,
       });
-    else await bridge().fileDelete(this.segPath);
+    else await bridge().fileDelete(this.recordingId, this.segIdx, EXT);
   }
 
   private tick() {

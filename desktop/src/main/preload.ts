@@ -13,10 +13,10 @@ const CHANNELS = new Set([
 
 const bridge: Bridge = {
   segmentOpen: (r, i, e) => ipcRenderer.invoke("segment:open", r, i, e),
-  segmentAppend: (p, b) => ipcRenderer.invoke("segment:append", p, b),
-  fileRead: (p) => ipcRenderer.invoke("file:read", p),
-  fileSize: (p) => ipcRenderer.invoke("file:size", p),
-  fileDelete: (p) => ipcRenderer.invoke("file:delete", p),
+  segmentAppend: (r, i, e, b) => ipcRenderer.invoke("segment:append", r, i, e, b),
+  fileRead: (r, i, e) => ipcRenderer.invoke("file:read", r, i, e),
+  fileSize: (r, i, e) => ipcRenderer.invoke("file:size", r, i, e),
+  fileDelete: (r, i, e) => ipcRenderer.invoke("file:delete", r, i, e),
   queueGet: () => ipcRenderer.invoke("queue:get"),
   queueSet: (ops) => ipcRenderer.invoke("queue:set", ops),
   textGet: (k) => ipcRenderer.invoke("text:get", k),

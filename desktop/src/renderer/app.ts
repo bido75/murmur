@@ -481,7 +481,7 @@ async function startRecording() {
                 kind: "local_segment",
                 recordingId: id,
                 idx: s.idx,
-                path: s.path,
+                ext: s.ext,
                 offsetMs: s.offsetMs,
                 durationMs: s.durationMs,
               })
@@ -489,7 +489,6 @@ async function startRecording() {
                 kind: "segment",
                 recordingId: id,
                 idx: s.idx,
-                path: s.path,
                 ext: s.ext,
                 durationMs: s.durationMs,
                 video: f.screen,
@@ -632,7 +631,7 @@ async function goHome() {
 /** Test-only (MURMUR_SELFTEST): record ~6 s from the fake mic and check the file on disk. */
 async function selfTest() {
   const id = uuid();
-  const segments: { path: string; durationMs: number }[] = [];
+  const segments: { idx: number; ext: string; durationMs: number }[] = [];
   const cap = new Capture(id, {
     onSegment: async (s) => {
       segments.push(s);
@@ -642,16 +641,25 @@ async function selfTest() {
   });
   await cap.start(false);
   await new Promise((r) => setTimeout(r, 6000));
-  const midSize = await bridge().fileSize(
-    ((await bridge().activeGet()) as { path: string }).path,
-  );
+  const active = (await bridge().activeGet()) as {
+    recordingId: string;
+    idx: number;
+    ext: string;
+  } | null;
+  const midSize = active
+    ? await bridge().fileSize(active.recordingId, active.idx, active.ext)
+    : -1;
   const total = await cap.stop();
-  const size = segments[0] ? await bridge().fileSize(segments[0].path) : -1;
+  const size = segments[0]
+    ? await bridge().fileSize(id, segments[0].idx, segments[0].ext)
+    : -1;
   const head = segments[0]
-    ? Array.from((await bridge().fileRead(segments[0].path)).slice(0, 4))
+    ? Array.from(
+        (await bridge().fileRead(id, segments[0].idx, segments[0].ext)).slice(0, 4),
+      )
     : [];
   console.error(
-    `SELFTEST ${JSON.stringify({ segments: segments.length, midRecordingBytes: midSize, finalBytes: size, totalMs: total, webmMagic: head.map((b) => b.toString(16)).join(""), activeCleared: (await bridge().activeGet()) === null, path: segments[0]?.path })}`,
+    `SELFTEST ${JSON.stringify({ segments: segments.length, midRecordingBytes: midSize, finalBytes: size, totalMs: total, webmMagic: head.map((b) => b.toString(16)).join(""), activeCleared: (await bridge().activeGet()) === null })}`,
   );
 }
 
