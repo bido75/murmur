@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_SPEECH_MODEL,
   SPEECH_MODELS,
-  bundleProgressPercent,
   bundleReady,
   bundleSizeMb,
   fileState,
@@ -16,39 +15,56 @@ import {
 } from './speechModels.ts';
 
 function installed(over: Partial<InstalledFile> = {}): InstalledFile {
+  const spec = DEFAULT_SPEECH_MODEL.files[0];
   return {
-    name: 'encoder.onnx',
+    name: spec.name,
     present: true,
-    sizeBytes: DEFAULT_SPEECH_MODEL.files[0].sizeBytes,
+    sizeBytes: spec.sizeBytes,
     verifiedVersion: DEFAULT_SPEECH_MODEL.version,
     ...over,
   };
 }
 
-test('every published model file has a checksum, a size and an https address', () => {
+test('every published model file has a checksum and a size', () => {
   assert.ok(SPEECH_MODELS.length > 0);
   for (const m of SPEECH_MODELS) {
     assert.ok(m.files.length > 0, `${m.id} needs files`);
     for (const f of m.files) {
       assert.match(f.sha256, /^[0-9a-f]{64}$/, `${m.id}/${f.name} needs a sha256`);
       assert.ok(f.sizeBytes > 0, `${m.id}/${f.name} needs a size`);
-      assert.match(f.url, /^https:\/\//, `${m.id}/${f.name} must be fetched over https`);
     }
+  }
+});
+
+test('the archive is fetched over https and has a published checksum', () => {
+  for (const m of SPEECH_MODELS) {
+    assert.match(m.archive.url, /^https:\/\//, `${m.id} must be fetched over https`);
+    assert.match(m.archive.sha256, /^[0-9a-f]{64}$/, `${m.id} needs an archive sha256`);
+    assert.ok(m.archive.sizeBytes > 0, `${m.id} needs an archive size`);
+    assert.ok(m.archive.sizeMb > 0, `${m.id} needs a size for the user`);
   }
 });
 
 test('the published sizes and checksums are the ones the host publishes', () => {
   // Guards against a typo in either field being taken as gospel.
-  const encoder = DEFAULT_SPEECH_MODEL.files.find((f) => f.name === 'encoder.onnx');
+  const encoder = DEFAULT_SPEECH_MODEL.files.find(
+    (f) => f.name === 'encoder-model.int8.onnx',
+  );
   assert.ok(encoder);
-  assert.equal(encoder.sizeBytes, 653979575);
+  assert.equal(encoder.sizeBytes, 649524002);
   assert.equal(
     encoder.sha256,
-    '4cbf4dfc2bd2c4a565609ef373925ad09cb55250c19d7e25f7893be49d5cb5f7',
+    'fc7de298eae88ba8aae8ea62bde60cd401401bd294748b8d57a72e5ad6b9d04a',
   );
-  const tokens = DEFAULT_SPEECH_MODEL.files.find((f) => f.name === 'tokens.txt');
-  assert.ok(tokens);
-  assert.equal(tokens.sizeBytes, 93939);
+  const vocab = DEFAULT_SPEECH_MODEL.files.find((f) => f.name === 'vocab.txt');
+  assert.ok(vocab);
+  assert.equal(vocab.sizeBytes, 93939);
+  assert.equal(
+    DEFAULT_SPEECH_MODEL.archive.sha256,
+    '6c2f64b17827d7051c9b6fe08dd422103b2cc05381a4d9cd7e4041e7fa6373ba',
+    'the published sha256 of the model release archive',
+  );
+  assert.equal(DEFAULT_SPEECH_MODEL.archive.sizeBytes, 610385777);
 });
 
 test('a model is found by id, and an unknown id falls back to the default', () => {
@@ -64,8 +80,15 @@ test('the folder name carries the version, so two builds can sit side by side', 
 });
 
 test('the model is about the size we tell the user', () => {
+  // What the user downloads is the archive; it is a little smaller than the files it
+  // holds, because they are compressed.
   const mb = bundleSizeMb(DEFAULT_SPEECH_MODEL);
-  assert.ok(mb > 600 && mb < 750, `expected about 700 MB, got ${mb}`);
+  assert.ok(mb > 500 && mb < 650, `expected about 582 MB, got ${mb}`);
+  const unpacked = Math.round(
+    DEFAULT_SPEECH_MODEL.files.reduce((t, f) => t + f.sizeBytes, 0) /
+      (1024 * 1024),
+  );
+  assert.ok(unpacked > 630, `the files unpack to about 668 MB, got ${unpacked}`);
 });
 
 test('a file that is not there is missing', () => {
@@ -156,30 +179,15 @@ test('progress is a whole percentage that never goes past the end', () => {
   assert.equal(progressPercent(10, 0), 0);
 });
 
-test('the progress of a whole model counts each file by its size', () => {
-  const bundle = DEFAULT_SPEECH_MODEL;
-  const total = bundle.files.reduce((t, f) => t + f.sizeBytes, 0);
-
-  assert.equal(bundleProgressPercent(bundle, {}), 0);
-
-  // Each file counts for the share of the download it represents, so the number moves
-  // evenly instead of jumping when a big file finishes.
-  const encoder = bundle.files[0];
-  const encoderShare = Math.round((encoder.sizeBytes / total) * 100);
-  assert.ok(encoderShare > 85, `the encoder is most of the model, got ${encoderShare}%`);
-
-  const halfEncoder = bundleProgressPercent(bundle, {
-    'encoder.onnx': Math.floor(encoder.sizeBytes / 2),
-  });
-  assert.ok(
-    Math.abs(halfEncoder - encoderShare / 2) <= 1,
-    `half the encoder is about ${encoderShare / 2}%, got ${halfEncoder}%`,
-  );
-
-  // Everything downloaded is the whole thing.
-  const all: Record<string, number> = {};
-  for (const f of bundle.files) all[f.name] = f.sizeBytes;
-  assert.equal(bundleProgressPercent(bundle, all), 100);
+test('the progress of the download is a whole percentage', () => {
+  // The model comes as one archive, so the progress is simply how much of it has
+  // arrived.
+  const size = DEFAULT_SPEECH_MODEL.archive.sizeBytes;
+  assert.equal(progressPercent(0, size), 0);
+  assert.equal(progressPercent(size, size), 100);
+  assert.equal(progressPercent(size * 2, size), 100);
+  assert.equal(progressPercent(-1, size), 0);
+  assert.equal(progressPercent(10, 0), 0);
 });
 
 test('the user is told what the model is doing', () => {

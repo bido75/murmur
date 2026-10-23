@@ -12,12 +12,24 @@
 export type SpeechModelFile = {
   /** The file's name inside the model folder. */
   name: string;
-  /** Where the file is fetched from. */
-  url: string;
   /** The SHA-256 the host publishes for this file, in lower-case hex. */
   sha256: string;
   /** The exact size in bytes, so a short download is caught before it is hashed. */
   sizeBytes: number;
+};
+
+/** Where the model is fetched from. */
+export type SpeechModelArchive = {
+  /** The address of the archive. */
+  url: string;
+  /** The SHA-256 of the whole archive, in lower-case hex. */
+  sha256: string;
+  /** The exact size in bytes. */
+  sizeBytes: number;
+  /** The rough size for the user, in megabytes. */
+  sizeMb: number;
+  /** The folder the files sit in inside the archive. */
+  folder: string;
 };
 
 /** A model the app can install and run. */
@@ -29,6 +41,8 @@ export type SpeechModelBundle = {
   label: string;
   /** The words to use when telling the user what this model is for. */
   note: string;
+  /** Where it comes from. */
+  archive: SpeechModelArchive;
   /** The files that make up the model. */
   files: SpeechModelFile[];
   /** The languages the model knows. */
@@ -36,42 +50,47 @@ export type SpeechModelBundle = {
 };
 
 /**
- * Parakeet TDT 0.6B v3, quantised to 8-bit and exported to ONNX.
+ * Parakeet TDT 0.6B v3, quantised to 8-bit.
  *
  * The model weights are published under CC BY 4.0, so they may be used and
  * redistributed with attribution. No source code from the project this was modelled on
  * is used: that code is AGPL-3.0 and none of it was copied.
  *
- * The checksums and sizes are the ones the file's host publishes.
+ * The archive comes from the model's own release, and the checksum and size are the
+ * ones published with it. The four files inside are checked separately, so a damaged
+ * archive is caught even if the whole download looked right.
  */
 export const PARAKEET_TDT_06B_V3: SpeechModelBundle = {
   id: 'parakeet-tdt-0.6b-v3-int8',
-  version: '20260101',
+  version: '1.3.0',
   label: 'Parakeet TDT 0.6B v3 (8-bit)',
   note: 'Runs on this computer. The audio never leaves it. About 700 MB to download.',
   languages: ['en'],
+  archive: {
+    url: 'https://github.com/Kieirra/murmure-model/releases/download/1.3.0/parakeet-tdt-0.6b-v3-int8.zip',
+    sha256: '6c2f64b17827d7051c9b6fe08dd422103b2cc05381a4d9cd7e4041e7fa6373ba',
+    sizeBytes: 610385777,
+    sizeMb: 582,
+    folder: 'parakeet-tdt-0.6b-v3-int8',
+  },
   files: [
     {
-      name: 'encoder.onnx',
-      url: 'https://huggingface.co/fcreait/parakeet-tdt-0.6b-v3-int8-onnx/resolve/main/encoder.onnx',
-      sha256: '4cbf4dfc2bd2c4a565609ef373925ad09cb55250c19d7e25f7893be49d5cb5f7',
-      sizeBytes: 653979575,
+      name: 'nemo128.onnx',
+      sha256: 'a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f',
+      sizeBytes: 139764,
     },
     {
-      name: 'decoder.onnx',
-      url: 'https://huggingface.co/fcreait/parakeet-tdt-0.6b-v3-int8-onnx/resolve/main/decoder.onnx',
-      sha256: 'd593cdb0e571f5a457ec2219af9968cbf6b0e8198e8f7839b40a8754593bf68c',
-      sizeBytes: 47233743,
+      name: 'encoder-model.int8.onnx',
+      sha256: 'fc7de298eae88ba8aae8ea62bde60cd401401bd294748b8d57a72e5ad6b9d04a',
+      sizeBytes: 649524002,
     },
     {
-      name: 'joiner.onnx',
-      url: 'https://huggingface.co/fcreait/parakeet-tdt-0.6b-v3-int8-onnx/resolve/main/joiner.onnx',
-      sha256: 'b9b0bcf88ac571902e69a6536223ed2d94885e981b85045410f1403d53121a63',
-      sizeBytes: 25286330,
+      name: 'decoder_joint-model.int8.onnx',
+      sha256: 'f7e2db395a3b738cb2893cfb853d25863cebcc5282583a2e86b5762559e0bd32',
+      sizeBytes: 18203490,
     },
     {
-      name: 'tokens.txt',
-      url: 'https://huggingface.co/fcreait/parakeet-tdt-0.6b-v3-int8-onnx/resolve/main/tokens.txt',
+      name: 'vocab.txt',
       sha256: 'd58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d',
       sizeBytes: 93939,
     },
@@ -96,8 +115,7 @@ export function modelFolderName(bundle: SpeechModelBundle): string {
 
 /** How big the whole model is, in megabytes, for the user. */
 export function bundleSizeMb(bundle: SpeechModelBundle): number {
-  const bytes = bundle.files.reduce((total, f) => total + f.sizeBytes, 0);
-  return Math.round(bytes / (1024 * 1024));
+  return bundle.archive.sizeMb;
 }
 
 /** What we know about one file of a model on this computer. */

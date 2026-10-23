@@ -50,11 +50,8 @@ import {
   removeModel,
 } from "./speechModelManager";
 import { resourceStats } from "./resources";
-import {
-  runtimeAvailable,
-  runtimeMissingReason,
-  transcribeSamples,
-} from "./transcriber";
+import { runtimeMissingReason, transcribeSamples } from "./transcriber";
+import { modelDir } from "./speechModelManager";
 
 const APP_NAME = "Murmur";
 let win: BrowserWindow | null = null;
@@ -74,6 +71,17 @@ const activeFile = () => join(app.getPath("userData"), "active.json");
 const userDataDir = () => app.getPath("userData");
 /** The words made from each part, until the whole recording is sent. */
 const textFile = () => join(app.getPath("userData"), "text.json");
+
+/** Whether the speech model is installed and the engine can be loaded. */
+let engineReady: boolean | null = null;
+function runtimeInstalled(): boolean {
+  if (engineReady !== null) return engineReady;
+  const dir = modelDir(DEFAULT_SPEECH_MODEL, userDataDir());
+  engineReady = ["nemo128.onnx", "encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "vocab.txt"].every(
+    (name) => existsSync(join(dir, name)),
+  );
+  return engineReady;
+}
 
 /** Only ever touch files inside our own pending folder. */
 function safePath(p: string): string {
@@ -213,7 +221,6 @@ function registerIpc() {
     const bundle = DEFAULT_SPEECH_MODEL;
     const files = installedFiles(bundle, base);
     const message = modelMessage(bundle, files);
-    const engineAvailable = runtimeAvailable();
     return {
       id: bundle.id,
       label: bundle.label,
@@ -227,8 +234,10 @@ function registerIpc() {
         present: f.present,
         sizeBytes: f.sizeBytes,
       })),
-      engineAvailable,
-      engineReason: engineAvailable ? "" : runtimeMissingReason(),
+      engineAvailable: runtimeInstalled(),
+      engineReason: runtimeInstalled()
+        ? ""
+        : "The speech model is not installed yet. Download it to transcribe on this computer.",
     };
   });
 

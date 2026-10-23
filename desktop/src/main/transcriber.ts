@@ -3,48 +3,21 @@
 // The audio never leaves the machine: it is turned into numbers in the renderer, sent to
 // this process, and read by the model here.
 //
-// The model is Parakeet TDT 0.6B v3, quantised to 8-bit. Its three graphs are:
+// The model is Parakeet TDT 0.6B v3, quantised to 8-bit. Its graphs are:
 //
-//   encoder.onnx  audio_signal FLOAT [batch, 128, frames], length INT64 [batch]
-//                 -> outputs FLOAT [batch, 1024, frames], encoded_lengths INT64 [batch]
-//   decoder.onnx  targets INT32, target_length INT32, states.1 FLOAT [2, s, 640],
-//                 onnx::Slice_3 FLOAT [2, 1, 640]
-//                 -> outputs FLOAT [batch, 640, t], prednet_lengths INT32,
-//                    states FLOAT [2, s, 640], 162 FLOAT [2, s, 640]
-//   joiner.onnx  encoder_outputs FLOAT [batch, 1024, t], decoder_outputs FLOAT [batch, 640, t]
-//                 -> outputs FLOAT [batch, vocab, t, 8198]
+//   nemo128.onnx              the mel front end: audio -> 128 features per frame
+//   encoder-model.int8.onnx   the acoustic encoder: features -> 1024 numbers per frame
+//   decoder_joint-model.int8.onnx  the prediction network and the joint
 //
-// The engine that runs those graphs is a separate, optional module. Until it is
-// installed this refuses in plain words rather than quietly sending the audio to a
-// speech service.
-import { join } from "node:path";
-import { CpuWatcher, resourceStats, type ResourceStats } from "./resources";
-import { modelDir } from "./speechModelManager";
-import type { SpeechModelBundle } from "../shared/speechModels";
-import type { Utterance } from "../shared/transcription/interfaces";
-
-/** What the engine has to be able to do. */
-export type LocalRuntime = {
-  /**
-   * Read one audio file.
-   *
-   * `samples` is one channel of numbers at the model's rate. The engine returns the
-   * words it heard and where they were said.
-   */
-  transcribe(
-    samples: Float32Array,
-    options: {
-      modelPath: string;
-      language: string | null;
-      sampleRate: number;
-      onProgress?: (percent: number) => void;
-      signal?: AbortSignal;
-    },
-  ): Promise<{
-    utterances: { start_ms: number; end_ms: number; text: string }[];
-    language: string | null;
-  }>;
-};
+// The engine is loaded once and kept, because loading it takes a few seconds. The
+// ONNX runtime is loaded lazily, so the app still starts when it is missing: the user
+// is told what is missing instead of the app failing to open.
+import { CpuWatcher, resourceStats, type ResourceStats } from "./resources.ts";
+import { modelDir } from "./speechModelManager.ts";
+import { ParakeetEngine } from "./parakeet/engine.ts";
+import { MODEL_SAMPLE_RATE } from "../shared/parakeet.ts";
+import type { SpeechModelBundle } from "../shared/speechModels.ts";
+import type { Utterance } from "../shared/transcription/interfaces.ts";
 
 export type TranscribeOptions = {
   language?: string | null;
@@ -62,39 +35,49 @@ export type TranscribeResult = {
   tookMs: number;
 };
 
-/**
- * The engine, loaded the first time it is needed.
- *
- * It is loaded lazily and by name, so the app still starts when the engine is not
- * installed: the user is told what is missing instead of the app failing to open.
- */
-let runtime: LocalRuntime | null = null;
-let runtimeChecked = false;
+/** The loaded engine, so it is loaded once and kept. */
+let engine: ParakeetEngine | null = null;
+let engineDir: string | null = null;
+let enginePromise: Promise<ParakeetEngine> | null = null;
 
-function loadRuntime(): LocalRuntime | null {
-  if (runtimeChecked) return runtime;
-  runtimeChecked = true;
-  try {
-    // The engine is an optional native module; it is not a dependency of the app yet.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("./localRuntime") as { runtime?: LocalRuntime };
-    runtime = mod.runtime ?? null;
-  } catch {
-    runtime = null;
+/** Forget the engine, so the next job loads it again. */
+export function forgetEngine(): void {
+  void engine?.close();
+  engine = null;
+  engineDir = null;
+  enginePromise = null;
+}
+
+/** The engine, loaded if it is not already. */
+async function getEngine(modelPath: string): Promise<ParakeetEngine> {
+  if (engine && engineDir === modelPath) return engine;
+  if (engine && engineDir !== modelPath) {
+    await engine.close();
+    engine = null;
   }
-  return runtime;
+  if (!enginePromise)
+    enginePromise = ParakeetEngine.create(modelPath).then((e) => {
+      engine = e;
+      engineDir = modelPath;
+      enginePromise = null;
+      return e;
+    });
+  return enginePromise;
 }
 
 /** Whether the local engine is installed on this computer. */
-export function runtimeAvailable(): boolean {
-  return loadRuntime() !== null;
+export async function runtimeAvailable(modelPath: string): Promise<boolean> {
+  try {
+    const e = await getEngine(modelPath);
+    return e !== null;
+  } catch {
+    return false;
+  }
 }
 
 /** Why the local engine cannot be used, in words the user can act on. */
 export function runtimeMissingReason(): string {
-  return runtimeAvailable()
-    ? ""
-    : "Local speech recognition is not installed on this computer. The desktop app sends the recording to the server instead, where it is transcribed.";
+  return "Local speech recognition is not installed on this computer. The desktop app sends the recording to the server instead, where it is transcribed.";
 }
 
 /**
@@ -109,18 +92,22 @@ export async function transcribeSamples(
   samples: Float32Array,
   options: TranscribeOptions = {},
 ): Promise<TranscribeResult> {
-  const engine = loadRuntime();
-  if (!engine) throw new Error(runtimeMissingReason());
   if (!samples.length) throw new Error("There is no audio to transcribe.");
 
   const watcher = new CpuWatcher();
   const startedAt = Date.now();
   const dir = modelDir(bundle, base);
 
-  const result = await engine.transcribe(samples, {
-    modelPath: dir,
-    language: options.language ?? null,
-    sampleRate: 16000,
+  let local;
+  try {
+    local = await getEngine(dir);
+  } catch (e) {
+    throw new Error(
+      `${runtimeMissingReason()} (${(e as Error).message})`,
+    );
+  }
+
+  const result = await local.transcribe(samples, {
     onProgress: (percent) => {
       watcher.sample();
       options.onProgress?.(percent);
@@ -132,28 +119,20 @@ export async function transcribeSamples(
   const resources = resourceStats();
 
   return {
-    // The engine does not tell speakers apart, so they are all one speaker. It is not
-    // made up: the field is a fact about the audio, not a guess.
+    // The engine does not tell speakers apart, so they are all one speaker. That is a
+    // fact about the audio, not a guess.
     utterances: result.utterances.map((u) => ({
       start_ms: Math.max(0, Math.round(u.start_ms)),
       end_ms: Math.max(0, Math.round(u.end_ms)),
       speaker: 0,
       text: u.text,
     })),
-    durationMs: Math.max(
-      0,
-      ...result.utterances.map((u) => Math.round(u.end_ms)),
-    ),
+    durationMs: Math.max(0, ...result.utterances.map((u) => u.end_ms)),
     language: result.language,
     resources,
     tookMs,
   };
 }
 
-/** Where the model files are, for the engine to find them. */
-export function modelPathFor(
-  bundle: SpeechModelBundle,
-  base: string,
-): string {
-  return join(modelDir(bundle, base), "encoder.onnx");
-}
+/** The rate the model is fed at. */
+export { MODEL_SAMPLE_RATE };

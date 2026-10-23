@@ -22,11 +22,11 @@ import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Sha256 } from "../../../supabase/functions/_shared/sha256.ts";
+import { extractZipFile, openZipFile, type ZipEntry } from "../shared/zip.ts";
 import {
-  bundleProgressPercent,
   fileState,
   modelFolderName,
-  verifySpeechFile,
+  progressPercent,
   type InstalledFile,
   type SpeechModelBundle,
 } from "../shared/speechModels.ts";
@@ -163,9 +163,10 @@ async function download(
 /**
  * Download the model and check it.
  *
- * The download can be stopped with the signal and its progress is reported. Each file is
- * fetched to a temporary name and only moved into place once it has been checked, so a
- * half-finished file is never mistaken for a good one.
+ * The download can be stopped with the signal and its progress is reported. The archive
+ * is fetched to a temporary name and only moved into place once it has been checked,
+ * and each file inside it is checked as well, so a half-finished download is never
+ * mistaken for a good model.
  */
 export async function installModel(
   bundle: SpeechModelBundle,
@@ -177,89 +178,145 @@ export async function installModel(
 
   const marker = readMarker(dir);
   const next: Marker = { version: bundle.version, files: { ...marker.files } };
-  const writtenByFile: Record<string, number> = {};
+  const already = installedFiles(bundle, base);
+
+  // Everything is there and checked: nothing to do.
+  if (
+    bundle.files.every((f) => {
+      const found = already.find((x) => x.name === f.name);
+      return found && fileState(bundle, found) === "ready";
+    })
+  ) {
+    options.onProgress?.({ percent: 100, file: "", stage: "done" });
+    return { ok: true };
+  }
+
+  const archivePath = join(dir, "model.zip.part");
+  if (existsSync(archivePath)) rmSync(archivePath, { force: true });
+
+  try {
+    await download(
+      bundle.archive.url,
+      archivePath,
+      (written) =>
+        options.onProgress?.({
+          percent: progressPercent(written, bundle.archive.sizeBytes),
+          file: "the speech model",
+          stage: "downloading",
+        }),
+      options.signal,
+    );
+  } catch (e) {
+    if (existsSync(archivePath)) rmSync(archivePath, { force: true });
+    const message =
+      options.signal?.aborted
+        ? "The download was stopped."
+        : (e as Error).message || "The download failed.";
+    return { ok: false, reason: message };
+  }
+
+  options.onProgress?.({
+    percent: 100,
+    file: "the speech model",
+    stage: "verifying",
+  });
+
+  // The whole archive is checked first: the size is free, and the hash is the one the
+  // model's own release publishes.
+  const size = statSync(archivePath).size;
+  if (size !== bundle.archive.sizeBytes) {
+    rmSync(archivePath, { force: true });
+    return {
+      ok: false,
+      reason: `The download is ${size} bytes but should be ${bundle.archive.sizeBytes}. It did not finish.`,
+    };
+  }
+  let archiveDigest: string;
+  try {
+    archiveDigest = await hashFile(archivePath);
+  } catch (e) {
+    rmSync(archivePath, { force: true });
+    return {
+      ok: false,
+      reason: `The downloaded model could not be read: ${(e as Error).message}`,
+    };
+  }
+  if (archiveDigest !== bundle.archive.sha256) {
+    rmSync(archivePath, { force: true });
+    return {
+      ok: false,
+      reason:
+        "The downloaded model is not the one we published, so it was not used.",
+    };
+  }
+
+  // Unpack the files. They are inflated a piece at a time and written straight to
+  // disk, so neither the archive nor the model is ever held in memory.
+  let entries: ZipEntry[];
+  try {
+    entries = openZipFile(archivePath);
+  } catch (e) {
+    rmSync(archivePath, { force: true });
+    return {
+      ok: false,
+      reason: `The downloaded model could not be opened: ${(e as Error).message}`,
+    };
+  }
 
   for (const file of bundle.files) {
-    const path = join(dir, file.name);
-    const part = `${path}.part`;
-
-    // A file left by an earlier attempt would make the download look done.
-    if (existsSync(part)) rmSync(part, { force: true });
-
-    // A file that is already there and was checked does not need fetching again.
-    const already = installedFiles(bundle, base).find(
-      (f) => f.name === file.name,
-    );
-    if (already && fileState(bundle, already) === "ready") {
-      writtenByFile[file.name] = file.sizeBytes;
-      options.onProgress?.({
-        percent: bundleProgressPercent(bundle, writtenByFile),
-        file: file.name,
-        stage: "done",
-      });
-      continue;
+    const entry =
+      entries.find((e) => e.name === `${bundle.archive.folder}/${file.name}`) ??
+      entries.find((e) => e.name.endsWith(`/${file.name}`));
+    if (!entry) {
+      rmSync(archivePath, { force: true });
+      return { ok: false, reason: `The download does not contain ${file.name}.` };
     }
+  }
 
+  // Each file is checked on its own, so a damaged file is caught even when the
+  // archive as a whole was right.
+  for (const file of bundle.files) {
+    const spec = bundle.files.find((f) => f.name === file.name)!;
+    const entry =
+      entries.find((e) => e.name === `${bundle.archive.folder}/${file.name}`) ??
+      entries.find((e) => e.name.endsWith(`/${file.name}`))!;
+    const outPath = join(dir, `${file.name}.checking`);
     try {
-      await download(
-        file.url,
-        part,
-        (written) => {
-          writtenByFile[file.name] = written;
-          options.onProgress?.({
-            percent: bundleProgressPercent(bundle, writtenByFile),
-            file: file.name,
-            stage: "downloading",
-          });
-        },
-        options.signal,
-      );
+      await extractZipFile(archivePath, entries, entry.name, outPath);
     } catch (e) {
-      if (existsSync(part)) rmSync(part, { force: true });
-      const message =
-        options.signal?.aborted
-          ? "The download was stopped."
-          : (e as Error).message || "The download failed.";
-      return { ok: false, reason: message };
-    }
-
-    options.onProgress?.({
-      percent: bundleProgressPercent(bundle, writtenByFile),
-      file: file.name,
-      stage: "verifying",
-    });
-
-    let digest: string;
-    try {
-      digest = await hashFile(part);
-    } catch (e) {
-      if (existsSync(part)) rmSync(part, { force: true });
+      rmSync(outPath, { force: true });
+      rmSync(archivePath, { force: true });
       return {
         ok: false,
-        reason: `The downloaded file could not be read: ${(e as Error).message}`,
+        reason: `${file.name} could not be unpacked: ${(e as Error).message}`,
       };
     }
-
-    const result = verifySpeechFile(
-      bundle,
-      file.name,
-      digest,
-      statSync(part).size,
-    );
-    if (!result.ok) {
-      // The file is not what we published, so it is thrown away rather than used.
-      rmSync(part, { force: true });
-      delete next.files[file.name];
-      writeMarker(dir, next);
-      return { ok: false, reason: result.reason };
+    const size = statSync(outPath).size;
+    if (size !== spec.sizeBytes) {
+      rmSync(outPath, { force: true });
+      rmSync(archivePath, { force: true });
+      return {
+        ok: false,
+        reason: `${file.name} is ${size} bytes but should be ${spec.sizeBytes}.`,
+      };
     }
-
+    const digest = await hashFile(outPath);
+    if (digest !== spec.sha256) {
+      rmSync(outPath, { force: true });
+      rmSync(archivePath, { force: true });
+      return {
+        ok: false,
+        reason: `${file.name} is not the file we published, so it was not used.`,
+      };
+    }
     // Only now does the file go into place.
+    const path = join(dir, file.name);
     if (existsSync(path)) rmSync(path, { force: true });
-    renameSync(part, path);
-    next.files[file.name] = file.sha256;
-    writeMarker(dir, next);
+    renameSync(outPath, path);
+    next.files[file.name] = spec.sha256;
   }
+  rmSync(archivePath, { force: true });
+  writeMarker(dir, next);
 
   options.onProgress?.({ percent: 100, file: "", stage: "done" });
   return { ok: true };
@@ -286,12 +343,10 @@ export function recoverModelInstall(
   if (!existsSync(dir)) return { needsAttention: false };
 
   let removedPartial = false;
-  for (const file of bundle.files) {
-    const part = join(dir, `${file.name}.part`);
-    if (existsSync(part)) {
-      rmSync(part, { force: true });
-      removedPartial = true;
-    }
+  const part = join(dir, "model.zip.part");
+  if (existsSync(part)) {
+    rmSync(part, { force: true });
+    removedPartial = true;
   }
 
   if (removedPartial) {
