@@ -40,6 +40,18 @@ export type TranscriptionOptions = {
   signal?: AbortSignal;
 };
 
+/**
+ * Where the audio is.
+ *
+ * A local engine reads the audio itself, so it is given the samples. An engine that
+ * needs a file on disk is given the path. A cloud engine has to fetch the audio, so it
+ * is given a URL it can download.
+ */
+export type AudioSource =
+  | { kind: 'samples'; samples: Float32Array; sampleRate: number }
+  | { kind: 'file'; path: string }
+  | { kind: 'url'; url: string };
+
 export interface TranscriptionProvider {
   readonly type: ProviderType;
 
@@ -56,11 +68,9 @@ export interface TranscriptionProvider {
 
   /**
    * Transcribe one part.
-   *
-   * `source` is a local file path for a local engine, or a URL for a cloud one.
    */
   transcribe(
-    source: string,
+    source: AudioSource,
     options?: TranscriptionOptions,
   ): Promise<TranscriptionResult>;
 }

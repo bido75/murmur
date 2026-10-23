@@ -62,6 +62,7 @@ export {
   type TranscriptionMode,
 } from "../../supabase/functions/_shared/transcription_mode";
 export type {
+  AudioSource,
   ProviderType,
   TranscriptionOptions,
   TranscriptionProvider,

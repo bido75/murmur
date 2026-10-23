@@ -5,6 +5,7 @@
 // device — only the words are sent, so the notes can be written.
 import { localSttSupported, modelReady, transcribeLocal } from "@/lib/localStt";
 import type {
+  AudioSource,
   ProviderType,
   TranscriptionOptions,
   TranscriptionProvider,
@@ -28,7 +29,7 @@ export class WhisperProvider implements TranscriptionProvider {
   }
 
   async transcribe(
-    uri: string,
+    source: AudioSource,
     options?: TranscriptionOptions,
   ): Promise<TranscriptionResult> {
     if (!localSttSupported())
@@ -37,9 +38,13 @@ export class WhisperProvider implements TranscriptionProvider {
       throw new Error(
         "Download the speech model in Settings → Privacy & data.",
       );
+    if (source.kind !== "file")
+      throw new Error(
+        "This engine reads a file from the device, so it needs a file rather than a link.",
+      );
 
     const utterances = await transcribeLocal(
-      uri,
+      source.path,
       options?.offsetMs ?? 0,
       options?.language ?? null,
       options?.signal,

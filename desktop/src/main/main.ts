@@ -39,6 +39,22 @@ import {
   shouldPrompt,
   type MeetingApp,
 } from "../shared/meetings";
+import {
+  bundleSizeMb,
+  DEFAULT_SPEECH_MODEL,
+  modelMessage,
+} from "../shared/speechModels";
+import {
+  installModel,
+  installedFiles,
+  removeModel,
+} from "./speechModelManager";
+import { resourceStats } from "./resources";
+import {
+  runtimeAvailable,
+  runtimeMissingReason,
+  transcribeSamples,
+} from "./transcriber";
 
 const APP_NAME = "Murmur";
 let win: BrowserWindow | null = null;
@@ -46,12 +62,18 @@ let tray: Tray | null = null;
 let recording = false;
 let lastMeeting: MeetingApp | null = null;
 let macCapture: ChildProcessWithoutNullStreams | null = null;
+/** The download that is running, so it can be stopped. */
+let installAbort: AbortController | null = null;
 
 // ---------- Local store (everything under userData/pending) ----------
 
 const dataDir = () => join(app.getPath("userData"), "pending");
 const queueFile = () => join(app.getPath("userData"), "queue.json");
 const activeFile = () => join(app.getPath("userData"), "active.json");
+/** Where the speech model is kept, next to the queue but outside the audio folder. */
+const userDataDir = () => app.getPath("userData");
+/** The words made from each part, until the whole recording is sent. */
+const textFile = () => join(app.getPath("userData"), "text.json");
 
 /** Only ever touch files inside our own pending folder. */
 function safePath(p: string): string {
@@ -140,17 +162,104 @@ function registerIpc() {
   ipcMain.handle("macaudio:start", () => startMacCapture());
   ipcMain.handle("macaudio:stop", () => stopMacCapture());
 
+  // ---------- A small store for the words made from each part ----------
+
+  ipcMain.handle("text:get", (_e, key: string) => {
+    const all = readJson<Record<string, string>>(textFile(), {});
+    return all[key] ?? null;
+  });
+  ipcMain.handle("text:set", (_e, key: string, value: string) => {
+    const all = readJson<Record<string, string>>(textFile(), {});
+    all[key] = value;
+    writeJson(textFile(), all);
+  });
+  ipcMain.handle("text:keys", (_e, prefix: string) => {
+    const all = readJson<Record<string, string>>(textFile(), {});
+    return Object.keys(all)
+      .filter((k) => k.startsWith(prefix))
+      .sort();
+  });
+  ipcMain.handle("text:remove", (_e, keys: string[]) => {
+    const all = readJson<Record<string, string>>(textFile(), {});
+    for (const k of keys) delete all[k];
+    writeJson(textFile(), all);
+  });
+
   // Transcribe on this computer. The audio never leaves the machine and no speech
-  // service is contacted. The local speech runtime is a separate, optional download;
-  // until it is installed this refuses rather than quietly sending anything anywhere.
+  // service is contacted.
   ipcMain.handle(
     "transcribe:local",
-    async (_e, _path: string, _options?: { language?: string | null }) => {
-      throw new Error(
-        "Local speech recognition is not installed on this computer. The desktop app sends the recording to the server instead, where it is transcribed.",
+    async (_e, samples: Float32Array, options?: { language?: string | null }) => {
+      const result = await transcribeSamples(
+        DEFAULT_SPEECH_MODEL,
+        userDataDir(),
+        samples,
+        { language: options?.language ?? null },
       );
+      return {
+        utterances: result.utterances,
+        durationMs: result.durationMs,
+        language: result.language,
+        tookMs: result.tookMs,
+        resources: result.resources,
+      };
     },
   );
+
+  // ---------- The speech model ----------
+
+  ipcMain.handle("speech:model", () => {
+    const base = userDataDir();
+    const bundle = DEFAULT_SPEECH_MODEL;
+    const files = installedFiles(bundle, base);
+    const message = modelMessage(bundle, files);
+    const engineAvailable = runtimeAvailable();
+    return {
+      id: bundle.id,
+      label: bundle.label,
+      note: bundle.note,
+      sizeMb: bundleSizeMb(bundle),
+      ready: message.ready,
+      installed: files.some((f) => f.present),
+      text: message.text,
+      files: files.map((f) => ({
+        name: f.name,
+        present: f.present,
+        sizeBytes: f.sizeBytes,
+      })),
+      engineAvailable,
+      engineReason: engineAvailable ? "" : runtimeMissingReason(),
+    };
+  });
+
+  ipcMain.handle("speech:install", async () => {
+    const bundle = DEFAULT_SPEECH_MODEL;
+    const base = userDataDir();
+    // Only one download at a time: the cancel button stops this one.
+    if (installAbort) installAbort.abort();
+    const controller = new AbortController();
+    installAbort = controller;
+    try {
+      const result = await installModel(bundle, base, {
+        signal: controller.signal,
+        onProgress: (p) =>
+          win?.webContents.send("speech:progress", p),
+      });
+      return result;
+    } finally {
+      if (installAbort === controller) installAbort = null;
+    }
+  });
+
+  ipcMain.handle("speech:cancel", () => {
+    installAbort?.abort();
+  });
+
+  ipcMain.handle("speech:remove", () => {
+    removeModel(DEFAULT_SPEECH_MODEL, userDataDir());
+  });
+
+  ipcMain.handle("app:resources", () => resourceStats());
 }
 
 // ---------- System audio ----------

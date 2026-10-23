@@ -12,6 +12,7 @@
 // refuses, and this adapter says so plainly rather than falling back to the cloud.
 import type { Bridge } from "../bridge";
 import type {
+  AudioSource,
   ProviderType,
   TranscriptionOptions,
   TranscriptionProvider,
@@ -27,7 +28,9 @@ export class ParakeetProvider implements TranscriptionProvider {
   async isAvailable(): Promise<boolean> {
     if (!window.murmur) return false;
     try {
-      await window.murmur.transcribeLocal("", { language: null });
+      await window.murmur.transcribeLocal(new Float32Array(0), {
+        language: null,
+      });
       return true;
     } catch {
       // The runtime refuses when it is not installed.
@@ -47,19 +50,25 @@ export class ParakeetProvider implements TranscriptionProvider {
   }
 
   /**
-   * Transcribe an audio file on this computer.
+   * Transcribe audio on this computer.
    *
-   * The file never leaves the machine and no speech service is contacted.
+   * The audio is given as samples: one channel of numbers at the model's rate. Nothing
+   * is sent anywhere — no speech service is contacted and no file is written.
    */
   async transcribe(
-    path: string,
+    source: AudioSource,
     options?: TranscriptionOptions,
   ): Promise<TranscriptionResult> {
+    if (source.kind !== "samples")
+      throw new Error(
+        "This engine reads the audio itself, so it needs the samples rather than a link or a path.",
+      );
+
     const bridge = window.murmur;
     if (!bridge)
       throw new Error("Local speech recognition is not available in this window.");
 
-    const result = await bridge.transcribeLocal(path, {
+    const result = await bridge.transcribeLocal(source.samples, {
       language: options?.language ?? null,
     });
 

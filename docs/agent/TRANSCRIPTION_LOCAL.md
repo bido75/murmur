@@ -112,6 +112,75 @@ crypto module for one hash was not worth a new dependency. It is verified agains
 published test vectors, against the platform's own crypto, and for the case where the
 bytes are fed in different-sized pieces — which is how the model is checked.
 
+### The desktop runtime (Step 3)
+
+The desktop app is Electron, and stays Electron. Its own model manager lives in
+`desktop/src/main/speechModelManager.ts` and works the same way as the phone's: the
+model is a folder of files, each one checked against the size and SHA-256 published by
+its host before it is used, with progress, a stop button, retry, and recovery from an
+interrupted install.
+
+**The model.** Parakeet TDT 0.6B v3, quantised to 8-bit and exported to ONNX. The model
+weights are published under **CC BY 4.0**, so they may be used and redistributed with
+attribution. The four files, with the checksums and sizes the host publishes:
+
+| File | Size | SHA-256 |
+|---|---|---|
+| `encoder.onnx` | 653,979,575 | `4cbf4dfc2bd2c4a565609ef373925ad09cb55250c19d7e25f7893be49d5cb5f7` |
+| `decoder.onnx` | 47,233,743 | `d593cdb0e571f5a457ec2219af9968cbf6b0e8198e8f7839b40a8754593bf68c` |
+| `joiner.onnx` | 25,286,330 | `b9b0bcf88ac571902e69a6536223ed2d94885e981b85045410f1403d53121a63` |
+| `tokens.txt` | 93,939 | `d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d` |
+
+That is about 700 MB to download. It is a large download and the app says so before it
+starts.
+
+**The graphs.** The input and output names below were read out of the model files
+themselves with the ONNX protobuf tool, not taken from anyone's memory:
+
+```
+encoder.onnx   audio_signal FLOAT [batch, 128, frames], length INT64 [batch]
+                -> outputs FLOAT [batch, 1024, frames], encoded_lengths INT64 [batch]
+decoder.onnx   targets INT32, target_length INT32, states.1 FLOAT [2, s, 640],
+                onnx::Slice_3 FLOAT [2, 1, 640]
+                -> outputs FLOAT [batch, 640, t], prednet_lengths INT32,
+                   states FLOAT [2, s, 640], 162 FLOAT [2, s, 640]
+joiner.onnx    encoder_outputs FLOAT [batch, 1024, t], decoder_outputs FLOAT [batch, 640, t]
+                -> outputs FLOAT [batch, vocab, t, 8198]
+```
+
+**The audio.** The desktop records WebM with two channels: this computer's microphone on
+the left and the call on the right. The renderer decodes the WebM with the browser's
+own audio tools — no decoder has to be added — and hands the samples to the main
+process. Each channel is read on its own, so the words of the person recording become
+speaker 0 and the words of the call become speaker 1, which is the same numbering the
+server uses for a two-channel recording.
+
+**Into the existing pipeline.** The desktop's local path is the same path the phone
+uses: each part becomes words, the words are kept until the whole recording is ready,
+and then they go to `ingest/local-transcript`, which stores them, marks the recording as
+transcribed on the device and runs the existing notes pipeline. Summaries, timestamp
+citations, verified tasks, speaker correction, search, exports and team sharing all
+work exactly as they do for a cloud recording, because they are the same code.
+
+**What is not built yet.** The engine that runs those three graphs is a separate,
+optional module. Until it is installed the app refuses in plain words rather than
+quietly sending the audio to a speech service. Two pieces are missing and neither can
+be written and checked without the engine installed:
+
+1. **The feature front end.** The encoder wants 128 mel features per frame, not raw
+   samples, so the audio has to be turned into a log-mel spectrogram first.
+2. **The TDT decode loop.** The joiner's last axis is 8198 — the vocabulary plus the
+   duration and offset symbols — and the decoder carries a state from frame to frame.
+   Turning that into words is the substantial part of the work.
+
+Neither is guessed at here. The bridge around them is complete: the input is checked,
+the model is loaded from the right folder, the result comes back as `Utterance[]`, and
+the job reports its progress, can be stopped, and reports what it used.
+
+**Watching what it costs.** `desktop/src/main/resources.ts` reports the memory the app
+is using, how much of the computer is free, and how much processor time a job takes.
+The numbers are for the user and the logs; nothing is sent anywhere.
+
 ### The normalised transcript
 
 There is no new schema. Every provider produces `Utterance[]`:
@@ -196,7 +265,17 @@ compliance answer if a derivative relationship is later found.
 | `supabase/functions/_shared/transcription_provider.test.ts` | 4 tests on the digest check |
 | `src/lib/transcription/modelManager.ts` | Install, verify, cancel, retry, recover |
 | `src/lib/transcription/WhisperProvider.ts` | Whisper behind the shared interface |
-| `desktop/src/shared/transcription/interfaces.ts` | The desktop app's view of the same interface |
+| `desktop/src/shared/speechModels.ts` | The desktop's model registry, checksums and install state machine |
+| `desktop/src/shared/speechModels.test.ts` | 14 tests on the registry, the state machine and the checks |
+| `desktop/src/shared/pcm.ts` | Turning recorded audio into what a model reads: mixing, resampling, silence |
+| `desktop/src/shared/pcm.test.ts` | 9 tests on the audio helpers |
+| `desktop/src/main/speechModelManager.ts` | Install, verify, cancel, retry, recover |
+| `desktop/src/main/transcriber.ts` | The bridge to the local engine, and the refusal when it is missing |
+| `desktop/src/main/resources.ts` | What the app and the computer are using |
+| `desktop/src/renderer/speech.ts` | Decoding the recording and asking for the words |
+| `desktop/src/renderer/speechPanel.ts` | The panel on the home screen |
+| `desktop/src/renderer/dom.ts` | The shared element helper |
+| `desktop/src/shared/transcription/interfaces.ts` | The desktop app's view of the shared interface |
 | `desktop/src/shared/transcription/ParakeetProvider.ts` | Parakeet behind the interface, via the Electron bridge |
 | `scripts/test-transcription.mjs` | A runnable check of the mode rules |
 
@@ -210,9 +289,13 @@ compliance answer if a derivative relationship is later found.
 | `src/lib/shared.ts` | Re-exports the new shared modules |
 | `src/app/privacy.tsx` | The mode picker, the "Never upload audio" switch, a plain statement of what leaves the device, and a model card with progress and a stop button |
 | `src/app/record.tsx` | The recording is made locally when the rule says so; refused with an explanation when local-only is on and the model is missing |
-| `desktop/src/shared/bridge.ts` | `transcribeLocal()` added to the bridge the renderer may use |
-| `desktop/src/main/preload.ts` | The passthrough for that call |
-| `desktop/src/main/main.ts` | The `transcribe:local` handler. It refuses, because the local speech runtime is a separate download that is not installed. |
+| `desktop/src/shared/bridge.ts` | `speechModel`, `speechModelInstall`, `speechModelCancel`, `speechModelRemove`, `transcribeLocal`, `resources` and a small text store added |
+| `desktop/src/main/preload.ts` | The passthroughs for those calls, and the `speech:progress` channel |
+| `desktop/src/main/main.ts` | The handlers. The `transcribe:local` handler reads the samples with the local engine; `speech:install` reports progress to the window and can be stopped |
+| `desktop/src/shared/queue.ts` | Two new operations: `local_segment` and `local_finalize` |
+| `desktop/src/renderer/sync.ts` | The local path: a part becomes words, the audio is not uploaded, and the words go to `ingest/local-transcript` |
+| `desktop/src/renderer/capture.ts` | Each part now says where it starts, and the recovery record says whether the recording was made on this computer |
+| `desktop/src/renderer/app.ts` | The recording is made locally when the model is on; the panel on the home screen |
 | `tsconfig.json` | `allowImportingTsExtensions` so the shared modules can use Deno-style imports and still be type-checked |
 | `.gitignore` | `*.log` |
 
@@ -231,13 +314,15 @@ All of these were run on this branch.
 
 | Check | Result |
 |---|---|
-| `npx tsc --noEmit` | passes |
-| `npx expo lint` | passes (0 errors, 0 warnings) |
-| `npm test` (logic) | **167 pass, 0 fail** (was 131; 36 new) |
+| `npx tsc --noEmit` (app) | passes |
+| `npx expo lint` (app) | passes (0 errors, 0 warnings) |
+| `npm test` (app logic) | **167 pass, 0 fail** (was 131; 36 new) |
 | `npm test` (database security) | **75 pass, 0 fail** |
 | `deno test --allow-all _shared/` | **167 pass, 0 fail** |
 | Metro iOS bundle | builds, 1202 modules, no errors |
-| `desktop`: `npx tsc --noEmit -p .` | no new errors; the desktop's own dependencies are not installed here, so `electron` types and the implicit-`any` errors they cause are pre-existing |
+| `desktop`: `npx tsc --noEmit -p .` | **passes** (the desktop's own dependencies are now installed, so this is a real check) |
+| `desktop`: `npm test` | **31 pass, 0 fail** (was 12; 19 new) |
+| `desktop`: `node build.mjs` | builds; the SHA-256, the model manager and the published checksums are all in the bundle |
 
 New tests, and what each one is actually protecting:
 
@@ -257,6 +342,14 @@ New tests, and what each one is actually protecting:
 - **Whether a recording may be made** — the cloud may be out of reach and the recording
   still happens; but when the device was chosen and cannot run, the recording does not
   happen and the audio is not sent to the cloud in its place.
+- **The desktop model registry** — every published file has a checksum, a size and an
+  https address; the published sizes and checksums are pinned in a test; a file that is
+  missing, short, unchecked or corrupt resolves to the right state; the model is only
+  ready when every file is; the progress of the whole model counts each file by its
+  size, so the number moves evenly instead of jumping when the big file finishes.
+- **The desktop audio helpers** — the length of the audio, resampling (and that the
+  result is the same however the bytes are divided), mixing two channels down, finding
+  the loudest sample, and telling silence from a quiet meeting.
 
 ### What was found and fixed by review
 
@@ -289,11 +382,25 @@ These are honest gaps, not oversights:
   was the obvious risk and has been addressed (the model is read in pieces), but the
   memory use of *loading* a 60 MB model into whisper on a phone is still untested.
 - **The Parakeet adapter has never been run.** `ParakeetProvider` is a boundary with no
-  runtime behind it. No Parakeet model is downloaded, no ONNX runtime is installed, and
-  the `transcribe:local` handler in the Electron main process refuses with a plain
-  message. There is no cloud fallback in it on purpose: the desktop app already sends
-  its recordings to the server for cloud transcription, and a local request must never
-  do that behind the user's back.
+  runtime behind it. No Parakeet model is downloaded by the app, no ONNX runtime is
+  installed, and the `transcribe:local` handler refuses with a plain message. There is
+  no cloud fallback in it on purpose: the desktop app already sends its recordings to
+  the server for cloud transcription, and a local request must never do that behind the
+  user's back.
+- **The desktop model download has not been run end to end.** The manager is complete
+  and its rules are tested, but the 700 MB download has not been exercised from the app
+  against the model host.
+- **The desktop's WebM decoding depends on the browser.** The renderer uses
+  `decodeAudioData`, which Chrome and Firefox do for WebM/Opus and Safari may not. If
+  the decode fails, the part fails with an explanation and the audio stays on the
+  computer; it is never sent anywhere. The failure is a stuck upload, not a lost
+  recording.
+- **The local engine itself is not written.** The mel front end and the TDT decode loop
+  are the two pieces still to do, and they cannot be written and checked without the
+  engine installed. They are described above from the model's own graph, so the next
+  person does not have to work it out from scratch.
+- **The model is a 700 MB download.** That is a lot to ask of a user, and it is the
+  main reason the whisper model on the phone stays at 57 MB.
 - **No local diarization and no offline summarisation.** Neither is implemented, and
   neither is claimed. A local transcript has no speaker labels and no confidence scores,
   and a local recording still needs the notes to be written by the cloud model — only
@@ -383,9 +490,11 @@ host. A rollback does not re-download 60 MB.
    30-minute recording.
 2. Add a connectivity probe so `cloudReady` is honest, then Auto mode can pick the
    device when the network is down.
-3. Build the Parakeet adapter behind the existing boundary: `onnxruntime-node` in the
-   Electron main process, an IPC channel, and the Parakeet adapter using the CC BY 4.0
-   model. Keep Electron.
+3. Add the ONNX runtime to the desktop and write the two missing pieces: the log-mel
+   front end (128 features per frame for the encoder) and the TDT decode loop over the
+   joiner's 8198-wide output, carrying the decoder's state from frame to frame. The
+   graphs are described above, read out of the model files themselves. Check each
+   against a known recording before trusting it.
 4. Get the licensing question answered before step 3 ships.
 5. Only then look at fully offline notes, which need a local summarisation model and a
    place to hold a transcript until it can be processed.

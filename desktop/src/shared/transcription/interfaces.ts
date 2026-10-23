@@ -4,6 +4,7 @@
 // per app. This file only says where the desktop's own bridge comes from.
 
 export type {
+  AudioSource,
   ProviderType,
   TranscriptionOptions,
   TranscriptionProvider,

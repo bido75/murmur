@@ -1,9 +1,14 @@
 // The upload outbox, identical in spirit to the phone app's: create → segment(s) → finalize,
 // kept in order per recording, retried with backoff. Pure functions over a plain array.
 
-export type Base = { recordingId: string; attempts: number; nextAt: number; lastError?: string };
+export type Base = {
+  recordingId: string;
+  attempts: number;
+  nextAt: number;
+  lastError?: string;
+};
 export type CreateOp = Base & {
-  kind: 'create';
+  kind: "create";
   title: string;
   template: string;
   projectId: string | null;
@@ -13,9 +18,33 @@ export type CreateOp = Base & {
   video?: boolean;
   channels?: 1 | 2;
 };
-export type SegmentOp = Base & { kind: 'segment'; idx: number; path: string; ext: string; durationMs: number; video?: boolean };
-export type FinalizeOp = Base & { kind: 'finalize'; durationMs: number };
-export type Op = CreateOp | SegmentOp | FinalizeOp;
+export type SegmentOp = Base & {
+  kind: "segment";
+  idx: number;
+  path: string;
+  ext: string;
+  durationMs: number;
+  video?: boolean;
+};
+export type FinalizeOp = Base & { kind: "finalize"; durationMs: number };
+/**
+ * Transcribed on this computer: the part becomes words, which are kept until the whole
+ * recording is sent. The audio is not uploaded.
+ */
+export type LocalSegmentOp = Base & {
+  kind: "local_segment";
+  idx: number;
+  path: string;
+  offsetMs: number;
+  durationMs: number;
+};
+export type LocalFinalizeOp = Base & { kind: "local_finalize"; durationMs: number };
+export type Op =
+  | CreateOp
+  | SegmentOp
+  | FinalizeOp
+  | LocalSegmentOp
+  | LocalFinalizeOp;
 
 /** Ops ready to run now: the first pending op of each recording, if its backoff has passed. */
 export function runnable(queue: Op[], now: number): Op[] {
@@ -35,13 +64,18 @@ export function backoffMs(attempts: number): number {
 
 export function markFailed(op: Op, error: string, now: number): Op {
   const attempts = op.attempts + 1;
-  return { ...op, attempts, lastError: error, nextAt: now + backoffMs(attempts) };
+  return {
+    ...op,
+    attempts,
+    lastError: error,
+    nextAt: now + backoffMs(attempts),
+  };
 }
 
 export function storagePath(userId: string, op: SegmentOp): string {
-  return `${userId}/${op.recordingId}/seg-${String(op.idx).padStart(4, '0')}.${op.ext}`;
+  return `${userId}/${op.recordingId}/seg-${String(op.idx).padStart(4, "0")}.${op.ext}`;
 }
 
 export function pendingSegments(queue: Op[]): number {
-  return queue.filter((o) => o.kind === 'segment').length;
+  return queue.filter((o) => o.kind === "segment").length;
 }
