@@ -10,6 +10,7 @@ import { whisperToUtterances } from "./shared";
 import {
   DEFAULT_MODEL,
   installModel,
+  installedModelFile,
   modelFile,
   removeModel,
   verifyInstalledModel,
@@ -56,12 +57,13 @@ export function localSttSupported(): boolean {
 /**
  * Whether the model is on the device and the right size.
  *
- * The full check (the checksum) is done when the model is installed and is remembered,
- * so this stays cheap enough to call while the screen is opening.
+ * A model downloaded before versions were added is still accepted, so nobody has to
+ * fetch 60 MB again. The full check (the checksum) is done when the model is installed
+ * and is remembered, so this stays cheap enough to call while the screen is opening.
  */
 export function modelReady(): boolean {
-  const f = modelFile();
-  return f.exists && f.size === DEFAULT_MODEL.sizeBytes;
+  const file = installedModelFile(DEFAULT_MODEL);
+  return file.exists && file.size === DEFAULT_MODEL.sizeBytes;
 }
 
 /**
@@ -109,6 +111,7 @@ export async function transcribeLocal(
   uri: string,
   offsetMs: number,
   language: string | null,
+  signal?: AbortSignal,
 ): Promise<Utterance[]> {
   const w = whisper();
   if (!w)
@@ -121,11 +124,21 @@ export async function transcribeLocal(
       "The speech model on this device did not pass its check. Download it again.",
     );
   ctx ??= await w.initWhisper({ filePath: modelFile().uri });
-  const { promise } = ctx.transcribe(uri, {
+  const handle = ctx.transcribe(uri, {
     language: language && language !== "multi" ? language : "auto",
     maxLen: 0,
   });
-  const res = await promise;
-  if (res.isAborted) throw new Error("Transcription was interrupted.");
-  return whisperToUtterances(res.segments, offsetMs);
+  // Stopping the job when it is aborted: whisper is told to stop, and the result comes
+  // back marked as interrupted.
+  const onAbort = () => {
+    void handle.stop().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", onAbort);
+  try {
+    const res = await handle.promise;
+    if (res.isAborted) throw new Error("Transcription was interrupted.");
+    return whisperToUtterances(res.segments, offsetMs);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
 }

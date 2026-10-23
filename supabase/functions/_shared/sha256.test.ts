@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { sha256Hex, sha256HexOfText } from './sha256.ts';
+import { Sha256, sha256Hex, sha256HexOfText } from './sha256.ts';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -51,4 +51,33 @@ test('SHA-256 agrees with the crypto the platform provides', () => {
   for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7 + 13) & 0xff;
   const expected = createHash('sha256').update(bytes).digest('hex');
   assert.equal(sha256Hex(bytes), expected);
+});
+
+test('the hash is the same however the bytes are divided up', () => {
+  // The app hashes a 60 MB model a few megabytes at a time, so the pieces have to give
+  // exactly the same answer as hashing it all at once.
+  for (const size of [0, 1, 55, 56, 63, 64, 65, 127, 128, 1000, 4096]) {
+    const bytes = new Uint8Array(size);
+    for (let i = 0; i < size; i++) bytes[i] = (i * 31 + 7) & 0xff;
+    const whole = createHash('sha256').update(bytes).digest('hex');
+
+    for (const chunk of [1, 7, 64, 100, 333]) {
+      const hasher = new Sha256();
+      for (let off = 0; off < bytes.length; off += chunk) {
+        hasher.update(bytes.subarray(off, Math.min(off + chunk, bytes.length)));
+      }
+      assert.equal(
+        hasher.digest(),
+        whole,
+        `${size} bytes in pieces of ${chunk}`,
+      );
+    }
+  }
+});
+
+test('a hash cannot be finished twice', () => {
+  const hasher = new Sha256().update(enc('abc'));
+  hasher.digest();
+  assert.throws(() => hasher.digest(), /already been finished/);
+  assert.throws(() => hasher.update(enc('x')), /already been finished/);
 });

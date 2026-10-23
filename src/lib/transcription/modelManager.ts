@@ -6,17 +6,18 @@
 // for a good one. The check is remembered, so the app does not re-hash 60 MB on every
 // launch.
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File, FileMode, Paths } from "expo-file-system";
 import {
   DEFAULT_MODEL,
   modelFileName,
   modelState,
   modelUsable,
   progressPercent,
-  verifyModel,
+  verifyModelDigest,
   type ModelSpec,
   type ModelStatus,
 } from "@/lib/shared";
+import { Sha256 } from "@/lib/shared";
 
 /** Where the check results are remembered. */
 const VERIFIED_KEY = "stt.verified.v1";
@@ -93,9 +94,22 @@ export function modelFile(spec: ModelSpec = DEFAULT_MODEL): File {
   return new File(modelsDir(), modelFileName(spec));
 }
 
-/** The file the app used before versions were added, if it is still there. */
-function legacyFile(): File {
+/**
+ * The file the app used before versions were added, if it is still there.
+ *
+ * It is the same model, so somebody who downloaded it before versioning does not have to
+ * fetch 60 MB again.
+ */
+export function legacyModelFile(): File {
   return new File(modelsDir(), LEGACY_NAME);
+}
+
+/** The file the model is actually in: the current one, or the older file if that is all there is. */
+export function installedModelFile(spec: ModelSpec = DEFAULT_MODEL): File {
+  const current = modelFile(spec);
+  if (current.exists) return current;
+  const legacy = legacyModelFile();
+  return legacy.exists ? legacy : current;
 }
 
 /**
@@ -109,7 +123,7 @@ export async function modelStatus(
 ): Promise<ModelStatus> {
   const verified = await readVerified();
   const current = modelFile(spec);
-  const legacy = legacyFile();
+  const legacy = legacyModelFile();
 
   if (current.exists) {
     return {
@@ -148,22 +162,60 @@ export async function modelUsableNow(
 }
 
 /**
+ * Hash a file a piece at a time.
+ *
+ * The model is around 60 MB. Reading it all at once and hashing that copy needs about
+ * 120 MB of memory, which is a lot to ask of a phone, so it is read in small pieces and
+ * the hash is built as it goes.
+ */
+async function hashFile(file: File): Promise<string> {
+  const hasher = new Sha256();
+  const handle = await file.open(FileMode.ReadOnly);
+  try {
+    const chunk = 4 * 1024 * 1024;
+    for (;;) {
+      const bytes = handle.readBytes(chunk);
+      if (!bytes || bytes.length === 0) break;
+      hasher.update(bytes);
+      // A short read means the end of the file.
+      if (bytes.length < chunk) break;
+    }
+  } finally {
+    handle.close();
+  }
+  return hasher.digest();
+}
+
+/**
  * Check the model on the device against the checksum we published.
  *
- * Returns true when the file is good. A file that is not there, or is the wrong size,
- * or does not hash to the published value, is refused.
+ * A model that has already been checked is not checked again: the result is remembered,
+ * so a 60 MB file is not re-hashed before every recording part. The check happens when
+ * the model is installed, and again if the file changes size.
  */
 export async function verifyInstalledModel(
   spec: ModelSpec = DEFAULT_MODEL,
 ): Promise<boolean> {
   const status = await modelStatus(spec);
   if (!status.present) return false;
-  const file = modelFile(spec).exists ? modelFile(spec) : legacyFile();
+  const file = installedModelFile(spec);
   if (!file.exists) return false;
   if (file.size !== spec.sizeBytes) return false;
 
-  const bytes = await file.bytes();
-  const result = verifyModel(spec, bytes);
+  // Already checked this build of this file: nothing to do.
+  const verified = await readVerified();
+  const record = verified[spec.id];
+  if (record && record.version === spec.version && record.sizeBytes === spec.sizeBytes)
+    return true;
+
+  let digest: string;
+  try {
+    digest = await hashFile(file);
+  } catch {
+    // The file could not be read, so it cannot be trusted.
+    return false;
+  }
+  const result = verifyModelDigest(spec, digest, file.size);
   if (!result.ok) return false;
 
   await writeVerified(spec.id, {
@@ -231,8 +283,17 @@ export async function installModel(
     stage: "verifying",
   });
 
-  const bytes = await destination.bytes();
-  const result = verifyModel(spec, bytes);
+  let digest: string;
+  try {
+    digest = await hashFile(destination);
+  } catch (e) {
+    if (destination.exists) destination.delete();
+    return {
+      ok: false,
+      reason: `The downloaded model could not be read: ${(e as Error).message}`,
+    };
+  }
+  const result = verifyModelDigest(spec, digest, destination.size);
   if (!result.ok) {
     // The file is not what we published, so it is thrown away rather than used.
     if (destination.exists) destination.delete();
@@ -261,7 +322,7 @@ export async function removeModel(
 ): Promise<void> {
   const current = modelFile(spec);
   if (current.exists) current.delete();
-  const legacy = legacyFile();
+  const legacy = legacyModelFile();
   if (legacy.exists) legacy.delete();
   await forgetVerified(spec.id);
 }
@@ -281,7 +342,7 @@ export async function recoverModelInstall(
   if (state === "missing") return { needsAttention: false };
   if (state === "corrupt") {
     // A half-finished download. Remove it so the next attempt is clean.
-    const file = modelFile(spec).exists ? modelFile(spec) : legacyFile();
+    const file = installedModelFile(spec);
     if (file.exists) file.delete();
     await forgetVerified(spec.id);
     return {

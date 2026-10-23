@@ -49,6 +49,24 @@ export function providerUsable(
   return choice === 'local' ? ctx.localReady : ctx.cloudReady;
 }
 
+/**
+ * Whether a recording may be made right now.
+ *
+ * The cloud may be out of reach: the recording is still made and the upload is queued
+ * for later, which is what already happens.
+ *
+ * The device is different. When the rules pick the device — because the user asked for
+ * "on this device", or because they asked for audio never to leave the machine — the
+ * device has to be able to run. If it cannot, the recording is not made: the audio is
+ * not sent to the cloud in its place, because that is the one thing the user said not to
+ * do.
+ */
+export function canRecordNow(ctx: ModeContext): boolean {
+  const choice = chooseProvider(ctx);
+  if (choice === 'cloud') return true;
+  return ctx.localReady;
+}
+
 /** What leaves the device, in the words we show the user. */
 export type DataLeaving = 'nothing' | 'text' | 'audio';
 
@@ -80,7 +98,7 @@ export function describeChoice(
         leaves: 'nothing',
         summary: 'On this device — the speech model is not installed yet',
         detail:
-          'Download the speech model to transcribe on this device. Until then no recording can be transcribed locally.',
+          'Download the speech model to transcribe on this device. Until then recordings are not transcribed here, and they are not sent to the cloud either.',
       };
     return {
       choice,

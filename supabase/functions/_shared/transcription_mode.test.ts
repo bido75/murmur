@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   TRANSCRIPTION_MODES,
+  canRecordNow,
   chooseProvider,
   cloudAllowed,
   describeChoice,
@@ -89,6 +90,11 @@ test('the user is told what leaves the device', () => {
   const missing = describeChoice('local', ctx({ localReady: false }));
   assert.equal(missing.leaves, 'nothing');
   assert.match(missing.detail, /Download the speech model/);
+  assert.match(
+    missing.detail,
+    /not sent to the cloud either/,
+    'it must say the recording is not sent to the cloud instead',
+  );
 
   // Cloud with no network: nothing leaves.
   const offline = describeChoice('cloud', ctx({ cloudReady: false }));
@@ -96,8 +102,36 @@ test('the user is told what leaves the device', () => {
   assert.match(offline.detail, /no connection/i);
 });
 
-test('every mode has a name and an explanation', () => {
-  assert.equal(TRANSCRIPTION_MODES.length, 3);
+test('a recording is made when the cloud is chosen, even with no network', () => {
+  // The audio is saved on the device and the upload is queued, which is what already
+  // happens when there is no connection.
+  assert.equal(canRecordNow(ctx({ mode: 'cloud', cloudReady: false })), true);
+  assert.equal(canRecordNow(ctx({ mode: 'auto', cloudReady: false, localReady: false })), true);
+});
+
+test('a recording is not made when the device was chosen but cannot run', () => {
+  // "On this device" with no model must not fall back to sending the audio away.
+  assert.equal(
+    canRecordNow(ctx({ mode: 'local', localReady: false })),
+    false,
+    'choosing the device must not fall back to the cloud',
+  );
+  assert.equal(
+    canRecordNow(ctx({ mode: 'auto', localOnly: true, localReady: false })),
+    false,
+    'local-only must not fall back to the cloud',
+  );
+});
+
+test('a recording is made when the device was chosen and can run', () => {
+  assert.equal(canRecordNow(ctx({ mode: 'local', localReady: true })), true);
+  assert.equal(
+    canRecordNow(ctx({ mode: 'auto', localOnly: true, localReady: true })),
+    true,
+  );
+});
+
+test('every mode has a name and an explanation', () => {  assert.equal(TRANSCRIPTION_MODES.length, 3);
   const modes = TRANSCRIPTION_MODES.map((m) => m.mode);
   assert.deepEqual(modes, ['cloud', 'local', 'auto']);
   for (const m of TRANSCRIPTION_MODES) {

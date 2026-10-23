@@ -5,6 +5,9 @@
 // `crypto.subtle`, and adding a native crypto module for one hash is not worth a new
 // dependency, so the hash lives here instead. It works the same on the phone, on the
 // web, on the desktop and on the server, and it can be tested on its own.
+//
+// The hash can be fed in pieces, so a 60 MB model is checked a few megabytes at a time
+// rather than being copied into one enormous buffer.
 
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
@@ -27,46 +30,97 @@ function rotr(x: number, n: number): number {
 }
 
 /**
- * The SHA-256 of some bytes, as lower-case hex.
+ * A SHA-256 that is fed in pieces.
  *
- * Reads the whole message in one pass over a padded copy, so a 60 MB model needs
- * about 120 MB of memory at once. Callers that hash very large files should chunk
- * it themselves; the models we ship are small enough for this to be fine.
+ * `update()` takes whatever bytes are to hand; `digest()` finishes the hash and gives
+ * it as lower-case hex. Nothing bigger than one 64-byte block is ever held, so hashing
+ * a 60 MB file needs no more memory than hashing one word.
  */
-export function sha256Hex(bytes: Uint8Array): string {
-  // Pad to a multiple of 64 bytes: 0x80, then zeros, then the length in bits.
-  const len = bytes.length;
-  const blocks = Math.floor((len + 8) / 64) + 1;
-  const padded = new Uint8Array(blocks * 64);
-  padded.set(bytes);
-  padded[len] = 0x80;
-  // The length goes in the last 8 bytes, big-endian, as a 64-bit bit count.
-  const bits = len * 8;
-  const hi = Math.floor(bits / 0x100000000);
-  const lo = bits >>> 0;
-  padded[padded.length - 8] = (hi >>> 24) & 0xff;
-  padded[padded.length - 7] = (hi >>> 16) & 0xff;
-  padded[padded.length - 6] = (hi >>> 8) & 0xff;
-  padded[padded.length - 5] = hi & 0xff;
-  padded[padded.length - 4] = (lo >>> 24) & 0xff;
-  padded[padded.length - 3] = (lo >>> 16) & 0xff;
-  padded[padded.length - 2] = (lo >>> 8) & 0xff;
-  padded[padded.length - 1] = lo & 0xff;
-
-  const h = new Uint32Array([
+export class Sha256 {
+  private readonly h = new Uint32Array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
     0x1f83d9ab, 0x5be0cd19,
   ]);
-  const w = new Uint32Array(64);
+  private readonly w = new Uint32Array(64);
+  private readonly block = new Uint8Array(64);
+  private blockLength = 0;
+  private totalLength = 0;
+  private finished = false;
 
-  for (let off = 0; off < padded.length; off += 64) {
+  /** Add more bytes to the hash. */
+  update(bytes: Uint8Array): this {
+    if (this.finished) throw new Error("The hash has already been finished.");
+    this.totalLength += bytes.length;
+    let offset = 0;
+
+    // Top up a partly-filled block first.
+    if (this.blockLength > 0) {
+      const take = Math.min(64 - this.blockLength, bytes.length);
+      this.block.set(bytes.subarray(0, take), this.blockLength);
+      this.blockLength += take;
+      offset = take;
+      if (this.blockLength === 64) {
+        this.compress(this.block, 0);
+        this.blockLength = 0;
+      }
+    }
+
+    // Then every whole block that is left.
+    while (offset + 64 <= bytes.length) {
+      this.compress(bytes, offset);
+      offset += 64;
+    }
+
+    // Keep the tail for the next piece.
+    if (offset < bytes.length) {
+      this.block.set(bytes.subarray(offset), 0);
+      this.blockLength = bytes.length - offset;
+    }
+    return this;
+  }
+
+  /** Finish the hash and give it as lower-case hex. */
+  digest(): string {
+    if (this.finished) throw new Error("The hash has already been finished.");
+    this.finished = true;
+
+    // The padding: 0x80, then zeros, then the length in bits.
+    const bits = this.totalLength * 8;
+    const padded = new Uint8Array(this.blockLength < 56 ? 64 : 128);
+    padded.set(this.block.subarray(0, this.blockLength), 0);
+    padded[this.blockLength] = 0x80;
+    const hi = Math.floor(bits / 0x100000000);
+    const lo = bits >>> 0;
+    padded[padded.length - 8] = (hi >>> 24) & 0xff;
+    padded[padded.length - 7] = (hi >>> 16) & 0xff;
+    padded[padded.length - 6] = (hi >>> 8) & 0xff;
+    padded[padded.length - 5] = hi & 0xff;
+    padded[padded.length - 4] = (lo >>> 24) & 0xff;
+    padded[padded.length - 3] = (lo >>> 16) & 0xff;
+    padded[padded.length - 2] = (lo >>> 8) & 0xff;
+    padded[padded.length - 1] = lo & 0xff;
+
+    this.compress(padded, 0);
+    if (padded.length === 128) this.compress(padded, 64);
+
+    let out = "";
+    for (let i = 0; i < 8; i++) {
+      const v = this.h[i];
+      for (let s = 28; s >= 0; s -= 4) out += HEX[(v >>> s) & 0xf];
+    }
+    return out;
+  }
+
+  /** One 64-byte block of the message. */
+  private compress(data: Uint8Array, offset: number): void {
+    const w = this.w;
     for (let i = 0; i < 16; i++) {
-      const j = off + i * 4;
+      const j = offset + i * 4;
       w[i] =
-        ((padded[j] << 24) |
-          (padded[j + 1] << 16) |
-          (padded[j + 2] << 8) |
-          padded[j + 3]) >>>
+        ((data[j] << 24) |
+          (data[j + 1] << 16) |
+          (data[j + 2] << 8) |
+          data[j + 3]) >>>
         0;
     }
     for (let i = 16; i < 64; i++) {
@@ -77,17 +131,23 @@ export function sha256Hex(bytes: Uint8Array): string {
       w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
     }
 
-    let a = h[0], b = h[1], c = h[2], d = h[3];
-    let e = h[4], f = h[5], g = h[6], hh = h[7];
+    let a = this.h[0],
+      b = this.h[1],
+      c = this.h[2],
+      d = this.h[3];
+    let e = this.h[4],
+      f = this.h[5],
+      g = this.h[6],
+      h = this.h[7];
 
     for (let i = 0; i < 64; i++) {
       const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
       const ch = (e & f) ^ (~e & g);
-      const t1 = (hh + S1 + ch + K[i] + w[i]) >>> 0;
+      const t1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
       const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
       const maj = (a & b) ^ (a & c) ^ (b & c);
       const t2 = (S0 + maj) >>> 0;
-      hh = g;
+      h = g;
       g = f;
       f = e;
       e = (d + t1) >>> 0;
@@ -97,26 +157,23 @@ export function sha256Hex(bytes: Uint8Array): string {
       a = (t1 + t2) >>> 0;
     }
 
-    h[0] = (h[0] + a) >>> 0;
-    h[1] = (h[1] + b) >>> 0;
-    h[2] = (h[2] + c) >>> 0;
-    h[3] = (h[3] + d) >>> 0;
-    h[4] = (h[4] + e) >>> 0;
-    h[5] = (h[5] + f) >>> 0;
-    h[6] = (h[6] + g) >>> 0;
-    h[7] = (h[7] + hh) >>> 0;
+    this.h[0] = (this.h[0] + a) >>> 0;
+    this.h[1] = (this.h[1] + b) >>> 0;
+    this.h[2] = (this.h[2] + c) >>> 0;
+    this.h[3] = (this.h[3] + d) >>> 0;
+    this.h[4] = (this.h[4] + e) >>> 0;
+    this.h[5] = (this.h[5] + f) >>> 0;
+    this.h[6] = (this.h[6] + g) >>> 0;
+    this.h[7] = (this.h[7] + h) >>> 0;
   }
+}
 
-  let out = "";
-  for (let i = 0; i < 8; i++) {
-    const v = h[i];
-    for (let s = 28; s >= 0; s -= 4) out += HEX[(v >>> s) & 0xf];
-  }
-  return out;
+/** The SHA-256 of some bytes, as lower-case hex. */
+export function sha256Hex(bytes: Uint8Array): string {
+  return new Sha256().update(bytes).digest();
 }
 
 /** The SHA-256 of a string, using its UTF-8 bytes. */
 export function sha256HexOfText(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  return sha256Hex(bytes);
+  return sha256Hex(new TextEncoder().encode(text));
 }

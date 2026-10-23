@@ -29,6 +29,7 @@ export {
   type MicProblem,
 } from "../../supabase/functions/_shared/mic_permission";
 export {
+  Sha256,
   sha256Hex,
   sha256HexOfText,
 } from "../../supabase/functions/_shared/sha256";
@@ -42,12 +43,14 @@ export {
   modelUsable,
   progressPercent,
   verifyModel,
+  verifyModelDigest,
   type ModelSpec,
   type ModelState,
   type ModelStatus,
 } from "../../supabase/functions/_shared/transcription_model";
 export {
   TRANSCRIPTION_MODES,
+  canRecordNow,
   chooseProvider,
   cloudAllowed,
   describeChoice,
@@ -58,3 +61,9 @@ export {
   type ProviderChoice,
   type TranscriptionMode,
 } from "../../supabase/functions/_shared/transcription_mode";
+export type {
+  ProviderType,
+  TranscriptionOptions,
+  TranscriptionProvider,
+  TranscriptionResult,
+} from "../../supabase/functions/_shared/transcription_provider";

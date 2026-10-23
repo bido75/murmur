@@ -24,7 +24,12 @@ import {
   policyForProject,
 } from "@/lib/api";
 import { APP_URL } from "@/lib/config";
-import { consentAdvice, STATES, chooseProvider } from "@/lib/shared";
+import {
+  consentAdvice,
+  STATES,
+  canRecordNow,
+  chooseProvider,
+} from "@/lib/shared";
 import { confirm, isWeb, notify, shareOrCopy } from "@/lib/dialog";
 import { queuePhoto, takePhoto } from "@/lib/photos";
 import { enqueue } from "@/lib/sync";
@@ -96,6 +101,9 @@ export default function Record() {
   const stopLive = useRef<(() => void) | null>(null);
   // Local-only privacy: nothing may be uploaded, whatever else is chosen.
   const [localOnly, setLocalOnly] = useState(false);
+  // Whether the recording may be made at all. The device cannot be sent audio in its
+  // place, so when it was chosen and cannot run, the recording waits.
+  const [canRecord, setCanRecord] = useState(true);
 
   // Live transcript (browser only): starts with the recording, stops with it.
   async function toggleLive(on: boolean) {
@@ -120,14 +128,15 @@ export default function Record() {
       setLocalOnly(s.localOnly);
       const ready = localSttSupported() && modelReady();
       // The same rules the settings screen shows decide this, so the two never disagree.
-      const choice = chooseProvider({
+      const ctx = {
         mode: s.transcriptionMode,
         localReady: ready,
         cloudReady: true,
         localOnly: s.localOnly,
         preferLocal: s.preferLocal,
-      });
-      setOnDevice(choice === "local" && ready);
+      };
+      setOnDevice(chooseProvider(ctx) === "local" && ready);
+      setCanRecord(canRecordNow(ctx));
     });
     listTemplates()
       .then(setCustom)
@@ -209,13 +218,15 @@ export default function Record() {
   async function start() {
     setStarting(true);
     try {
-      // The user asked for audio never to leave the device. If the speech model is not
-      // installed there is no way to transcribe it here, and the only way to make notes
-      // would be to upload the audio — so this is refused rather than quietly done.
-      if (localOnly && !onDevice) {
+      // The rules chose the device, but it cannot run. Uploading the audio instead would
+      // go against what the user asked for — either "never upload audio" or "transcribe on
+      // this device" — so this is refused rather than quietly done.
+      if (!canRecord) {
         notify(
           "Can't record yet",
-          "You asked for audio never to leave this device, but the speech model isn't installed. Download it in Settings → Privacy & data, or turn off “Never upload audio”.",
+          localOnly
+            ? "You asked for audio never to leave this device, but the speech model isn't installed. Download it in Settings → Privacy & data, or turn off “Never upload audio”."
+            : "You asked for recordings to be transcribed on this device, but the speech model isn't installed. Download it in Settings → Privacy & data, or choose Cloud in Settings.",
         );
         return;
       }
@@ -518,7 +529,7 @@ export default function Record() {
             loading={starting}
             disabled={needConsent && !consented}
           />
-          {localOnly && !onDevice && (
+          {!canRecord && (
             <Card
               style={{
                 gap: space.sm,
@@ -529,9 +540,9 @@ export default function Record() {
                 Audio can&apos;t leave this device yet
               </T>
               <T muted size={14}>
-                You asked for recordings never to be uploaded, so the speech model
-                has to be on this device. Download it in Settings → Privacy &
-                data, then come back.
+                {localOnly
+                  ? "You asked for recordings never to be uploaded, so the speech model has to be on this device. Download it in Settings → Privacy & data, then come back."
+                  : "You asked for recordings to be transcribed on this device, so the speech model has to be installed. Download it in Settings → Privacy & data, then come back."}
               </T>
             </Card>
           )}

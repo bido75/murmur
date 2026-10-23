@@ -53,6 +53,7 @@ can be tested on its own.
 
 ```
 chooseProvider({ mode, localReady, cloudReady, localOnly, preferLocal }) -> 'cloud' | 'local'
+canRecordNow(ctx) -> boolean
 ```
 
 The order matters and is deliberate:
@@ -67,6 +68,12 @@ The order matters and is deliberate:
 `cloudAllowed()` is a second, independent check on the same rule, so a caller that picks
 the cloud provider directly cannot slip past the user's privacy choice.
 
+`canRecordNow()` is the third. When the rules pick the device — because the user chose
+"On this device", or because they asked for audio never to leave the machine — and the
+device cannot run, **the recording is not made at all**. The audio is not sent to the
+cloud in its place. (The cloud may be out of reach: the recording is still made and the
+upload queued, which is the behaviour that already exists.)
+
 ### Where the rule is applied
 
 - **Settings** (`src/app/privacy.tsx`) — the mode picker, the "Never upload audio"
@@ -75,11 +82,10 @@ the cloud provider directly cannot slip past the user's privacy choice.
 - **Recording** (`src/app/record.tsx`) — the same rule decides whether the recording is
   made in WAV on the device (never uploaded) or normally (audio uploaded for cloud
   transcription).
-- **The refusal path** — if `localOnly` is on and the speech model is not installed, the
-  recording is refused with an explanation and a pointer to Settings. Uploading the audio
-  would have broken the user's promise, and silently failing to transcribe would have
-  been a worse surprise. The recording screen shows the same warning before the button is
-  pressed.
+- **The refusal path** — if the rules pick the device and it cannot run, the recording is
+  refused with an explanation and a pointer to Settings. Uploading the audio would have
+  broken the user's promise, and silently failing to transcribe would have been a worse
+  surprise. The recording screen shows the same warning before the button is pressed.
 
 ### Model management (Step 3)
 
@@ -90,6 +96,9 @@ the cloud provider directly cannot slip past the user's privacy choice.
 - **Integrity** — the file is checked against the size and the SHA-256 published by the
   file's host. The check is remembered, so 60 MB is not re-hashed on every launch, but
   the file is re-checked before it is used for transcription.
+- **Memory** — the model is read and hashed four megabytes at a time, so checking it
+  needs about four megabytes of memory rather than two copies of the whole file. The
+  hash is fed in pieces for the same reason.
 - **Progress, cancel, retry** — `File.createDownloadTask()` (Expo SDK 57) reports
   progress and takes an `AbortSignal`, so the download can be stopped. A download that
   fails or is stopped deletes the partial file, so nothing half-finished can be mistaken
@@ -100,7 +109,8 @@ the cloud provider directly cannot slip past the user's privacy choice.
 The checksum itself is computed by `supabase/functions/_shared/sha256.ts`, a plain
 TypeScript SHA-256. React Native's engine has no `crypto.subtle`, and adding a native
 crypto module for one hash was not worth a new dependency. It is verified against the
-published test vectors and against the platform's own crypto in the tests.
+published test vectors, against the platform's own crypto, and for the case where the
+bytes are fed in different-sized pieces — which is how the model is checked.
 
 ### The normalised transcript
 
@@ -113,6 +123,10 @@ There is no new schema. Every provider produces `Utterance[]`:
 - Deepgram already produced this.
 - whisper already produced this via `whisperToUtterances()`.
 - The Parakeet adapter produces this.
+
+The interface itself lives in `supabase/functions/_shared/transcription_provider.ts`, so
+there is one definition that the phone, the server and the desktop app all speak — not
+one per app.
 
 Nothing is fabricated. Where a provider cannot give a speaker label or a confidence
 score, the field is absent rather than invented — `whisper.rn` gives no speaker labels
@@ -172,16 +186,17 @@ compliance answer if a derivative relationship is later found.
 
 | File | Purpose |
 |---|---|
-| `supabase/functions/_shared/sha256.ts` | SHA-256 in plain TypeScript, for model checks on a phone |
-| `supabase/functions/_shared/sha256.test.ts` | Published test vectors + a comparison against the platform's crypto |
+| `supabase/functions/_shared/sha256.ts` | SHA-256 in plain TypeScript, fed in pieces, for model checks on a phone |
+| `supabase/functions/_shared/sha256.test.ts` | Published test vectors, a comparison against the platform's crypto, and the same hash however the bytes are divided |
 | `supabase/functions/_shared/transcription_model.ts` | The model registry, checksums, install state machine |
 | `supabase/functions/_shared/transcription_model.test.ts` | 13 tests: state machine, integrity, progress |
-| `supabase/functions/_shared/transcription_mode.ts` | The cloud/local/auto rule and what leaves the device |
-| `supabase/functions/_shared/transcription_mode.test.ts` | 10 tests, including that local-only always wins |
+| `supabase/functions/_shared/transcription_mode.ts` | The cloud/local/auto rule, what leaves the device, and whether a recording may be made |
+| `supabase/functions/_shared/transcription_mode.test.ts` | 14 tests, including that local-only always wins and that the device is never swapped for the cloud |
+| `supabase/functions/_shared/transcription_provider.ts` | The one provider interface, shared by the phone, the server and the desktop app |
+| `supabase/functions/_shared/transcription_provider.test.ts` | 4 tests on the digest check |
 | `src/lib/transcription/modelManager.ts` | Install, verify, cancel, retry, recover |
-| `src/lib/transcription/interfaces.ts` | The provider-independent interface |
-| `src/lib/transcription/WhisperProvider.ts` | Whisper behind the interface |
-| `desktop/src/shared/transcription/interfaces.ts` | The same interface for the desktop app |
+| `src/lib/transcription/WhisperProvider.ts` | Whisper behind the shared interface |
+| `desktop/src/shared/transcription/interfaces.ts` | The desktop app's view of the same interface |
 | `desktop/src/shared/transcription/ParakeetProvider.ts` | Parakeet behind the interface, via the Electron bridge |
 | `scripts/test-transcription.mjs` | A runnable check of the mode rules |
 
@@ -218,16 +233,20 @@ All of these were run on this branch.
 |---|---|
 | `npx tsc --noEmit` | passes |
 | `npx expo lint` | passes (0 errors, 0 warnings) |
-| `npm test` (logic) | **158 pass, 0 fail** (was 131; 27 new) |
+| `npm test` (logic) | **167 pass, 0 fail** (was 131; 36 new) |
 | `npm test` (database security) | **75 pass, 0 fail** |
-| `deno check` / `deno test --allow-all _shared/` | **158 pass, 0 fail** |
+| `deno test --allow-all _shared/` | **167 pass, 0 fail** |
 | Metro iOS bundle | builds, 1202 modules, no errors |
+| `desktop`: `npx tsc --noEmit -p .` | no new errors; the desktop's own dependencies are not installed here, so `electron` types and the implicit-`any` errors they cause are pre-existing |
 
 New tests, and what each one is actually protecting:
 
 - **SHA-256** — the three published vectors, UTF-8 handling, the padding boundaries
   (55/56/64 bytes), and a 1000-byte buffer compared against the platform's own crypto.
   A mistake in the padding or the rounds cannot hide.
+- **The hash is the same however the bytes are divided up** — eleven sizes, five chunk
+  sizes, each compared against the platform's crypto. This is what makes it safe to hash
+  a 60 MB model a piece at a time.
 - **Model state** — a missing model, a short one, an unchecked one, an old build and a
   good one all resolve to the right state; a file of the right size but the wrong bytes
   is refused; the published checksum and size are pinned in a test so a typo in either
@@ -235,6 +254,29 @@ New tests, and what each one is actually protecting:
 - **Mode rules** — Auto prefers the cloud by default and the device when asked; local-only
   beats an explicit "Cloud" mode; `cloudAllowed()` is false whenever local-only is on;
   every branch of the "what leaves the device" text is covered.
+- **Whether a recording may be made** — the cloud may be out of reach and the recording
+  still happens; but when the device was chosen and cannot run, the recording does not
+  happen and the audio is not sent to the cloud in its place.
+
+### What was found and fixed by review
+
+A review of this change found three real problems, all fixed and covered by tests:
+
+1. **The model was re-hashed before every recording part.** `transcribeLocal()` called
+   the verification each time, so a 60 MB file was read and hashed for every 5-minute
+   part. The verification is now remembered, and the file is only re-checked when its
+   size changes.
+2. **Checking the model needed about 120 MB of memory.** The file was read whole and
+   then copied into the hash's padding. It is now read and hashed four megabytes at a
+   time.
+3. **Choosing "On this device" without the model silently used the cloud.** The rule
+   picked the device, the device could not run, and the audio was uploaded anyway —
+   against what the user had asked for. The recording is now refused, and
+   `canRecordNow()` in the shared module expresses the rule so it cannot drift again.
+
+A fourth was fixed while reviewing: a model downloaded before versions were added was
+no longer recognised, so existing users would have had to fetch 60 MB again. The old file
+name is still accepted and checked.
 
 ### What is **not** covered, and why
 
@@ -244,9 +286,8 @@ These are honest gaps, not oversights:
   and the state machine are tested; the actual whisper inference on a phone is not. The
   existing code was already marked "Untested on hardware" and still is.
 - **No 30–60 minute recording has been transcribed locally.** The memory use of hashing
-  and loading a 60 MB model is untested on a phone. The SHA-256 implementation allocates
-  roughly twice the model size while hashing; on a low-memory device that is a risk to
-  check before shipping.
+  was the obvious risk and has been addressed (the model is read in pieces), but the
+  memory use of *loading* a 60 MB model into whisper on a phone is still untested.
 - **The Parakeet adapter has never been run.** `ParakeetProvider` is a boundary with no
   runtime behind it. No Parakeet model is downloaded, no ONNX runtime is installed, and
   the `transcribe:local` handler in the Electron main process refuses with a plain
@@ -261,6 +302,8 @@ These are honest gaps, not oversights:
   its logic is unit-tested through the state machine, but the app has not been killed
   mid-download on a device.
 - **CPU and memory use during transcription is not measured.**
+- **The download can be stopped; a transcription in progress can also be stopped** (the
+  whisper handle is told to stop), but neither has been exercised on a device.
 
 ---
 

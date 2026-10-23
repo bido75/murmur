@@ -1,73 +1,59 @@
-// Client-side Whisper adapter — wraps whisper.rn via localStt.
-// Runs on the device; audio never leaves the phone.
-import { getModelPath, modelReady, localSttSupported } from "@/lib/localStt";
-import { whisperToUtterances } from "@/lib/shared";
-import type { Utterance } from "@/lib/types";
+// The Whisper adapter for the phone.
+//
+// It does not run the model itself: `localStt.ts` already does that, and this only
+// puts the result in the shape the rest of the app expects. The audio never leaves the
+// device — only the words are sent, so the notes can be written.
+import { localSttSupported, modelReady, transcribeLocal } from "@/lib/localStt";
+import type {
+  ProviderType,
+  TranscriptionOptions,
+  TranscriptionProvider,
+  TranscriptionResult,
+} from "@/lib/shared";
 
-export type ProviderType = "deepgram" | "whisper" | "parakeet";
+export class WhisperProvider implements TranscriptionProvider {
+  readonly type: ProviderType = "whisper";
 
-export interface TranscriptionResult {
-  utterances: Utterance[];
-  durationMs: number;
-  language: string | null;
-  provider: ProviderType;
-  confidence?: number;
-}
-
-export interface TranscriptionOptions {
-  language?: string | null;
-  redact?: string[];
-  multichannel?: boolean;
-  keyterms?: string[];
-  privacy?: "local-only" | "cloud-allowed";
-  offsetMs?: number;
-}
-
-export class WhisperProvider {
-  readonly type = "whisper";
-
-  async canTranscribe(): Promise<boolean> {
+  async isAvailable(): Promise<boolean> {
     return localSttSupported() && modelReady();
+  }
+
+  /**
+   * Whisper is local, so it is always allowed. The rule that stops an upload is applied
+   * to the cloud provider; refusing here as well would stop the app from transcribing
+   * on the device, which is the safe thing to do.
+   */
+  canTranscribe(): boolean {
+    return true;
   }
 
   async transcribe(
     uri: string,
-    options?: TranscriptionOptions
+    options?: TranscriptionOptions,
   ): Promise<TranscriptionResult> {
-    const w = whisperModule();
-    if (!w) throw new Error("On-device transcription isn't available in this build.");
-    if (!modelReady()) throw new Error("Download the speech model in Settings → Privacy & data.");
+    if (!localSttSupported())
+      throw new Error("On-device transcription isn’t available in this build.");
+    if (!modelReady())
+      throw new Error(
+        "Download the speech model in Settings → Privacy & data.",
+      );
 
-    const mod = await w.initWhisper({ filePath: getModelPath() });
-    const { promise } = mod.transcribe(uri, {
-      language: options?.language && options.language !== "multi" ? options.language : "auto",
-      maxLen: 0,
-    });
-    const res = await promise;
-    if (res.isAborted) throw new Error("Transcription was interrupted.");
-
-    const utterances = whisperToUtterances(res.segments, options?.offsetMs ?? 0);
-
-    const durationMs = res.segments.reduce(
-      (total: number, seg: { t0: number; t1: number }) => total + (seg.t1 - seg.t0),
-      0,
+    const utterances = await transcribeLocal(
+      uri,
+      options?.offsetMs ?? 0,
+      options?.language ?? null,
+      options?.signal,
     );
 
     return {
       utterances,
-      durationMs,
+      // The times of the words are the length of the recording, as near as it goes.
+      durationMs: utterances.reduce(
+        (total, u) => total + (u.end_ms - u.start_ms),
+        0,
+      ),
       language: options?.language ?? null,
       provider: "whisper",
     };
-  }
-}
-
-function whisperModule() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("whisper.rn/index");
-    return mod;
-  } catch {
-    return null;
   }
 }

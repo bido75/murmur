@@ -110,8 +110,26 @@ export function verifyModel(
       ok: false,
       reason: `The download is ${bytes.length} bytes but should be ${spec.sizeBytes}. It did not finish.`,
     };
-  const actual = sha256Hex(bytes);
-  if (actual !== spec.sha256)
+  return verifyModelDigest(spec, sha256Hex(bytes));
+}
+
+/**
+ * Check a file against the model we published, using a hash that was already computed.
+ *
+ * This is what the app uses for a large model: the file is read and hashed a piece at a
+ * time, so nothing the size of the model is ever held in memory.
+ */
+export function verifyModelDigest(
+  spec: ModelSpec,
+  digest: string,
+  sizeBytes?: number,
+): { ok: true } | { ok: false; reason: string } {
+  if (sizeBytes != null && sizeBytes !== spec.sizeBytes)
+    return {
+      ok: false,
+      reason: `The download is ${sizeBytes} bytes but should be ${spec.sizeBytes}. It did not finish.`,
+    };
+  if (digest !== spec.sha256)
     return {
       ok: false,
       reason: 'The downloaded model is not the one we published, so it was not used.',

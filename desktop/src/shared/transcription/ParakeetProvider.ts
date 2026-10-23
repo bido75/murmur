@@ -10,14 +10,18 @@
 //
 // The runtime is a separate, optional download. Until it is installed the main process
 // refuses, and this adapter says so plainly rather than falling back to the cloud.
+import type { Bridge } from "../bridge";
 import type {
   ProviderType,
   TranscriptionOptions,
+  TranscriptionProvider,
   TranscriptionResult,
 } from "./interfaces";
 
-export class ParakeetProvider {
-  readonly type = "parakeet";
+declare const window: Window & { murmur: Bridge };
+
+export class ParakeetProvider implements TranscriptionProvider {
+  readonly type: ProviderType = "parakeet";
 
   /** Whether the local speech runtime is present on this computer. */
   async isAvailable(): Promise<boolean> {
@@ -32,11 +36,20 @@ export class ParakeetProvider {
   }
 
   /**
+   * Parakeet is local, so it is always allowed.
+   *
+   * There is no cloud fallback in this adapter: the desktop app already sends its
+   * recordings to the server for cloud transcription, and a local request must never
+   * do that behind the user's back.
+   */
+  canTranscribe(): boolean {
+    return true;
+  }
+
+  /**
    * Transcribe an audio file on this computer.
    *
-   * There is no cloud fallback: the desktop app already sends its recordings to the
-   * server for cloud transcription, and a local request must never do that behind the
-   * user's back.
+   * The file never leaves the machine and no speech service is contacted.
    */
   async transcribe(
     path: string,
@@ -44,9 +57,7 @@ export class ParakeetProvider {
   ): Promise<TranscriptionResult> {
     const bridge = window.murmur;
     if (!bridge)
-      throw new Error(
-        "Local speech recognition is not available in this window.",
-      );
+      throw new Error("Local speech recognition is not available in this window.");
 
     const result = await bridge.transcribeLocal(path, {
       language: options?.language ?? null,
