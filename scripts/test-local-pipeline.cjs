@@ -1,10 +1,23 @@
 // The whole local pipeline, with the real keys: sign up, upload audio, transcribe it
 // and write the notes. Run from the project root.
+//
+//   $env:ANON_KEY = (the anon key from .env)
+//   $env:WAV_PATH = "C:\path\to\speech.wav"
+//   node scripts\test-local-pipeline.cjs
 const { readFileSync } = require("node:fs");
 
 const API = process.env.API_URL || "http://127.0.0.1:54321";
 const ANON = process.env.ANON_KEY;
 const WAV = process.env.WAV_PATH;
+
+if (!ANON) {
+  console.error("ANON_KEY is not set. It is the anon key from .env.");
+  process.exit(1);
+}
+if (!WAV) {
+  console.error("WAV_PATH is not set. It is the audio file to transcribe.");
+  process.exit(1);
+}
 
 async function json(method, path, body, token) {
   const res = await fetch(`${API}${path}`, {

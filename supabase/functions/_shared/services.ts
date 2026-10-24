@@ -2,6 +2,7 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { Utterance } from './verify.ts';
 import { deepgramParams } from './stt.ts';
+import { audioContentType } from './ingest.ts';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -128,7 +129,7 @@ export async function transcribe(
       if (error) throw new Error(`Could not read the audio: ${error.message}`);
       console.warn('The audio is not reachable from outside, sending it directly');
       const bytes = new Uint8Array(await data.arrayBuffer());
-      res = await send(deepgramParams(o, false), bytes, 'audio/wav');
+      res = await send(deepgramParams(o, false), bytes, audioContentType(fallback.storagePath));
     } else {
       throw new Error(`Transcription failed (${res.status}): ${failed.slice(0, 300)}`);
     }
@@ -210,15 +211,23 @@ function readJson(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = (fenced ? fenced[1] : trimmed).trim();
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    // Some models add a sentence around the JSON.
-    const start = candidate.indexOf('{');
-    const end = candidate.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(candidate.slice(start, end + 1));
-    throw new Error('The model did not return the JSON that was asked for');
+  const from = (s: string) => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return undefined;
+    }
+  };
+  const whole = from(candidate);
+  if (whole !== undefined) return whole;
+  // Some models add a sentence around the JSON.
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    const part = from(candidate.slice(start, end + 1));
+    if (part !== undefined) return part;
   }
+  throw new Error('The model did not return the JSON that was asked for');
 }
 
 /** How long to wait for the notes before giving up. A local model on a slow computer
@@ -242,16 +251,25 @@ async function callOpenRouter(
     messages: [{ role: 'system', content: prompt }, ...messages],
     max_tokens: 4000,
   };
-  if (tool) body.response_format = { type: 'json_object' };
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env('OPENROUTER_API_KEY')}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(llmTimeoutMs()),
-  });
+  const headers = {
+    Authorization: `Bearer ${env('OPENROUTER_API_KEY')}`,
+    'Content-Type': 'application/json',
+  };
+  const ask = (b: Record<string, unknown>) =>
+    fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(b),
+      signal: AbortSignal.timeout(llmTimeoutMs()),
+    });
+
+  let res = await ask(tool ? { ...body, response_format: { type: 'json_object' } } : body);
+  // Not every model on OpenRouter takes a JSON mode. Ask again without it and let
+  // the answer be read instead.
+  if (!res.ok && tool && res.status === 400) {
+    console.warn('OpenRouter refused the JSON mode, retrying without it', (await res.text()).slice(0, 200));
+    res = await ask(body);
+  }
   if (!res.ok) throw new Error(`OpenRouter request failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
   const json = await res.json();
   const text: string = json?.choices?.[0]?.message?.content ?? '';

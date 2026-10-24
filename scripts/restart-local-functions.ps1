@@ -16,11 +16,27 @@ $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 Set-Location $project
 
-# Stop the running serve, but never this script's own shell: the search text appears
-# in our own command line.
+# Stop the running serve.
+#
+# The search text appears in the command line of any shell that mentions it, so this
+# has to be careful: our own shell, and every shell above us, is left alone. Only the
+# node process running the CLI and the command shell that started it are stopped.
 $me = $PID
+$ancestors = @($me)
+for ($i = 0; $i -lt 6; $i++) {
+    $parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $($ancestors[-1])" -ErrorAction SilentlyContinue).ParentProcessId
+    if (-not $parent -or $parent -eq 0 -or $ancestors -contains $parent) { break }
+    $ancestors += $parent
+}
 Get-CimInstance Win32_Process |
-    Where-Object { $_.ProcessId -ne $me -and $_.CommandLine -match 'supabase' -and $_.CommandLine -match 'functions' -and $_.CommandLine -match 'serve' } |
+    Where-Object {
+        $_.ProcessId -notin $ancestors -and
+        $_.CommandLine -and
+        $_.CommandLine -match 'supabase' -and
+        $_.CommandLine -match 'functions' -and
+        $_.CommandLine -match 'serve' -and
+        $_.CommandLine -notmatch 'restart-local-functions'
+    } |
     ForEach-Object {
         Write-Host "  stopping pid $($_.ProcessId)"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
