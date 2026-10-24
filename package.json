@@ -9,6 +9,7 @@
     "@supabase/supabase-js": "^2.117.3",
     "buffer": "6.0.3",
     "expo": "~57.0.29",
+    "expo-asset": "~57.0.20",
     "expo-audio": "~57.0.5",
     "expo-constants": "~57.0.22",
     "expo-device": "~57.0.2",
@@ -42,6 +43,7 @@
   },
   "scripts": {
     "start": "expo start",
+    "lan": "expo start --host lan",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
