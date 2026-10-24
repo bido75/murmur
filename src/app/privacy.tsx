@@ -17,9 +17,11 @@ import {
   getRetention,
   getSettings,
   getTranscriptionSettings,
+  getNotesProvider,
   saveRetention,
   saveSettings,
   saveTranscriptionSettings,
+  type NotesProvider,
   type Retention,
   type Settings,
   type Transcription,
@@ -56,6 +58,8 @@ export default function Privacy() {
   const [deleting, setDeleting] = useState(false);
   const [stateQuery, setStateQuery] = useState("");
   const [stt, setStt] = useState<Transcription | null>(null);
+  // Which service writes the notes. The app must not claim it knows without asking.
+  const [notesProvider, setNotesProvider] = useState<NotesProvider | null>(null);
   const [langOpen, setLangOpen] = useState(false);
   // Whether the speech model is installed on this device.
   const [modelReadyState, setModelReadyState] = useState(modelReady());
@@ -70,6 +74,7 @@ export default function Privacy() {
     getTranscriptionSettings()
       .then(setStt)
       .catch(() => setStt({ language: null, redact: [] }));
+    getNotesProvider().then(setNotesProvider).catch(() => setNotesProvider(null));
   }, []);
 
   function updateStt(patch: Partial<Transcription>) {
@@ -371,9 +376,11 @@ export default function Privacy() {
           allowed to train on your recordings.
         </T>
         <T size={14}>
-          • The words are sent to whoever writes your notes. That is usually a
-          cloud model; if it is set up to run on this device instead, the words stay
-          here too. The settings say which one is being used.
+          {notesProvider?.local
+            ? "• The words stay on this device: the notes are written by a model running here."
+            : "• The words are sent to whoever writes the notes. Right now that is " +
+              (notesProvider ? notesProvider.label : "a service this app has not been told about yet") +
+              ", which is somewhere else, so the words go there too."}
         </T>
         <T size={14}>
           • Everything is private to you unless you put it in a team project or

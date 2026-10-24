@@ -504,6 +504,17 @@ export async function saveRetention(r: Retention) {
 
 export type Transcription = { language: string | null; redact: string[] };
 
+/** Who writes the notes, and whether the words stay on this device. */
+export type NotesProvider = {
+  provider: "anthropic" | "openrouter" | "ollama";
+  local: boolean;
+  label: string;
+};
+
+export async function getNotesProvider(): Promise<NotesProvider> {
+  return callFn<NotesProvider>("notes-provider", {});
+}
+
 export async function getTranscriptionSettings(): Promise<Transcription> {
   const { data } = await supabase
     .from("user_settings")

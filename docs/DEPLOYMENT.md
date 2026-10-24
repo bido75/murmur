@@ -237,6 +237,36 @@ supabase functions deploy ingest
 
 The `ingest` function is deployed with `--no-verify-jwt`; it checks the caller itself.
 
+## The notes provider
+
+The server decides who writes the notes, from its own settings, and the app asks
+the server rather than guessing. Set the provider before the first recording:
+
+| Variable | Meaning |
+|---|---|
+| `LLM_PROVIDER` | `anthropic`, `openrouter` or `ollama`. Leave it unset to choose by what is configured. |
+| `ANTHROPIC_API_KEY` | The Claude key. A key that belongs to a workspace also needs `ANTHROPIC_WORKSPACE_ID`. |
+| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | The OpenRouter key and the model to use. |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Where the local model is, and which one. |
+
+These are set as secrets on the project:
+
+```bash
+supabase secrets set LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=...
+```
+
+The provider can be checked afterwards:
+
+```
+GET /functions/v1/notes-provider
+```
+
+It answers `{"provider":"anthropic","local":false,"label":"Claude (Anthropic)"}`.
+`local` is true only for a model running on the user's own device.
+
+**A local model needs the server to be able to reach it.** On a normal deployment
+that means a host the functions can open, and `OLLAMA_BASE_URL` pointing at it.
+
 ## Checking it worked
 
 1. Open Settings → Privacy & data on the desktop.

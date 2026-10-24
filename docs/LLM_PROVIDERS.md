@@ -97,12 +97,26 @@ node scripts\test-local-pipeline.cjs
 
 It prints the transcript and the notes, and says which provider wrote them.
 
+The provider can also be asked for directly:
+
+```
+GET /functions/v1/notes-provider
+```
+
+It answers `{"provider":"ollama","local":true,"label":"a model running on this
+device"}`. The app uses this to say, in the privacy screen, exactly what is
+happening to the words — rather than claiming something it cannot show.
+
 After changing `.env.local`, the Edge Runtime has to be rebuilt, because the
 Supabase CLI only reads the env file when it creates the container:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\restart-local-functions.ps1
 ```
+
+The server's own secrets belong in `supabase\functions\.env`, which the CLI reads
+by itself. The app's `.env.local` should hold only `EXPO_PUBLIC_*` settings, because
+Expo reads that file when it builds the app.
 
 ## A note on the speech service
 
