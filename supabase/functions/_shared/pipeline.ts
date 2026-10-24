@@ -1,6 +1,6 @@
 // The processing pipeline: transcribe every segment, write notes and verified tasks, link photos.
 // Shared by process-recording (user-triggered) and the meeting bot webhook.
-import { adminClient, claudeStructured, transcribe } from './services.ts';
+import { adminClient, llmStructured, transcribe } from './services.ts';
 import { userFacingError } from './errors.ts';
 import { deferNotes, notesAllowed } from './billing_store.ts';
 import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
@@ -107,7 +107,14 @@ async function run(recordingId: string, userId: string, template: string, curren
           if (!check.ok) throw new Error(check.reason);
           audioUrl = check.url;
         }
-        const r = await transcribe(audioUrl, keyterms, { ...sttOpts, multichannel: twoChannel }).catch((e) => {
+        const r = await transcribe(
+          audioUrl,
+          keyterms,
+          { ...sttOpts, multichannel: twoChannel },
+          // If the speech service cannot reach the audio — a local setup keeps it on
+          // this computer — it is sent directly instead.
+          seg.storage_path ? { storagePath: seg.storage_path } : undefined,
+        ).catch((e) => {
           if (!seg.storage_path) throw new Error(`Couldn't download audio from that link. Check it's public and points to an audio or video file. (${(e as Error).message.slice(0, 160)})`);
           throw e;
         });
@@ -155,7 +162,7 @@ async function run(recordingId: string, userId: string, template: string, curren
     const refs = makeRefs(openTasks);
 
     // 3. Structured notes from Claude.
-    const notes = await claudeStructured<NotesOutput>(
+    const notes = await llmStructured<NotesOutput>(
       systemPrompt(template, custom),
       [{ role: 'user', content: userMessage(formatTranscript(all, speakerNames), refs, userNotes) }],
       notesTool(template),
@@ -317,7 +324,7 @@ async function matchSpeakers(parts: Utterance[][]): Promise<Utterance[][]> {
     }
     try {
       const ex = boundaryExcerpt(parts[i - 1], parts[i]);
-      const out = await claudeStructured<{ matches: { b: number; a: number | null }[] }>(
+      const out = await llmStructured<{ matches: { b: number; a: number | null }[] }>(
         SPEAKER_MATCH_SYSTEM,
         [{ role: 'user', content: `End of part A (speakers ${a.map((s) => `A${s}`).join(', ')}):\n${ex.before}\n\nStart of part B, which continues right after (speakers ${b.map((s) => `B${s}`).join(', ')}):\n${ex.after}` }],
         SPEAKER_MATCH_TOOL,

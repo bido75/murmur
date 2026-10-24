@@ -1,6 +1,6 @@
 // POST { recording_id, lang, include_transcript? } → translated notes (and transcript), cached.
 // Anyone who can read the recording can translate it.
-import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { chunkLines, LANGUAGES, TRANSLATE_TOOL, translateSystem } from '../_shared/translate.ts';
 
 Deno.serve(async (req) => {
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
 async function translateAll(lines: string[], language: string): Promise<string[]> {
   const out: string[] = [];
   for (const chunk of chunkLines(lines)) {
-    const r = await claudeStructured<{ lines: string[] }>(translateSystem(language), [{ role: 'user', content: JSON.stringify(chunk) }], TRANSLATE_TOOL);
+    const r = await llmStructured<{ lines: string[] }>(translateSystem(language), [{ role: 'user', content: JSON.stringify(chunk) }], TRANSLATE_TOOL);
     // Keep the original if the model returned the wrong count for a chunk.
     out.push(...(Array.isArray(r.lines) && r.lines.length === chunk.length ? r.lines.map(String) : chunk));
   }

@@ -6,7 +6,7 @@
 //   POST /docx  { recording_id, include_transcript } → Word file download URL
 //   POST /ask   { token, question } (public; x-share-password if set) → answer from that recording
 //   POST /followup { recording_id, tone } → { subject, body } email draft
-import { adminClient, claudeStructured, claudeText, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, llmStructured, llmText, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { ASK_SYSTEM } from '../_shared/prompts.ts';
 import { formatTranscript, type Utterance } from '../_shared/verify.ts';
 import { FOLLOWUP_TOOL, followupMaterial, followupSystem } from '../_shared/followup.ts';
@@ -141,7 +141,7 @@ async function askShared(req: Request) {
   const { rec, transcript } = await gather(db, link.recording_id, true);
   if (!rec) throw new HttpError(404, 'Not found');
   const lines = formatTranscript((transcript?.utterances ?? []) as Utterance[], transcript?.speaker_names ?? {});
-  const answer = await claudeText(ASK_SYSTEM, [
+  const answer = await llmText(ASK_SYSTEM, [
     { role: 'user', content: `Material:\n\n## ${rec.title} (${String(rec.created_at).slice(0, 10)})\n${lines}`.slice(0, 150_000) + `\n\nQuestion: ${q}` },
   ]);
   return json({ answer });
@@ -156,7 +156,7 @@ async function followup(req: Request) {
   if (rec.status !== 'ready') throw new HttpError(400, 'Wait until the notes are ready.');
   const { data: me } = await client.auth.getUser();
   const n = publicNotes({ recording: rec, summary: sum, tasks }, false);
-  const draft = await claudeStructured<{ subject: string; body: string }>(followupSystem(tone === 'formal' ? 'formal' : 'friendly'), [
+  const draft = await llmStructured<{ subject: string; body: string }>(followupSystem(tone === 'formal' ? 'formal' : 'friendly'), [
     { role: 'user', content: followupMaterial(n, me.user?.email ?? null) },
   ], FOLLOWUP_TOOL);
   return json({ subject: String(draft.subject ?? '').slice(0, 200), body: String(draft.body ?? '').slice(0, 8000) });

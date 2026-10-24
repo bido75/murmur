@@ -1,7 +1,7 @@
 // POST { kind, recording_id? | project_id?, audience? } → { url, filename }
 // Builds a .pptx from a recording's (or a whole project's) verified notes.
 import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, sanitizeSlides, type DeckData, type DeckKind } from '../_shared/deck.ts';
-import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 
 type Rec = { id: string; title: string; created_at: string };
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     const taskList = ((tasks ?? []) as TaskRow[]).map((t) => `- [${t.status}] ${t.text}${t.owner ? ` (${t.owner})` : ''}`).join('\n');
 
     const k = kind as DeckKind;
-    const written = await claudeStructured<{ title: string; subtitle: string; slides: unknown }>(
+    const written = await llmStructured<{ title: string; subtitle: string; slides: unknown }>(
       deckSystemPrompt(k, audience ? String(audience).slice(0, 300) : null),
       [{ role: 'user', content: `Material:\n\n${material}\n\nTasks (already shown on their own slide):\n${taskList || 'none'}` }],
       DECK_TOOL,

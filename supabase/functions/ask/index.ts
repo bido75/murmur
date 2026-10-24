@@ -1,6 +1,6 @@
 // POST { question, recording_id? } → { answer, sources }
 // With recording_id: answers from that recording. Without: searches all of the user's recordings.
-import { claudeText, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { llmText, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { ASK_SYSTEM } from '../_shared/prompts.ts';
 import { formatClock, formatTranscript, normalize, speakerLabel, type Utterance } from '../_shared/verify.ts';
 
@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
       context = parts.join('\n\n').slice(0, MAX_CONTEXT_CHARS);
     }
 
-    const answer = await claudeText(ASK_SYSTEM, [
+    const answer = await llmText(ASK_SYSTEM, [
       { role: 'user', content: `Material:\n\n${context}\n\nQuestion: ${question}` },
     ]);
     return json({ answer, sources: sources.map((s) => ({ recording_id: s.id, title: s.title })) });
