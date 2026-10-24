@@ -24,7 +24,10 @@ The Supabase stack runs in Docker, and Docker's ports have **no rule in the Wind
 Firewall**, so another computer cannot reach it. The dev server is fine, because Node
 has a rule.
 
-In an **elevated** PowerShell (right-click → "Run as administrator"):
+**The easy way:** run `scripts\open-lan-ports.cmd`. It asks for administrator rights
+by itself and opens the four ports it needs. It is safe to run more than once.
+
+**Or, in an elevated PowerShell** (right-click → "Run as administrator"):
 
 ```powershell
 New-NetFirewallRule -DisplayName "Murmur local Supabase" -Direction Inbound `
@@ -38,11 +41,16 @@ New-NetFirewallRule -DisplayName "Murmur local Supabase" -Direction Inbound `
 | 54323 | The Supabase Studio |
 | 54324 | The mail catcher, where the sign-in codes go |
 
-To take the rule away again:
+To close the ports again:
 
 ```powershell
 Remove-NetFirewallRule -DisplayName "Murmur local Supabase"
 ```
+
+**How to tell it worked.** Before the rule, the browser on the other computer said
+`net::ERR_CONNECTION_TIMED_OUT` — the packets were being dropped. After it, the same
+request goes through. `ERR_CONNECTION_REFUSED` means something different: nothing is
+listening on that port at all.
 
 ### 3. The app has to be served on the network
 
