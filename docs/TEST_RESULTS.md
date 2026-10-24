@@ -11,12 +11,21 @@ What was actually run, on what, and what it proved.
 | The app's logic | `npm test` (the `test:logic` half) | **167 pass, 0 fail** |
 | The database's security | `npm test` (the `test:db` half) | **75 pass, 0 fail** |
 | The server's logic | `deno test --allow-all _shared/` | **167 pass, 0 fail** |
-| The desktop's logic | `desktop: npm test` | **83 pass, 0 fail, 2 skipped** |
+| The desktop's logic | `desktop: npm test` | **92 pass, 0 fail, 2 skipped** |
 | The app's types | `npx tsc --noEmit` | clean |
 | The app's lint | `npx expo lint` | clean, 0 warnings |
 | The desktop's types | `desktop: npx tsc --noEmit -p .` | clean |
 | The desktop's build | `desktop: node build.mjs` | builds |
+| The desktop's smoke test | `desktop: MURMUR_SMOKE_SHOT=… npx electron .` | The app starts and renders; the bridge is exposed and the window cannot reach Node (`SMOKE bridge-isolated true`) |
 | The app's bundle | Metro, iOS | builds, 1202 modules |
+
+### One flake, worth knowing about
+
+On one run the database suite reported `oauth.test.mjs` as failed. The file passes on
+its own (6 of 6) and passed on the next full run, so it is a timeout under parallel
+load rather than a fault — the database tests spin up many PGlite instances at once and
+some of them take ten seconds. **It is a flake, not a pass, and it will flake again.**
+The suite's timeouts should be raised, or the tests run with less parallelism.
 
 The two skipped desktop tests are the ones that need the speech model; see below.
 

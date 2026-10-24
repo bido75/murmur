@@ -84,12 +84,12 @@ The Murmure reference was audited at commit
 
 | Feature | Status | Evidence |
 |---|---|---|
-| Global keyboard shortcuts | PARTIAL | The rules are written and tested (`desktop/src/shared/shortcuts.ts`, 6 tests): how a binding is described, how two are compared, and how conflicts are refused. **The Electron wiring is not done.** |
-| Push-to-talk | PARTIAL | The mode is in the shortcut rules. **The Electron wiring is not done.** |
-| Dictation into another application | PARTIAL | The paste commands for each system are written (`desktop/src/shared/insert.ts`), with the arguments kept apart so a word can never become a command, and a clipboard fallback. **The wiring is not done.** |
-| Floating recording overlay | MISSING | |
-| Dictation history | MISSING | |
-| Read the selected text in another application | MISSING | |
+| Global keyboard shortcuts | WORKING | The main process claims them with Electron's `globalShortcut` and gives them back when the app closes (`desktop/src/main/dictation.ts`). The rules — how a binding is described, how two are compared, how conflicts are refused — are in `desktop/src/shared/shortcuts.ts` with 6 tests. A shortcut the operating system will not give is refused and the reason is shown in the settings. |
+| Push-to-talk | PARTIAL | The shortcut starts and stops a dictation, and the overlay says which. **The hold-to-talk half is not done:** Electron's `globalShortcut` reports a press, not a release, so holding needs a native key hook. |
+| Dictation into another application | WORKING | The words go on the clipboard and the operating system is asked to paste them, with the arguments kept apart and no shell, so a word can never become a command (`desktop/src/shared/insert.ts`). When the tool is not there, the words stay on the clipboard and the user is told to paste them. |
+| Floating recording overlay | WORKING | Its own undecorated, transparent, always-on-top window that never takes the focus (`desktop/src/renderer/overlay.html`). It shows the state, the level, the time and the progress, and has a cancel button. Everywhere except over that button it is see-through, so clicks reach the app underneath. It is a sandboxed page with its own preload and three abilities: show, cancel, and say where its button is. |
+| Dictation history | WORKING | What was said and when, on the computer only — not uploaded and not part of the recording library (`desktop/src/shared/history.ts`, 9 tests). Searchable, copyable, deletable, clearable, and it can be turned off. |
+| Read the selected text in another application | PARTIAL | The command that asks the system to copy the selection is written (`desktop/src/shared/insert.ts`). **Not wired up**, and it is only used by the AI commands, which are not done. |
 | Local HTTP API for transcription | MISSING | |
 | CLI control commands | MISSING | |
 
@@ -129,18 +129,20 @@ See `SECURITY_AUDIT.md`.
 
 | Status | Count |
 |---|---|
-| WORKING | 29 |
-| PARTIAL | 15 |
+| WORKING | 33 |
+| PARTIAL | 14 |
 | BROKEN | 0 |
-| MISSING | 15 |
+| MISSING | 12 |
 | BLOCKED | 0 |
 
 Nothing is BROKEN: every feature that exists either passes its tests or is listed as
 partly verified with the reason.
 
-Of the 15 MISSING items, 11 are the Murmure desktop-dictation and personalisation
-features that were not built, and 4 are refinements (a disk-space check, a hardware
-check, word-level times, a local language model).
+Of the 12 MISSING items, 4 are the Murmure features that were not built (the local
+language model, the voice commands, the local HTTP API and the CLI), and 8 are
+refinements (a disk-space check, a hardware check, word-level times, local
+diarization, spoken-number conversion, reading the selection, and the hold-to-talk
+half of push-to-talk).
 
 **The biggest thing that changed since the first version of this document:** the local
 speech engine was "BLOCKED on the engine". It now runs, and it was checked by

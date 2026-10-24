@@ -25,11 +25,11 @@ written here. `LICENSE_REVIEW.md` has the reasoning and the questions for a lawy
 | Dictionary, boosted into the model | Project vocabulary, sent to Deepgram as key terms | **Written from scratch** as a confidence-gated correction: a word the model was sure about is left alone. | **Done.** |
 | Formatting rules (exact / substring / regex) | None | **Written from scratch**, with the pattern checked before it is used and a broken one leaving the text alone. | **Done.** |
 | Short-text correction, hesitations, spacing, capitalisation | None | **Written from scratch**, and careful with acronyms and with words that have a capital of their own. | **Done.** |
-| Global shortcuts | None | **Written from scratch**: the bindings, the conflicts and the accelerator Electron wants. | **Done.** |
-| Push-to-talk | The desktop records with a button | The rules are written; **the Electron wiring is not done yet**. | **Partly done.** |
-| Floating overlay | None | **Not done.** | **Not done.** |
-| Dictation into another application | The share sheet copies to the clipboard | The paste commands are written for each system, with the words left on the clipboard when the paste cannot be done; **the wiring is not done yet**. | **Partly done.** |
-| Dictation history | The recording library | **Not done.** | **Not done.** |
+| Global shortcuts | None | **Written from scratch**: the bindings, the conflicts and the accelerator Electron wants. The main process claims them and gives them back when the app closes. | **Done.** |
+| Push-to-talk | The desktop records with a button | The shortcut starts and stops a dictation. **The hold half needs a native key hook**, because Electron's global shortcut reports a press, not a release. | **Partly done.** |
+| Floating overlay | None | **Written from scratch**: its own transparent, always-on-top window that never takes the focus, see-through except over its cancel button. | **Done.** |
+| Dictation into another application | The share sheet copies to the clipboard | The paste commands for each system, with the arguments kept apart so a word can never become a command, and a clipboard fallback. | **Done.** |
+| Dictation history | The recording library | **Written from scratch**, on the computer only: not uploaded and not part of the library. | **Done.** |
 | Local language model (Ollama) | Anthropic Claude, on the server | **Not done.** | **Not done.** |
 | Prompt templates and AI commands | Summary templates, on the server | **Not done.** | **Not done.** |
 | Wake word | None | **Not done, and deliberately so.** A wake word means listening all the time; that is the biggest privacy cost a dictation app can carry, and it is not worth it without the user asking for it. | **Deliberately not done.** |
@@ -87,9 +87,10 @@ an update. None of them would have been found by reading the code.
 
 | Work | What it needs |
 |---|---|
-| The Electron wiring for the shortcuts, the overlay, the paste and the history | The rules are written and tested; they need to be called from the main process and shown in the window. |
-| The wake word | A keyword-spotting model, and a clear decision about always listening. |
+| The hold half of push-to-talk | A native key hook, so the key's release can be seen. Electron's global shortcut only reports a press. |
 | The local language model | An Ollama-compatible client, and a decision about where the key lives. |
+| The wake word | A keyword-spotting model, and a clear decision about always listening. |
 | A local diarization | A speaker model, or an honest note that the two channels are the best we can do. |
 | Word-level timestamps | The engine would have to give them; Parakeet does not. |
+| The AI commands | The selection-reading is written; the rest needs the language model. |
 | macOS and Linux checks | The code is written for them; only Windows was run. |
