@@ -1,20 +1,13 @@
 // Bundles main, preload and renderer with esbuild. Server settings come from ../.env
 // (the same EXPO_PUBLIC_* values the phone/web app uses) or the environment.
+//
+// ../.env.local is read first, so a machine that overrides the server address for the
+// local network gets the same address here. Only the EXPO_PUBLIC_* names are used.
 import { build } from 'esbuild';
-import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { cpSync, mkdirSync } from 'node:fs';
+import { loadEnv } from '../scripts/loadEnv.mjs';
 
-function loadEnv() {
-  const env = { ...process.env };
-  const file = new URL('../.env', import.meta.url);
-  if (existsSync(file)) {
-    for (const line of readFileSync(file, 'utf8').split('\n')) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-      if (m && env[m[1]] === undefined) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-    }
-  }
-  return env;
-}
-const env = loadEnv();
+const env = loadEnv(new URL('../', import.meta.url), process.env);
 const define = {
   __SUPABASE_URL__: JSON.stringify(env.EXPO_PUBLIC_SUPABASE_URL ?? ''),
   __SUPABASE_ANON_KEY__: JSON.stringify(env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''),

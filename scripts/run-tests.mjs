@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const halves = [
   { name: 'logic tests', args: ['--experimental-strip-types', '--test', 'supabase/functions/_shared/*.test.ts'] },
+  { name: 'app tests', args: ['--experimental-strip-types', '--test', 'src/**/*.test.ts'] },
   { name: 'database security tests', args: ['--test', 'supabase/tests/*.test.mjs'] },
 ];
 
