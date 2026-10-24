@@ -8,7 +8,12 @@ import { startLive } from "./live";
 import { APP_NAME, APP_URL } from "./config";
 import { isConfigured, supabase } from "./supabase";
 import { onSpeechProgress, speech } from "./speech";
+import { onDictation, transcribeRecording, type HistoryEntry } from "./dictation";
+import { dictationPanel, dictationSettings } from "./dictationView";
+import { useHistory } from "./historyPanel";
+import { historyPanel, historyState, setHistoryActions } from "./historyView";
 import { initSpeech, speechPanel } from "./speechPanel";
+import type { Shortcut } from "../shared/shortcuts";
 import {
   enqueue,
   flush,
@@ -55,6 +60,10 @@ type State = {
   warning: string | null;
   level: number;
   busy: boolean;
+  /** The dictation history is open. */
+  showHistory: boolean;
+  /** The dictation settings are open. */
+  showDictation: boolean;
 };
 
 const state: State = {
@@ -77,6 +86,8 @@ const state: State = {
   warning: null,
   level: -90,
   busy: false,
+  showHistory: false,
+  showDictation: false,
 };
 let capture: Capture | null = null;
 let recordingId: string | null = null;
@@ -350,6 +361,33 @@ function homeView(): Child[] {
       "● Record",
     ),
     ...speechPanel(render),
+    h(
+      "button",
+      {
+        class: "ghost",
+        onclick: () => {
+          state.showDictation = !state.showDictation;
+          state.showHistory = false;
+          render();
+        },
+      },
+      state.showDictation ? "Hide the dictation settings" : "Dictation",
+    ),
+    h(
+      "button",
+      {
+        class: "ghost",
+        onclick: () => {
+          state.showHistory = !state.showHistory;
+          state.showDictation = false;
+          if (state.showHistory) void dictationHistoryApi.load().then(render);
+          render();
+        },
+      },
+      state.showHistory ? "Hide the dictation history" : "Dictation history",
+    ),
+    ...(state.showDictation ? dictationPanel(render, saveShortcuts) : []),
+    ...(state.showHistory ? historyPanel(render) : []),
     state.error && h("div", { class: "banner" }, state.error),
     state.pending > 0 &&
       h(
@@ -588,6 +626,147 @@ async function stopRecording() {
   void refresh();
 }
 
+// ---------- Dictation ----------
+
+/**
+ * The dictation history.
+ *
+ * It is set up once, so the panel and the shortcut can both reach it.
+ */
+const dictationHistoryApi = useHistory({
+  changed: (entries: HistoryEntry[]) => {
+    historyState.entries = entries;
+    render();
+  },
+  error: (message) => {
+    state.error = message;
+    render();
+  },
+});
+
+/**
+ * Save the shortcuts the user chose.
+ *
+ * The main process registers them and says which ones the operating system would not
+ * give us, so the user is told rather than left wondering.
+ */
+async function saveShortcuts(shortcuts: Shortcut[]) {
+  dictationSettings.shortcuts = shortcuts;
+  const result = (await bridge().dictationShortcuts(shortcuts)) as {
+    ok: boolean;
+    failed: string[];
+  } | null;
+  dictationSettings.refused = result?.failed ?? [];
+  if (result && !result.ok)
+    state.error = `Another program is using ${result.failed.join(", ")}, so it could not be taken.`;
+  render();
+}
+
+/** Read the dictation settings from the main process. */
+async function loadDictationSettings() {
+  const settings = (await bridge().dictationSettings()) as {
+    shortcuts: Shortcut[];
+    insertMethod: "clipboard" | "paste" | "type";
+    keepHistory: boolean;
+  } | null;
+  if (!settings) return;
+  dictationSettings.shortcuts = settings.shortcuts ?? [];
+  dictationSettings.insertMethod = settings.insertMethod ?? "paste";
+  dictationSettings.keepHistory = settings.keepHistory ?? true;
+}
+
+/**
+ * The dictation recording.
+ *
+ * It is not a meeting: nothing is queued for upload and nothing appears in the
+ * library. The words go where the user is typing, and the audio on this computer is
+ * thrown away as soon as the words are made.
+ */
+let dictationCapture: Capture | null = null;
+let dictationId: string | null = null;
+let dictationWords: { text: string; utterances: { start_ms: number; end_ms: number; speaker: number; text: string }[] }[] = [];
+let dictationStartedAt = 0;
+
+async function startDictation() {
+  if (dictationCapture) return;
+  dictationId = uuid();
+  dictationWords = [];
+  dictationStartedAt = Date.now();
+  dictationCapture = new Capture(
+    dictationId,
+    {
+      onSegment: async (s) => {
+        try {
+          const bytes = await bridge().fileRead(
+            dictationId!,
+            s.idx,
+            s.ext,
+          );
+          const language = (
+            await supabase
+              .from("user_settings")
+              .select("language")
+              .maybeSingle()
+          ).data?.language as string | null;
+          dictationWords.push(
+            await transcribeRecording(bytes, s.offsetMs, language ?? null),
+          );
+        } catch (e) {
+          await bridge().dictationFail((e as Error).message);
+        } finally {
+          // The audio on this computer is not needed once the words are made.
+          await bridge().fileDelete(dictationId!, s.idx, s.ext);
+        }
+      },
+      onWarning: (w) => {
+        if (w) void bridge().dictationFail(w);
+      },
+      onLevel: (db) => {
+        // The level is shown as a bar, from 0 to 1.
+        const level = Math.max(0, Math.min(1, (db + 60) / 60));
+        void bridge().dictationLevel(level, Date.now() - dictationStartedAt);
+      },
+    },
+    speech.local,
+  );
+  try {
+    // Only the microphone: a dictation is one person talking.
+    await dictationCapture.start(false, false);
+  } catch (e) {
+    dictationCapture = null;
+    await bridge().dictationFail((e as Error).message);
+  }
+}
+
+async function stopDictation() {
+  if (!dictationCapture || !dictationId) return;
+  const id = dictationId;
+  const cap = dictationCapture;
+  dictationCapture = null;
+  dictationId = null;
+  await cap.stop();
+  const text = dictationWords
+    .flatMap((w) => w.utterances)
+    .map((u) => u.text)
+    .join(" ")
+    .trim();
+  const tookMs = Date.now() - dictationStartedAt;
+  await bridge().dictationComplete(
+    text,
+    tookMs,
+    speech.local ? "parakeet" : "cloud",
+    speech.local,
+  );
+}
+
+function cancelDictation() {
+  if (!dictationCapture) return;
+  void dictationCapture.stop();
+  dictationCapture = null;
+  dictationId = null;
+  dictationWords = [];
+}
+
 async function refresh() {
   const [projects, recent, queue] = await Promise.all([
     supabase
@@ -703,8 +882,36 @@ async function boot() {
 
   // The speech model, and whether new recordings are made on this computer.
   await initSpeech();
+  await loadDictationSettings();
   onSpeechProgress(() => {
     if (state.view === "home") render();
+  });
+
+  // Dictation: the main process says when to record and when to stop.
+  setHistoryActions({
+    load: dictationHistoryApi.load,
+    copy: dictationHistoryApi.copy,
+    remove: dictationHistoryApi.remove,
+    clear: dictationHistoryApi.clear,
+  });
+  onDictation({
+    start: () => startDictation(),
+    stop: () => stopDictation(),
+    cancel: () => cancelDictation(),
+    level: (level, elapsedMs) =>
+      void bridge().dictationLevel(level, elapsedMs),
+    complete: async (text, tookMs, provider, local) => {
+      await bridge().dictationComplete(text, tookMs, provider, local);
+    },
+    fail: (reason) => {
+      state.error = reason;
+      render();
+    },
+    history: () => {
+      state.view = "home";
+      state.showHistory = true;
+      render();
+    },
   });
 
   if (!isConfigured) return render();

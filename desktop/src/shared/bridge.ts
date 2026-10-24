@@ -102,6 +102,27 @@ export type Bridge = {
   }>;
   /** What this app and this computer are using. */
   resources(): Promise<ResourceStats>;
+  /** Dictation: the settings, the history and the state. */
+  dictationSettings(): Promise<unknown>;
+  dictationHistory(): Promise<unknown[]>;
+  dictationState(): Promise<unknown>;
+  dictationSearch(query: string): Promise<unknown[]>;
+  dictationRemove(id: string): Promise<void>;
+  dictationClear(): Promise<void>;
+  dictationCopy(id: string): Promise<boolean>;
+  dictationKeepHistory(keep: boolean): Promise<void>;
+  dictationInsertMethod(method: string): Promise<void>;
+  dictationShortcuts(shortcuts: unknown[]): Promise<unknown>;
+  /** The words are ready: the main process puts them where the user is typing. */
+  dictationComplete(
+    text: string,
+    tookMs: number,
+    provider: string,
+    local: boolean,
+  ): Promise<unknown>;
+  dictationFail(reason: string): Promise<void>;
+  dictationLevel(level: number, elapsedMs: number): Promise<void>;
+  dictationPasteLast(): Promise<unknown>;
   on(
     channel:
       | "macaudio:data"
@@ -109,6 +130,11 @@ export type Bridge = {
       | "meeting:detected"
       | "meeting:state"
       | "speech:progress"
+      | "dictation:start"
+      | "dictation:stop"
+      | "dictation:cancel"
+      | "dictation:error"
+      | "dictation:history"
       | "tray:start"
       | "tray:stop",
     fn: (payload: unknown) => void,

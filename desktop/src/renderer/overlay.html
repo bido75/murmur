@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Dictation</title>
+    <style>
+      :root {
+        --bg: #1b1e1c;
+        --ink: #ecedea;
+        --muted: #9aa09b;
+        --accent: #5fc2a6;
+        --danger: #f0674f;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        background: transparent;
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .card {
+        margin: 8px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: var(--bg);
+        border: 1px solid #2b2f2c;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .row { display: flex; align-items: center; gap: 8px; }
+      .dot {
+        width: 9px; height: 9px; border-radius: 5px;
+        background: var(--muted); flex: 0 0 auto;
+      }
+      .dot.recording { background: var(--danger); }
+      .dot.working { background: var(--accent); }
+      .title { font-weight: 600; }
+      .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+      .spacer { flex: 1; }
+      .meter { height: 5px; background: #2b2f2c; border-radius: 3px; overflow: hidden; }
+      .meter > div { height: 100%; background: var(--accent); width: 0; transition: width .1s; }
+      .error { color: var(--danger); }
+      .hint { color: var(--muted); font-size: 12px; }
+      button {
+        min-height: 30px; min-width: 30px;
+        border-radius: 8px; border: 1px solid #2b2f2c;
+        background: #242825; color: var(--ink);
+        font-size: 13px; cursor: pointer; padding: 0 10px;
+      }
+      button:hover { background: #2b2f2c; }
+      /* The cancel button is the only part that is not see-through. */
+      #cancel { position: absolute; top: 0; right: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="row">
+        <span class="dot" id="dot"></span>
+        <span class="title" id="title">Ready</span>
+        <span class="spacer"></span>
+        <span class="time" id="time"></span>
+        <button id="cancel" title="Cancel" aria-label="Cancel dictation">✕</button>
+      </div>
+      <div class="meter"><div id="meter"></div></div>
+      <div class="hint" id="hint"></div>
+    </div>
+    <script>
+      const dot = document.getElementById("dot");
+      const title = document.getElementById("title");
+      const time = document.getElementById("time");
+      const meter = document.getElementById("meter");
+      const hint = document.getElementById("hint");
+      const cancel = document.getElementById("cancel");
+
+      function clock(ms) {
+        const s = Math.floor(ms / 1000);
+        const mm = String(Math.floor(s / 60)).padStart(2, "0");
+        return `${mm}:${String(s % 60).padStart(2, "0")}`;
+      }
+
+      window.overlay.onState((s) => {
+        dot.className = "dot " + (s.state === "recording" ? "recording" : s.state === "working" ? "working" : "");
+        if (s.state === "recording") {
+          title.textContent = "Recording";
+          time.textContent = clock(s.elapsedMs || 0);
+          meter.style.width = Math.round(Math.min(1, Math.max(0, s.level || 0)) * 100) + "%";
+          hint.textContent = "Press the shortcut again to stop.";
+        } else if (s.state === "working") {
+          title.textContent = "Writing the words";
+          time.textContent = "";
+          meter.style.width = Math.round(s.progress || 0) + "%";
+          hint.textContent = "";
+        } else if (s.state === "error") {
+          title.textContent = "Something went wrong";
+          time.textContent = "";
+          meter.style.width = "0%";
+          hint.textContent = s.error || "";
+          hint.className = "error";
+        } else {
+          title.textContent = "Ready";
+          time.textContent = "";
+          meter.style.width = "0%";
+          hint.textContent = "";
+          hint.className = "hint";
+        }
+      });
+
+      cancel.addEventListener("click", () => window.overlay.cancel());
+
+      // Tell the main process when the pointer is over the cancel button, so the
+      // overlay stops swallowing the clicks there and only there.
+      function report() {
+        const r = cancel.getBoundingClientRect();
+        window.overlay.hover({ x: r.left, y: r.top, w: r.width, h: r.height });
+      }
+      document.addEventListener("mousemove", report);
+      setInterval(report, 100);
+    </script>
+  </body>
+</html>

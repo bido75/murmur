@@ -52,6 +52,7 @@ import {
 import { resourceStats } from "./resources";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
+import { Dictation, type OverlayRect } from "./dictation";
 
 const APP_NAME = "Murmur";
 let win: BrowserWindow | null = null;
@@ -81,6 +82,83 @@ function runtimeInstalled(): boolean {
     (name) => existsSync(join(dir, name)),
   );
   return engineReady;
+}
+
+/** Dictation: the shortcuts, the overlay and the clipboard. */
+let dictation: Dictation | null = null;
+
+/** The calls the window makes about dictation. */
+function registerDictationIpc() {
+  ipcMain.handle("dictation:settings", () => dictation?.getSettings() ?? null);
+  ipcMain.handle("dictation:history", () => dictation?.getHistory() ?? []);
+  ipcMain.handle("dictation:state", () => dictation?.getState() ?? null);
+  ipcMain.handle("dictation:search", (_e, q: string) =>
+    dictation?.searchHistory(String(q ?? "")) ?? [],
+  );
+  ipcMain.handle("dictation:remove", (_e, id: string) => {
+    dictation?.removeFromHistory(String(id ?? ""));
+  });
+  ipcMain.handle("dictation:clear", () => dictation?.clearHistory());
+  ipcMain.handle("dictation:copy", (_e, id: string) =>
+    Boolean(dictation?.copyFromHistory(String(id ?? ""))),
+  );
+  ipcMain.handle("dictation:keepHistory", (_e, keep: boolean) =>
+    dictation?.setKeepHistory(Boolean(keep)),
+  );
+  ipcMain.handle("dictation:insertMethod", (_e, method: string) => {
+    if (method === "clipboard" || method === "paste" || method === "type")
+      dictation?.setInsertMethod(method);
+  });
+  ipcMain.handle("dictation:shortcuts", (_e, shortcuts: unknown) =>
+    dictation?.setShortcuts(Array.isArray(shortcuts) ? shortcuts : []),
+  );
+  // The window has made the words: they go where the user is typing.
+  ipcMain.handle(
+    "dictation:complete",
+    async (
+      _e,
+      text: string,
+      tookMs: number,
+      provider: string,
+      local: boolean,
+    ) => {
+      const result = await dictation?.insert(String(text ?? ""));
+      await dictation?.complete(
+        String(text ?? ""),
+        Number(tookMs) || 0,
+        String(provider ?? "cloud"),
+        Boolean(local),
+      );
+      return result;
+    },
+  );
+  ipcMain.handle("dictation:fail", (_e, reason: string) =>
+    dictation?.fail(String(reason ?? "Something went wrong.")),
+  );
+  ipcMain.handle("dictation:level", (_e, level: number, elapsedMs: number) =>
+    dictation?.reportLevel(Number(level) || 0, Number(elapsedMs) || 0),
+  );
+  ipcMain.handle("dictation:pasteLast", async () => {
+    const history = dictation?.getHistory() ?? [];
+    const last = history[0];
+    if (!last) return { pasted: false, message: "There is nothing to paste yet." };
+    return dictation?.insert(last.text);
+  });
+
+  // The overlay is its own window with its own rules: it can show, cancel and say
+  // where its button is, and nothing else.
+  ipcMain.on("overlay:cancel", () => dictation?.cancel());
+  ipcMain.on("overlay:hover", (_e, rect: OverlayRect) => {
+    if (!dictation || !rect) return;
+    // The pointer is over the cancel button, so the overlay stops swallowing the clicks.
+    const point = dictation.cursorPoint();
+    const over =
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.w &&
+      point.y >= rect.y &&
+      point.y <= rect.y + rect.h;
+    dictation.setOverlayInteractive(over);
+  });
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -434,6 +512,9 @@ function createWindow() {
     join(__dirname, "renderer", "index.html"),
     process.env.MURMUR_SELFTEST ? { hash: "selftest" } : undefined,
   );
+  // Dictation: the shortcuts, the overlay and the clipboard.
+  if (win) dictation = new Dictation(win);
+  registerDictationIpc();
   if (process.env.MURMUR_SELFTEST) {
     win.webContents.on("console-message", (_e, _level, message) => {
       if (message.startsWith("SELFTEST")) {
@@ -529,6 +610,14 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     registerDisplayMedia();
     createWindow();
+    // The shortcuts are claimed once the window is there, so the first one works.
+    win?.webContents.once("did-finish-load", () => {
+      const result = dictation?.registerShortcuts();
+      if (result && !result.ok)
+        console.warn(
+          `These shortcuts could not be taken: ${result.failed.join(", ")}. Another program is probably using them.`,
+        );
+    });
     tray = new Tray(trayIcon());
     tray.on("click", showWindow);
     updateTray();
@@ -539,5 +628,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     (app as unknown as { quitting?: boolean }).quitting = true;
     stopMacCapture();
+    // The shortcuts belong to the app, so they are given back when it closes.
+    dictation?.unregisterShortcuts();
   });
 }

@@ -7,6 +7,11 @@ const CHANNELS = new Set([
   "meeting:detected",
   "meeting:state",
   "speech:progress",
+  "dictation:start",
+  "dictation:stop",
+  "dictation:cancel",
+  "dictation:error",
+  "dictation:history",
   "tray:start",
   "tray:stop",
 ]);
@@ -37,6 +42,21 @@ const bridge: Bridge = {
   speechModelRemove: () => ipcRenderer.invoke("speech:remove"),
   transcribeLocal: (s, o) => ipcRenderer.invoke("transcribe:local", s, o),
   resources: () => ipcRenderer.invoke("app:resources"),
+  dictationSettings: () => ipcRenderer.invoke("dictation:settings"),
+  dictationHistory: () => ipcRenderer.invoke("dictation:history"),
+  dictationState: () => ipcRenderer.invoke("dictation:state"),
+  dictationSearch: (q) => ipcRenderer.invoke("dictation:search", q),
+  dictationRemove: (id) => ipcRenderer.invoke("dictation:remove", id),
+  dictationClear: () => ipcRenderer.invoke("dictation:clear"),
+  dictationCopy: (id) => ipcRenderer.invoke("dictation:copy", id),
+  dictationKeepHistory: (k) => ipcRenderer.invoke("dictation:keepHistory", k),
+  dictationInsertMethod: (m) => ipcRenderer.invoke("dictation:insertMethod", m),
+  dictationShortcuts: (s) => ipcRenderer.invoke("dictation:shortcuts", s),
+  dictationComplete: (t, ms, p, l) =>
+    ipcRenderer.invoke("dictation:complete", t, ms, p, l),
+  dictationFail: (r) => ipcRenderer.invoke("dictation:fail", r),
+  dictationLevel: (l, ms) => ipcRenderer.invoke("dictation:level", l, ms),
+  dictationPasteLast: () => ipcRenderer.invoke("dictation:pasteLast"),
   on: (channel, fn) => {
     if (!CHANNELS.has(channel)) throw new Error("Unknown channel");
     const listener = (_e: IpcRendererEvent, payload: unknown) => fn(payload);

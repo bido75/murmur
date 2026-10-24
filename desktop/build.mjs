@@ -22,8 +22,12 @@ const define = {
 };
 
 mkdirSync('dist/renderer', { recursive: true });
-await build({ entryPoints: ['src/main/main.ts'], outfile: 'dist/main.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'] });
-await build({ entryPoints: ['src/main/preload.ts'], outfile: 'dist/preload.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'] });
+// The ONNX runtime is a native module: it is loaded at run time from node_modules, not
+// bundled, so its binaries are packaged as they are.
+const external = ['electron', 'onnxruntime-node'];
+await build({ entryPoints: ['src/main/main.ts'], outfile: 'dist/main.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external });
+await build({ entryPoints: ['src/main/preload.ts'], outfile: 'dist/preload.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external });
+await build({ entryPoints: ['src/main/overlayPreload.ts'], outfile: 'dist/overlayPreload.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external });
 await build({ entryPoints: ['src/renderer/app.ts'], outfile: 'dist/renderer/app.js', bundle: true, platform: 'browser', format: 'iife', target: 'chrome140', define });
-for (const f of ['index.html', 'styles.css', 'pcm-worklet.js']) cpSync(`src/renderer/${f}`, `dist/renderer/${f}`);
+for (const f of ['index.html', 'styles.css', 'pcm-worklet.js', 'overlay.html']) cpSync(`src/renderer/${f}`, `dist/renderer/${f}`);
 console.log('Built desktop app', define.__SUPABASE_URL__ === '""' ? '(no server settings — set them in ../.env)' : '');
