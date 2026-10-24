@@ -6,6 +6,7 @@ Verify each vendor's current terms, regions and certifications before publishing
 |---|---|---|---|
 | Supabase (on AWS) | Database, auth, file storage, server functions | All customer data | Always |
 | Deepgram | Speech-to-text, redaction, live captions | Audio (via short-lived signed URLs), vocabulary hints | Always (unless on-device transcription) |
+| Mistral (Voxtral) | Speech-to-text | Audio (uploaded per request), vocabulary hints | When the audio is read by Mistral instead of Deepgram |
 | Anthropic | Notes, tasks, answers, translation, decks, follow-ups | Transcripts, notes, typed notes | When Claude writes the notes |
 | OpenRouter | Notes, tasks, answers, translation, decks, follow-ups | Transcripts, notes, typed notes | When OpenRouter writes the notes instead of Claude |
 | Ollama (on the customer's own device) | Notes, tasks, answers, translation, decks, follow-ups | Transcripts, notes, typed notes | When a local model writes the notes. Nothing leaves the device. |

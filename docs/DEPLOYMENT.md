@@ -237,6 +237,21 @@ supabase functions deploy ingest
 
 The `ingest` function is deployed with `--no-verify-jwt`; it checks the caller itself.
 
+## The speech provider
+
+The server reads the audio with Deepgram by default, or Mistral's Voxtral when
+`STT_PROVIDER=mistral`:
+
+| Variable | Meaning |
+|---|---|
+| `STT_PROVIDER` | `deepgram` or `mistral`. Deepgram by default. |
+| `DEEPGRAM_API_KEY` | The Deepgram key. |
+| `MISTRAL_API_KEY` | The Mistral key, when Mistral is used. |
+| `MISTRAL_STT_MODEL` | `voxtral-mini-transcribe-3` by default. |
+
+A redaction always goes to Deepgram, because it is the engine that redacts.
+See `SPEECH_PROVIDERS.md`.
+
 ## The notes provider
 
 The server decides who writes the notes, from its own settings, and the app asks

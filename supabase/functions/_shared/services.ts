@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { Utterance } from './verify.ts';
 import { deepgramParams } from './stt.ts';
 import { audioContentType } from './ingest.ts';
+import { chooseSttProvider, mistralUtterances } from './mistral.ts';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -79,6 +80,60 @@ function cannotReachAudio(status: number, body: string): boolean {
   );
 }
 
+/** The audio itself, from the storage bucket when we know its path, otherwise from its link. */
+async function readAudio(audioUrl: string, storagePath?: string): Promise<ArrayBuffer> {
+  if (storagePath) {
+    const { data, error } = await adminClient().storage.from('audio').download(storagePath);
+    if (error) throw new Error(`Could not read the audio: ${error.message}`);
+    return await data.arrayBuffer();
+  }
+  const res = await fetch(audioUrl);
+  if (!res.ok) throw new Error(`Could not download the audio (${res.status})`);
+  return await res.arrayBuffer();
+}
+
+/**
+ * Transcribe with Mistral's Voxtral.
+ *
+ * Mistral is given the audio itself: it has no way to fetch a link, unlike Deepgram,
+ * so the file is uploaded on every request. Speaker labels are asked for, because a
+ * meeting has more than one person in it.
+ */
+async function transcribeWithMistral(
+  audioUrl: string,
+  keyterms: string[],
+  opts: { language?: string | null; multichannel?: boolean },
+  storagePath?: string,
+): Promise<{ utterances: (Utterance & { channel?: number })[]; durationMs: number; language: string | null }> {
+  const bytes = await readAudio(audioUrl, storagePath);
+  const name = storagePath ?? audioUrl;
+  const extension = name.split('.').pop()?.toLowerCase() ?? 'wav';
+  const form = new FormData();
+  form.append('model', env('MISTRAL_STT_MODEL', 'voxtral-mini-transcribe-3'));
+  form.append('file', new Blob([bytes], { type: audioContentType(name) }), `audio.${extension}`);
+  // Without this the answer comes back as one block of text with no times.
+  form.append('timestamp_granularities', 'segment');
+  form.append('diarize', 'true');
+  if (opts.language) form.append('language', opts.language);
+  // The project's own words, spelled the way the project spells them.
+  for (const term of keyterms) form.append('context_bias', term);
+
+  const res = await fetch('https://api.mistral.ai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env('MISTRAL_API_KEY')}` },
+    body: form,
+    signal: AbortSignal.timeout(sttTimeoutMs()),
+  });
+  if (!res.ok) throw new Error(`Transcription failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  return mistralUtterances(await res.json());
+}
+
+/** How long to wait for the audio to be read. */
+function sttTimeoutMs(): number {
+  const raw = Number(Deno.env.get('STT_TIMEOUT_MS') ?? '');
+  return Number.isFinite(raw) && raw > 0 ? raw : 300_000;
+}
+
 /**
  * Transcribe one audio file, with speaker labels. Times come back in ms, relative to
  * the file.
@@ -86,6 +141,9 @@ function cannotReachAudio(status: number, body: string): boolean {
  * The audio is given to the speech service as a link, which is the quick way. But a
  * local setup keeps the audio on a machine the service cannot reach, so when that
  * happens the audio is sent directly instead.
+ *
+ * Deepgram and Mistral can both read it. Which one is used is decided by
+ * STT_PROVIDER, and a redaction always goes to Deepgram, which can keep it.
  */
 export async function transcribe(
   audioUrl: string,
@@ -93,6 +151,11 @@ export async function transcribe(
   opts: { language?: string | null; redact?: string[]; multichannel?: boolean } = {},
   fallback?: { storagePath: string },
 ): Promise<{ utterances: (Utterance & { channel?: number })[]; durationMs: number; language: string | null }> {
+  const provider = chooseSttProvider(Deno.env.get('STT_PROVIDER'), (opts.redact ?? []).length > 0);
+  if (provider === 'mistral') {
+    return await transcribeWithMistral(audioUrl, keyterms, opts, fallback?.storagePath);
+  }
+
   const o = {
     model: env('DEEPGRAM_MODEL', 'nova-3'),
     keyterms,
