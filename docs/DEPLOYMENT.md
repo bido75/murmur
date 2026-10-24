@@ -2,6 +2,85 @@
 
 What has to be deployed, in what order, and how to get back if it goes wrong.
 
+## Opening the app on another computer on the network
+
+Three things have to be right. The first is now handled by the app itself; the other
+two are the machine's settings.
+
+### 1. The app finds the server — done
+
+The address of the server is set when the app is built, so it says `127.0.0.1` for a
+server on the same computer. On another computer that means *that* computer, where
+there is no server, and the sign-in failed with "fetch failed".
+
+The app now works it out: when the address points at this computer, the name of the
+computer the app was served from is used instead. A server that is genuinely somewhere
+else is left exactly as it was configured, and so is the app on a phone, which has no
+such name. `src/lib/serverAddress.ts` has the rule and the tests for it.
+
+### 2. The server's ports have to be open — this needs an administrator
+
+The Supabase stack runs in Docker, and Docker's ports have **no rule in the Windows
+Firewall**, so another computer cannot reach it. The dev server is fine, because Node
+has a rule.
+
+In an **elevated** PowerShell (right-click → "Run as administrator"):
+
+```powershell
+New-NetFirewallRule -DisplayName "Murmur local Supabase" -Direction Inbound `
+  -Action Allow -Protocol TCP -LocalPort 54321,54322,54323,54324 -Profile Any
+```
+
+| Port | What it is |
+|---|---|
+| 54321 | The Supabase API — the app needs this |
+| 54322 | The database |
+| 54323 | The Supabase Studio |
+| 54324 | The mail catcher, where the sign-in codes go |
+
+To take the rule away again:
+
+```powershell
+Remove-NetFirewallRule -DisplayName "Murmur local Supabase"
+```
+
+### 3. The app has to be served on the network
+
+```bash
+npm run lan
+```
+
+The manifest then points at the computer's address rather than at `localhost`, which is
+what the phone or the other computer needs.
+
+### A note on the address
+
+The computer's address on the network is not always the same. It is shown by:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -notlike "127.*" } |
+  Select-Object IPAddress, InterfaceAlias
+```
+
+If it changes — a different network, a new router — the address in `.env.local` has to
+change with it, and the firewall rule stays as it is.
+
+### A note on plain HTTP
+
+Served over `http://10.0.0.180:8090`, the page is **not** a secure context, so the
+browser's `crypto.subtle` is not available and `crypto.randomUUID` may be missing. The
+sign-in by email code still works. But some things are weaker than they should be:
+
+- The single sign-on flow falls back from PKCE to plain, because the code challenge
+  cannot be hashed without `crypto.subtle`.
+- Extensions that use `crypto.randomUUID` report an error in the console. That is the
+  extension's own code, not the app's.
+
+For a secure origin, serve the dev server over HTTPS (`npx expo start --https` is
+supported for the web) or use a tunnel (`npx expo start --tunnel`, which needs
+`npm i -g @expo/ngrok` and gives a public `https://` address).
+
 ## What this branch changes
 
 **The app and the desktop app only.** No database change, no Edge Function change, no
