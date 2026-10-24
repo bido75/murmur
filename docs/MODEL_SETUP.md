@@ -81,12 +81,13 @@ $env:MURMUR_TEST_MODEL_ZIP = "$PWD\parakeet.zip"
 | **Does** | Work on a long recording, a part at a time. |
 | **Does not** | Tell speakers apart. The desktop's two channels give "you" and "them"; it cannot tell two people on the call apart. |
 | **Does not** | Give word-level times. The times are to the sentence. |
-| **Does not** | Write the notes. The words go to the server, and the cloud model writes the notes from them. **The audio stays on the computer; the words do not.** |
+| **Can** | Have the notes written by a model on this computer too, with a local Ollama model. See `LLM_PROVIDERS.md`. |
 | **Does not** | Speak any language but English. |
 
-The last one is the most important: **a local recording is not a fully offline
-recording.** The audio never leaves the machine, but the transcript does, so the notes
-can be written. The settings screen says so in those words.
+A local recording is **not automatically** a fully offline recording. The audio never
+leaves the machine, but the transcript does, so the cloud model can write the notes
+from it. The settings screen says so in those words. Point the notes at a local model
+and the transcript stays on the computer too.
 
 ## Removing it
 

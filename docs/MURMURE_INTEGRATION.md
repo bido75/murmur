@@ -30,7 +30,7 @@ written here. `LICENSE_REVIEW.md` has the reasoning and the questions for a lawy
 | Floating overlay | None | **Written from scratch**: its own transparent, always-on-top window that never takes the focus, see-through except over its cancel button. | **Done.** |
 | Dictation into another application | The share sheet copies to the clipboard | The paste commands for each system, with the arguments kept apart so a word can never become a command, and a clipboard fallback. | **Done.** |
 | Dictation history | The recording library | **Written from scratch**, on the computer only: not uploaded and not part of the library. | **Done.** |
-| Local language model (Ollama) | Anthropic Claude, on the server | **Not done.** | **Not done.** |
+| Local language model (Ollama) | Anthropic Claude, on the server | **Written from scratch**: the notes schema is given to the model itself, so the answer comes back already shaped. Ollama and OpenRouter are both supported, and which one is used is decided by what is set up. | **Done.** |
 | Prompt templates and AI commands | Summary templates, on the server | **Not done.** | **Not done.** |
 | Wake word | None | **Not done, and deliberately so.** A wake word means listening all the time; that is the biggest privacy cost a dictation app can carry, and it is not worth it without the user asking for it. | **Deliberately not done.** |
 | Voice activity detection | Silence warning | Kept our way. | **Kept our way.** |

@@ -14,11 +14,13 @@ classification.
 | BLOCKED | An external dependency, hardware, licence or credential prevents validation. |
 
 **How this was checked.** The automated suites were run in full
-(`npm test` — 167 logic and 75 database security tests; `desktop`: 31 tests;
+(`npm test` — 167 logic, 10 app and 75 database security tests; `desktop`: 92 tests;
 `deno test --allow-all _shared/` — 167 tests). The desktop was built with
-`node build.mjs` and the app's iOS bundle was built with Metro. Anything that could
-not be executed in this environment is marked BLOCKED with the reason and the exact
-steps to run it.
+`node build.mjs` and the app's iOS bundle was built with Metro. The whole pipeline
+was also run for real against a local stack, from a signed-up user through the audio
+upload, the transcription and the notes (`scripts/test-local-pipeline.cjs`). Anything
+that could not be executed in this environment is marked BLOCKED with the reason and
+the exact steps to run it.
 
 The Murmure reference was audited at commit
 `2218c1bab463d17ace34258a3842b9f230d60ca3` (v2.0.3). See `LICENSE_REVIEW.md`.
@@ -115,8 +117,8 @@ The Murmure reference was audited at commit
 
 | Feature | Status | Evidence |
 |---|---|---|
-| Local LLM (Ollama / OpenAI-compatible) | MISSING | The platform has one AI path — Anthropic Claude through the server. |
-| Prompt templates | MISSING | The platform has per-recording summary templates (`src/lib/templateLibrary.ts`), which is a different thing. |
+| Local LLM (Ollama / OpenAI-compatible) | WORKING | `supabase/functions/_shared/services.ts` writes the notes through Anthropic, OpenRouter or a local Ollama model, chosen by `LLM_PROVIDER`. The local model is given the notes schema itself, so the answer comes back already shaped. |
+| Prompt templates | PARTIAL | The platform has per-recording summary templates (`src/lib/templateLibrary.ts`). The prompt behind them is fixed, and is not yet editable. |
 | AI commands on a selection | MISSING | |
 
 ## 8. Security

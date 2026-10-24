@@ -366,8 +366,14 @@ export default function Privacy() {
           How your data is used
         </T>
         <T size={14}>
-          • Audio is transcribed by Deepgram and notes are written by Claude
-          (Anthropic). Neither is allowed to train on your recordings.
+          • Audio is transcribed by Deepgram, unless you record it on this device
+          with the local model, in which case the audio never leaves it. Neither is
+          allowed to train on your recordings.
+        </T>
+        <T size={14}>
+          • The words are sent to whoever writes your notes. That is usually a
+          cloud model; if it is set up to run on this device instead, the words stay
+          here too. The settings say which one is being used.
         </T>
         <T size={14}>
           • Everything is private to you unless you put it in a team project or

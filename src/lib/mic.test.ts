@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   insecurePageMessage,
-  micMessage,
   micProblem,
   noBrowserSupportMessage,
 } from '../../supabase/functions/_shared/mic_permission.ts';

@@ -4,9 +4,15 @@
 # so changing .env.local needs the container to be rebuilt, not just restarted.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\restart-local-functions.ps1
+#        powershell -ExecutionPolicy Bypass -File scripts\restart-local-functions.ps1 -FromFunctionsEnv
+
+param(
+    # Read supabase\functions\.env instead of .env.local. The CLI reads that file on
+    # its own, so this is the normal way to run the functions.
+    [switch]$FromFunctionsEnv
+)
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
 $project = Split-Path -Parent $PSScriptRoot
 Set-Location $project
 
@@ -14,7 +20,7 @@ Set-Location $project
 # in our own command line.
 $me = $PID
 Get-CimInstance Win32_Process |
-    Where-Object { $_.ProcessId -ne $me -and $_.CommandLine -match 'supabase functions serve' } |
+    Where-Object { $_.ProcessId -ne $me -and $_.CommandLine -match 'supabase' -and $_.CommandLine -match 'functions' -and $_.CommandLine -match 'serve' } |
     ForEach-Object {
         Write-Host "  stopping pid $($_.ProcessId)"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -26,8 +32,10 @@ docker rm -f supabase_edge_runtime_murmur 2>&1 | Out-Null
 Start-Sleep -Seconds 3
 
 Remove-Item 'functions.log', 'functions-err.log' -ErrorAction SilentlyContinue
+$command = 'npx supabase functions serve'
+if (-not $FromFunctionsEnv) { $command += ' --env-file .env.local' }
 Start-Process -WindowStyle Hidden -FilePath 'cmd.exe' `
-    -ArgumentList '/c', 'npx supabase functions serve --env-file .env.local' `
+    -ArgumentList '/c', $command `
     -RedirectStandardOutput 'functions.log' `
     -RedirectStandardError 'functions-err.log' `
     -WorkingDirectory $project
