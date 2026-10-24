@@ -20,6 +20,9 @@ import type { Utterance } from "./types";
 
 export const MODEL_MB = DEFAULT_MODEL.sizeMb;
 
+/** The model, with who made it and under what licence. Shown to the user. */
+export const MODEL_ATTRIBUTION = `${DEFAULT_MODEL.label}. ${DEFAULT_MODEL.attribution}`;
+
 // The few whisper.rn calls we use (typed here so the app doesn't type-check the library's source).
 type Ctx = {
   transcribe(

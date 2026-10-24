@@ -41,6 +41,13 @@ export type SpeechModelBundle = {
   label: string;
   /** The words to use when telling the user what this model is for. */
   note: string;
+  /**
+   * Who has to be credited, and under what licence.
+   *
+   * The weights are published under CC BY 4.0, which allows use and redistribution
+   * **with attribution**. The app has to show this, not only ship it.
+   */
+  attribution: string;
   /** Where it comes from. */
   archive: SpeechModelArchive;
   /** The files that make up the model. */
@@ -65,6 +72,8 @@ export const PARAKEET_TDT_06B_V3: SpeechModelBundle = {
   version: '1.3.0',
   label: 'Parakeet TDT 0.6B v3 (8-bit)',
   note: 'Runs on this computer. The audio never leaves it. About 700 MB to download.',
+  attribution:
+    'Parakeet TDT 0.6B v3 from NVIDIA, fine-tuned by Moondream, with the ONNX export and 8-bit quantisation by @thiswillbeyourgithub. Used under CC BY 4.0.',
   languages: ['en'],
   archive: {
     url: 'https://github.com/Kieirra/murmure-model/releases/download/1.3.0/parakeet-tdt-0.6b-v3-int8.zip',

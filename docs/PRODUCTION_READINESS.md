@@ -24,7 +24,9 @@ Where this stands, what is left, and what must not be claimed.
 ### Must
 
 1. **Add the attribution.** The model is CC BY 4.0 and the app must credit NVIDIA.
-   Not done. See `MODEL_SETUP.md` for the wording.
+   **Done.** The desktop shows it under the speech model settings and the phone
+   shows its own model's credit. The wording and the sources are in
+   `MODEL_SETUP.md`.
 2. **Get the licensing question answered.** A lawyer must confirm that the written
    implementation, which reads the same permissively-licensed model, is not a
    derivative work of the AGPL project. See `LICENSE_REVIEW.md`.

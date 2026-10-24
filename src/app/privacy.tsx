@@ -4,6 +4,7 @@ import { Button, Card, T } from "@/components/ui";
 import {
   localSttSupported,
   MODEL_MB,
+  MODEL_ATTRIBUTION,
   deleteModel,
   downloadModel,
   modelReady,
@@ -518,6 +519,9 @@ function OnDeviceCard({
       <T muted size={14}>
         Needed to transcribe on this device. Once it is installed the audio never
         leaves your phone — only the words are sent, so the notes can be written.
+      </T>
+      <T muted size={14}>
+        {MODEL_ATTRIBUTION}
       </T>
       {ready ? (
         <>

@@ -116,6 +116,10 @@ export function speechPanel(rerender: () => void): Child[] {
             "When this is on, the audio stays on this computer. Only the words are sent, so the notes can be written.",
           )
         : null,
+      // The model is published under a licence that asks for this to be shown.
+      status?.attribution
+        ? h("p", { class: "muted" }, status.attribution)
+        : null,
     ),
   ];
 }

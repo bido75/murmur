@@ -24,6 +24,8 @@ export type ModelSpec = {
   sizeMb: number;
   /** The words to use when telling the user what this model is for. */
   note: string;
+  /** Who made it, and under what licence. Shown to the user. */
+  attribution: string;
 };
 
 /**
@@ -40,6 +42,8 @@ export const SPEECH_MODELS: ModelSpec[] = [
     sizeBytes: 59707625,
     sizeMb: 57,
     note: 'Slower and less accurate than the cloud, but the audio never leaves your phone.',
+    attribution:
+      'Whisper base from OpenAI, converted and quantised by Georgi Gerganov and the whisper.cpp project. Used under the MIT licence.',
   },
 ];
 

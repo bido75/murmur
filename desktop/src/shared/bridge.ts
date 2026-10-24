@@ -3,6 +3,8 @@ export type SpeechModelStatus = {
   id: string;
   label: string;
   note: string;
+  /** Who must be credited for the model, and under what licence. */
+  attribution: string;
   /** How big the model is, in megabytes. */
   sizeMb: number;
   /** Every file is there and has been checked. */

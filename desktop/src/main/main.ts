@@ -312,6 +312,7 @@ function registerIpc() {
       id: bundle.id,
       label: bundle.label,
       note: bundle.note,
+      attribution: bundle.attribution,
       sizeMb: bundleSizeMb(bundle),
       ready: message.ready,
       installed: files.some((f) => f.present),

@@ -95,11 +95,22 @@ Settings → Privacy & data → "Remove the speech model". The folder is deleted
 
 ## Attribution
 
-The app must credit NVIDIA for Parakeet under CC BY 4.0. **This has not been added to
-the app yet** — it is on the list in `PRODUCTION_READINESS.md`, and it must be done
-before the app is released.
+The model is published under **CC BY 4.0**, which allows use and redistribution
+**with attribution**. The app must show that attribution. **This has been added to
+the app**: the desktop shows it under the speech model settings, and the phone shows
+it under its own speech model settings.
 
-The wording should say something like:
+The credits are the ones the model's own release gives:
 
-> Transcription on this computer uses Parakeet TDT 0.6B v3 from NVIDIA, licensed under
-> CC BY 4.0, and the int8 ONNX export by @thiswillbeyourgithub.
+- [nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) — the original model
+- [moondream/parakeet-ultra](https://huggingface.co/moondream/parakeet-ultra) — the fine-tune, by Moondream
+- [Olicorne/parakeet-tdt-0.6b-v3-ultra-onnx](https://huggingface.co/Olicorne/parakeet-tdt-0.6b-v3-ultra-onnx) — the ONNX export and the 8-bit quantisation, by [@thiswillbeyourgithub](https://github.com/thiswillbeyourgithub)
+
+The wording in the app is:
+
+> Parakeet TDT 0.6B v3 from NVIDIA, fine-tuned by Moondream, with the ONNX export
+> and 8-bit quantisation by @thiswillbeyourgithub. Used under CC BY 4.0.
+
+The phone's model is separate and needs no such credit: **Whisper base** from
+OpenAI, converted by the [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+project, under the MIT licence. It is credited in the app anyway.
