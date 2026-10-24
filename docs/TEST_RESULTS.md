@@ -8,9 +8,10 @@ What was actually run, on what, and what it proved.
 
 | Suite | Command | Result |
 |---|---|---|
-| The app's logic | `npm test` (the `test:logic` half) | **167 pass, 0 fail** |
+| The app's logic | `npm test` (the `test:logic` half) | **168 pass, 0 fail** |
+| The app's own units | `npm test` (the `test:app` half) | **10 pass, 0 fail** |
 | The database's security | `npm test` (the `test:db` half) | **75 pass, 0 fail** |
-| The server's logic | `deno test --allow-all _shared/` | **167 pass, 0 fail** |
+| The server's logic | `deno test --allow-all _shared/` | **168 pass, 0 fail** |
 | The desktop's logic | `desktop: npm test` | **92 pass, 0 fail, 2 skipped** |
 | The app's types | `npx tsc --noEmit` | clean |
 | The app's lint | `npx expo lint` | clean, 0 warnings |
@@ -18,6 +19,34 @@ What was actually run, on what, and what it proved.
 | The desktop's build | `desktop: node build.mjs` | builds |
 | The desktop's smoke test | `desktop: MURMUR_SMOKE_SHOT=… npx electron .` | The app starts and renders; the bridge is exposed and the window cannot reach Node (`SMOKE bridge-isolated true`) |
 | The app's bundle | Metro, iOS | builds, 1202 modules |
+
+### The whole pipeline, run for real
+
+The suites above are unit tests. The whole path was also run against a local stack,
+from a new account to the finished notes:
+
+```powershell
+node scripts\test-local-pipeline.cjs
+```
+
+| Step | Result |
+|---|---|
+| Sign up | 200 |
+| Create the recording | 201 |
+| Upload the audio | 200 |
+| Transcribe it | The transcript matched the audio exactly, with the times |
+| Write the notes | Done; the recording reached `ready` |
+| The provider | It was asked for, and it answered: `{"provider":"ollama","local":true}` |
+
+Two things were found this way that no unit test would have caught:
+
+- **The speech service could not reach the audio.** A local stack keeps the audio on
+  one computer, and the service is given a link. It now sends the audio itself when
+  the service says it cannot reach the link.
+- **The audio was always labelled as a WAV file**, when a phone records AAC in
+  `.m4a` and a browser records WebM. The content type now comes from the file's
+  name. The service reads the content whatever the header says, so this did not
+  break anything, but it was wrong.
 
 ### One flake, worth knowing about
 
