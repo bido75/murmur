@@ -4,6 +4,26 @@
 /** The ways a microphone can be unavailable. */
 export type MicProblem = 'blocked' | 'no-device' | 'in-use' | 'no-support' | 'unknown';
 
+/**
+ * The words to use when the page itself is the problem.
+ *
+ * A browser only hands a page a microphone on a **secure** page: https, or
+ * `localhost`. On a plain address on the network — `http://192.168.1.5:8090` — the
+ * browser withholds the microphone entirely, so `navigator.mediaDevices` is not even
+ * there. Saying "try another browser" for that sends people down the wrong road,
+ * because every browser behaves the same way.
+ */
+export function insecurePageMessage(): string {
+  return 'This page is not secure, so the browser will not give it a microphone. Open the app over https, or open it in the Expo Go app on your phone.';
+}
+
+/**
+ * The words to use when the browser itself cannot record.
+ */
+export function noBrowserSupportMessage(): string {
+  return 'This browser cannot record audio. Try a current version of Chrome, Edge, Firefox or Safari.';
+}
+
 /** What the browser or the phone called the problem. */
 export function micProblem(name: string | null | undefined): MicProblem {
   switch ((name ?? '').toLowerCase()) {

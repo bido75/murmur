@@ -76,18 +76,39 @@ change with it, and the firewall rule stays as it is.
 
 ### A note on plain HTTP
 
-Served over `http://10.0.0.180:8090`, the page is **not** a secure context, so the
-browser's `crypto.subtle` is not available and `crypto.randomUUID` may be missing. The
-sign-in by email code still works. But some things are weaker than they should be:
+**Served over `http://10.0.0.180:8090`, the page is not a secure context.** A browser
+only gives a page a microphone, and only a few other things, on a secure page: `https`,
+or `localhost`. On a plain address on the network the browser withholds them, and there
+is nothing the app can do about it.
 
-- The single sign-on flow falls back from PKCE to plain, because the code challenge
-  cannot be hashed without `crypto.subtle`.
-- Extensions that use `crypto.randomUUID` report an error in the console. That is the
-  extension's own code, not the app's.
+### A note on plain HTTP
 
-For a secure origin, serve the dev server over HTTPS (`npx expo start --https` is
-supported for the web) or use a tunnel (`npx expo start --tunnel`, which needs
-`npm i -g @expo/ngrok` and gives a public `https://` address).
+**Served over `http://10.0.0.180:8090`, the page is not a secure context.** A browser
+only gives a page a microphone, and only a few other things, on a secure page: `https`,
+or `localhost`. On a plain address on the network the browser withholds them, and there
+is nothing the app can do about it.
+
+What is affected, and what it looks like:
+
+| Missing | What the user sees |
+|---|---|
+| `navigator.mediaDevices` | "This browser cannot record audio" — but the browser is fine; the page is not secure |
+| `crypto.subtle` | The single sign-on falls back from PKCE to plain |
+| `crypto.randomUUID` | Browser extensions that use it report an error |
+
+**So a phone recording over the local network needs a secure origin.** Two ways to get
+one:
+
+1. **Open it in the Expo Go app.** Expo Go's own window is a secure context, so the
+   microphone works. This is the quickest way to try it.
+2. **Serve the app over https.** `npx expo start --tunnel` gives a public `https://`
+   address with a real certificate (it needs `npm i -g @expo/ngrok` first).
+   `npx expo start --https` uses a certificate the phone will ask you to accept; a
+   certificate the browser does not trust may not count as secure, so the tunnel is the
+   dependable one.
+
+The app now says which of these it is, rather than blaming the browser:
+"This page is not secure, so the browser will not give it a microphone."
 
 ## What this branch changes
 

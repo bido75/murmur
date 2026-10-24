@@ -26,6 +26,8 @@ export {
 export {
   micMessage,
   micProblem,
+  insecurePageMessage,
+  noBrowserSupportMessage,
   type MicProblem,
 } from "../../supabase/functions/_shared/mic_permission";
 export {
