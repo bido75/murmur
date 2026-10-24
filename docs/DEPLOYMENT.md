@@ -52,7 +52,35 @@ Remove-NetFirewallRule -DisplayName "Murmur local Supabase"
 request goes through. `ERR_CONNECTION_REFUSED` means something different: nothing is
 listening on that port at all.
 
-### 3. The app has to be served on the network
+### 3. The server has to be reachable on the network address too
+
+Docker Desktop publishes the local Supabase stack on `127.0.0.1` **only** on some
+machines, even though `docker port` says `0.0.0.0`. The result is that another
+computer times out when it reaches for the server, even with the firewall open.
+
+`scripts\lan-server-proxy.cjs` is the answer: it listens on the computer's network
+address and forwards to the server on the loopback address. It can only forward there,
+so it cannot be used to reach anything else.
+
+```powershell
+# The computer's address, a free port for the proxy, and the server's own port.
+node scripts\lan-server-proxy.cjs 10.0.0.180 54325 54321
+```
+
+Then point the app at the proxy's port, in `.env.local`:
+
+```
+EXPO_PUBLIC_SUPABASE_URL = http://10.0.0.180:54325
+```
+
+And restart the dev server — the address is baked into the bundle when it is built, so
+a stale bundle keeps using the old one. `npx expo start --host lan --port 8090 --clear`
+forces a fresh one.
+
+**`scripts\start-lan-dev.cmd` does both**, and takes the address as its first
+argument.
+
+### 4. The app has to be served on the network
 
 ```bash
 npm run lan
