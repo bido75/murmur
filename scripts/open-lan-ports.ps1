@@ -1,18 +1,21 @@
-# Opens the local Supabase ports so another computer on the network can reach them.
+# Opens the server proxy port so another computer on the network can reach it.
 #
-# Windows Firewall has a rule for Node (so the dev server works) but none for Docker,
-# and the local Supabase stack runs in Docker. Without this rule the app on another
-# computer times out when it tries to reach the server.
+# The phone reaches the local server through `lan-server-proxy.cjs`, which listens
+# on this computer's network address on port 54325 and forwards to the Supabase API
+# on the loopback. Docker Desktop publishes the Supabase stack on 127.0.0.1 only,
+# so the direct ports (54321 and the rest) are no use to another computer: only the
+# proxy is, and only its port needs to be opened.
 #
-# Right-click this file and choose "Run with PowerShell", or run it from an
-# elevated PowerShell:
+# Windows Firewall already has a rule for Node, so the dev server itself is
+# reachable. This only opens the proxy.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\open-lan-ports.ps1
 #
 # It asks for administrator rights itself, so a double-click is enough.
 
 $ErrorActionPreference = "Stop"
-$ports = 54321, 54322, 54323, 54324
+$port = 54325
+$name = "Murmur local Supabase"
 
 # Ask for administrator rights if we do not have them.
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -32,36 +35,32 @@ if (-not $isAdmin) {
   exit
 }
 
-$name = "Murmur local Supabase"
+$description = "Lets another computer on the local network reach the local server through the proxy (54325), which forwards to the Supabase API."
+
 $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
 if ($existing) {
-  Write-Host "The rule is already there." -ForegroundColor Green
-  Get-NetFirewallRule -DisplayName $name |
-    Select-Object DisplayName, Enabled, Direction, Action, Profile |
-    Format-Table -AutoSize
-  Write-Host ""
-  Write-Host "To close the ports again, run this in an elevated PowerShell:"
-  Write-Host "  Remove-NetFirewallRule -DisplayName `"$name`""
-  Read-Host "Press Enter to close"
-  exit
+  # The rule is there, but it may have been made for the old, wrong ports. Point it
+  # at the proxy port instead of saying "already there" and leaving it wrong.
+  $existing | Set-NetFirewallRule -Action Allow -Direction Inbound -Profile Any
+  $existing | Get-NetFirewallPortFilter | Set-NetFirewallPortFilter -LocalPort $port -Protocol TCP
+  Write-Host "Updated the rule to open port $port." -ForegroundColor Green
+} else {
+  New-NetFirewallRule `
+    -DisplayName $name `
+    -Description $description `
+    -Direction Inbound `
+    -Action Allow `
+    -Protocol TCP `
+    -LocalPort $port `
+    -Profile Any | Out-Null
+  Write-Host "The port is open: $port" -ForegroundColor Green
 }
 
-New-NetFirewallRule `
-  -DisplayName $name `
-  -Description "Lets another computer on the local network reach the local Supabase stack: the API (54321), the database (54322), Studio (54323) and the mail catcher (54324)." `
-  -Direction Inbound `
-  -Action Allow `
-  -Protocol TCP `
-  -LocalPort $ports `
-  -Profile Any | Out-Null
-
-Write-Host "The ports are open: $($ports -join ', ')" -ForegroundColor Green
 Write-Host ""
 Write-Host "The other computer can now use:" -ForegroundColor Cyan
 Write-Host "  the app      http://<this-computer-ip>:8090"
-Write-Host "  the server   http://<this-computer-ip>:54321"
-Write-Host "  Studio       http://<this-computer-ip>:54323"
+Write-Host "  the server   http://<this-computer-ip>:54325"
 Write-Host ""
-Write-Host "To close the ports again, run this in an elevated PowerShell:"
+Write-Host "To close the port again, run this in an elevated PowerShell:"
 Write-Host "  Remove-NetFirewallRule -DisplayName `"$name`""
 Read-Host "Press Enter to close"
