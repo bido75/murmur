@@ -2,6 +2,33 @@
 
 Branch: `feature/murmur-app-remediation` (from `feature/transcription-local`).
 
+## 2026-10-25 — Phase 3: account-settings persistence
+
+- Added `consent_reminder`, `field_mode`, `default_template`, `my_state` columns to
+  `user_settings` (migration `20261025010000_user_prefs.sql`).
+- `getSettings` now merges those account prefs with the per-device transcription
+  choices (which stay in AsyncStorage); `saveSettings` writes both and throws so the
+  caller can roll back.
+- The Settings screen shows a Saved indicator and rolls back with an error toast on
+  failure.
+- Added a DB security test proving the owner reads/writes their own prefs and no one
+  else's. (`supabase/tests/sharing.test.mjs`)
+
+## Phase 4/5 verification (no code needed)
+
+The audits flagged these as missing; source inspection shows they are already
+implemented and wired, seen only in their empty/initial render state:
+
+- **Search / Ask AI** (`src/app/(tabs)/search.tsx`, 269 lines): debounced search over
+  recordings and tasks, plus a question-taking assistant, backed by
+  `search_recordings` / `search_tasks` RPCs and the `ask` function. A DB test covers
+  the search RLS.
+- **Uploads** already shows a live pending count and a Retry action.
+- **Settings sub-pages** — Webhooks/API (`/developers`), connections, devices,
+  automations, templates, phone, reels, privacy, API access — all exist and are
+  wired; live OAuth and telephony provisioning remain BLOCKED on external
+  credentials.
+
 ## 2026-10-25 — Sprint 1: verified findings and fixes
 
 ### Fixed
