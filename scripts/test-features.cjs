@@ -86,6 +86,12 @@ async function main() {
 
   const translate = await json("POST", "/functions/v1/translate", { recording_id: recId, lang: "fr" }, token);
   ok("Translate notes", translate.status === 200 && (translate.body?.summary || translate.body?.tasks), translate.body?.summary ? `overview: "${String(translate.body.summary).slice(0, 60)}"` : "");
+
+  const sw = await json("POST", "/functions/v1/translate", { recording_id: recId, lang: "sw" }, token);
+  ok("Translate to Swahili", sw.status === 200 && (sw.body?.summary || sw.body?.tasks), sw.body?.summary ? `overview: "${String(sw.body.summary).slice(0, 60)}"` : `status ${sw.status}`);
+
+  const yo = await json("POST", "/functions/v1/translate", { recording_id: recId, lang: "yo" }, token);
+  ok("Translate to Yoruba", yo.status === 200 && (yo.body?.summary || yo.body?.tasks), yo.body?.summary ? `overview: "${String(yo.body.summary).slice(0, 60)}"` : `status ${yo.status}`);
 }
 
 main().catch((e) => { console.error("FAILED", e); process.exit(1); });

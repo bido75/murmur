@@ -289,13 +289,20 @@ test('Deepgram params: auto, multi, chosen language; redaction groups; keyterms 
 });
 
 test('translation chunks keep every line in order', async () => {
-  const { chunkLines, LANGUAGES } = await import('./translate.ts');
+  const { chunkLines, LANGUAGES, TRANSLATION_LANGUAGES } = await import('./translate.ts');
   const lines = Array.from({ length: 300 }, (_, i) => `line ${i}`);
   const chunks = chunkLines(lines, 120);
   assert.deepEqual(chunks.map((c) => c.length), [120, 120, 60]);
   assert.deepEqual(chunks.flat(), lines);
   assert.equal(chunkLines(['a'.repeat(8000), 'b'.repeat(8000)], 120, 12000).length, 2);
   assert.ok(LANGUAGES.length >= 30);
+  // Translation is a superset with the major African languages, and no code twice.
+  assert.ok(TRANSLATION_LANGUAGES.length > LANGUAGES.length);
+  for (const code of ['sw', 'yo', 'ig', 'ha', 'zu', 'xh', 'am', 'so', 'af', 'rw', 'lg']) {
+    assert.ok(TRANSLATION_LANGUAGES.some((l) => l.code === code), `missing ${code}`);
+  }
+  const codes = TRANSLATION_LANGUAGES.map((l) => l.code);
+  assert.equal(new Set(codes).size, codes.length, 'duplicate language code');
 });
 
 test('a normalized Drive link stays valid when checked again', () => {
