@@ -121,7 +121,9 @@ export default function Record() {
 
   useEffect(() => {
     getSettings().then((s) => {
-      setTemplate(s.defaultTemplate);
+      // Field mode overrides the effective default for a new recording, but never
+      // overwrites the user's chosen default type.
+      setTemplate(s.fieldMode ? "site_walk" : s.defaultTemplate);
       setNeedConsent(s.consentReminder);
       setField(s.fieldMode);
       setMyState(s.myState);
@@ -309,7 +311,7 @@ export default function Record() {
                   <Pressable
                     key={k}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
+                    accessibilityState={{ checked: on }}
                     onPress={() => {
                       setTemplate(k);
                       setCustomId(null);
@@ -338,7 +340,7 @@ export default function Record() {
                   <Pressable
                     key={c.id}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
+                    accessibilityState={{ checked: on }}
                     onPress={() => {
                       setTemplate(c.base);
                       setCustomId(c.id);
@@ -497,7 +499,7 @@ export default function Record() {
                   <Pressable
                     key={m}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
+                    accessibilityState={{ checked: on }}
                     onPress={() => setConsent(m)}
                     style={styles.checkRow}
                   >

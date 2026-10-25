@@ -450,7 +450,7 @@ function Options({
           <Pressable
             key={o.label}
             accessibilityRole="radio"
-            accessibilityState={{ selected: on }}
+              accessibilityState={{ checked: on }}
             onPress={() => onChange(o.days)}
             style={{
               paddingHorizontal: 12,
@@ -624,7 +624,7 @@ function TranscriptionModeCard({
               })
             }
             accessibilityRole="radio"
-            accessibilityState={{ selected: on }}
+              accessibilityState={{ checked: on }}
             accessibilityLabel={m.label}
             style={{
               flexDirection: "row",

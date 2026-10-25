@@ -4,6 +4,7 @@ import type { Utterance } from './verify.ts';
 import { deepgramParams } from './stt.ts';
 import { audioContentType } from './ingest.ts';
 import { mistralUtterances, sttFallbackOrder, type SttProvider } from './mistral.ts';
+import { rewriteHost } from './client_url.ts';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,28 +19,12 @@ export function json(body: unknown, status = 200): Response {
 }
 
 /**
- * Rewrite a storage-signed URL so the app can actually fetch it.
- *
- * On a local stack the server sees itself as `http://kong:8000` — the Docker service
- * name — and the signed URLs for stored files come back with that host, which no phone
- * or browser can resolve. EXTERNAL_SUPABASE_URL is the address the app really uses, so
- * the host is swapped for it. The path and the token are untouched, so the URL still
- * opens. In a hosted setup SUPABASE_URL is already the public address and no rewrite
- * happens.
+ * Rewrite a storage-signed URL so the app can actually fetch it. See
+ * `client_url.ts` for the pure logic; this only supplies the configured address.
  */
 export function clientUrl(url: string | null | undefined): string | null | undefined {
   if (!url) return url;
-  const external = (Deno.env.get('EXTERNAL_SUPABASE_URL') ?? '').replace(/\/+$/, '');
-  if (!external) return url;
-  try {
-    const u = new URL(url);
-    const e = new URL(external);
-    u.protocol = e.protocol;
-    u.host = e.host;
-    return u.toString();
-  } catch {
-    return url;
-  }
+  return rewriteHost(url, Deno.env.get('EXTERNAL_SUPABASE_URL') ?? '');
 }
 
 function env(name: string, fallback?: string): string {
