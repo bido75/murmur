@@ -865,29 +865,66 @@ const DEFAULT_SETTINGS: Settings = {
   preferLocal: false,
 };
 
-export async function getSettings(): Promise<Settings> {
+/**
+ * The preferences that belong to the account and sync across devices. The rest of
+ * `Settings` (how audio is transcribed) is per device, because "never upload audio"
+ * is a promise about this phone, not the whole account.
+ */
+async function readUserPrefs(): Promise<Partial<Settings>> {
   try {
-    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const saved = JSON.parse(raw) as Partial<Settings>;
-    // Settings saved before the mode picker only had "onDevice"; carry that over
-    // so a user who chose on-device transcription keeps it.
-    const transcriptionMode =
-      saved.transcriptionMode ??
-      (saved.onDevice ? "local" : DEFAULT_SETTINGS.transcriptionMode);
+    const { data } = await supabase
+      .from("user_settings")
+      .select("consent_reminder, field_mode, default_template, my_state")
+      .maybeSingle();
+    if (!data) return {};
     return {
-      ...DEFAULT_SETTINGS,
-      ...saved,
-      transcriptionMode,
-      onDevice: saved.onDevice ?? transcriptionMode === "local",
+      consentReminder: data.consent_reminder as boolean | undefined,
+      fieldMode: data.field_mode as boolean | undefined,
+      defaultTemplate: data.default_template as Template | undefined,
+      myState: (data.my_state as string | null | undefined) ?? undefined,
     };
   } catch {
-    return DEFAULT_SETTINGS;
+    return {};
   }
+}
+
+export async function getSettings(): Promise<Settings> {
+  let local: Partial<Settings> = {};
+  try {
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    if (raw) local = JSON.parse(raw) as Partial<Settings>;
+  } catch {
+    local = {};
+  }
+  const merged = { ...DEFAULT_SETTINGS, ...local, ...(await readUserPrefs()) };
+  // Settings saved before the mode picker only had "onDevice"; carry that over
+  // so a user who chose on-device transcription keeps it.
+  const transcriptionMode =
+    merged.transcriptionMode ??
+    (merged.onDevice ? "local" : DEFAULT_SETTINGS.transcriptionMode);
+  return {
+    ...merged,
+    transcriptionMode,
+    onDevice: merged.onDevice ?? transcriptionMode === "local",
+  };
 }
 
 export async function saveSettings(s: Settings) {
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  // Sync the account-level prefs so they survive a reload on another device.
+  const me = await currentUserId();
+  if (!me) return; // not signed in; the device copy still holds
+  const { error } = await supabase.from("user_settings").upsert(
+    {
+      user_id: me,
+      consent_reminder: s.consentReminder,
+      field_mode: s.fieldMode,
+      default_template: s.defaultTemplate,
+      my_state: s.myState,
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) throw new Error(error.message);
 }
 
 // ---------- Projects ----------

@@ -58,6 +58,8 @@ export default function SettingsScreen() {
   const [billing, setBilling] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [buying, setBuying] = useState(false);
+  // Save feedback for the toggles and radios on this page.
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
     getSettings().then(setSettings);
@@ -113,11 +115,21 @@ export default function SettingsScreen() {
     }
   }
 
-  function update(patch: Partial<Settings>) {
+  async function update(patch: Partial<Settings>) {
     if (!settings) return;
+    const prev = settings;
     const next = { ...settings, ...patch };
     setSettings(next);
-    void saveSettings(next);
+    setSaveState("saving");
+    try {
+      await saveSettings(next);
+      setSaveState("saved");
+    } catch (e) {
+      // Roll back the control so the UI matches what was actually saved.
+      setSettings(prev);
+      setSaveState("error");
+      notify("Couldn't save", (e as Error).message);
+    }
   }
 
   async function upgrade() {
@@ -155,6 +167,11 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+      {saveState === "saved" || saveState === "error" ? (
+        <T muted size={13} style={{ color: saveState === "error" ? t.danger : t.muted }}>
+          {saveState === "saved" ? "Saved." : "Couldn't save — your change was undone."}
+        </T>
+      ) : null}
       {billing?.paywall ? (
         <Card style={{ gap: space.sm }}>
           <T weight="600">Your plan</T>

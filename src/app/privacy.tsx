@@ -131,7 +131,7 @@ export default function Privacy() {
     if (!settings) return;
     const next = { ...settings, myState: code };
     setSettings(next);
-    void saveSettings(next);
+    void saveSettings(next).catch(() => {});
   }
 
   async function removeAccount() {
@@ -320,7 +320,7 @@ export default function Privacy() {
           ready={modelReadyState}
           onChange={(s) => {
             setSettings(s);
-            void saveSettings(s);
+            void saveSettings(s).catch(() => {});
           }}
         />
       )}
@@ -332,7 +332,7 @@ export default function Privacy() {
           onReadyChange={setModelReadyState}
           onChange={(s) => {
             setSettings(s);
-            void saveSettings(s);
+            void saveSettings(s).catch(() => {});
           }}
         />
       )}
