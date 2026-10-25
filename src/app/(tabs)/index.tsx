@@ -1,16 +1,42 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { Banner, Button, Card, Empty, StatusPill, T } from '@/components/ui';
-import { ActionMenu } from '@/components/ActionMenu';
-import { botAvailable, getSettings, importAudio, listRecordings, localOnlyRecordings, upcomingEvents } from '@/lib/api';
-import { getBilling, limitText, meterDetail, meterTitle, waitingRecordings, waitingText, warningText, type Billing } from '@/lib/billing';
-import { briefParams, dayLabel, timeRange } from '@/lib/calendarUi';
-import { minutes, shortDate } from '@/lib/format';
-import { subscribe } from '@/lib/sync';
-import { notify } from '@/lib/dialog';
-import { radius, space, useTheme } from '@/lib/theme';
-import { TEMPLATE_LABELS, type CalendarEvent, type Recording } from '@/lib/types';
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+} from "react-native";
+import { Banner, Button, Card, Empty, StatusPill, T } from "@/components/ui";
+import { ActionMenu } from "@/components/ActionMenu";
+import {
+  botAvailable,
+  getSettings,
+  importAudio,
+  listRecordings,
+  localOnlyRecordings,
+  upcomingEvents,
+} from "@/lib/api";
+import {
+  getBilling,
+  limitText,
+  meterDetail,
+  meterTitle,
+  waitingRecordings,
+  waitingText,
+  warningText,
+  type Billing,
+} from "@/lib/billing";
+import { briefParams, dayLabel, timeRange } from "@/lib/calendarUi";
+import { minutes, shortDate } from "@/lib/format";
+import { subscribe } from "@/lib/sync";
+import { notify } from "@/lib/dialog";
+import { radius, space, useTheme } from "@/lib/theme";
+import {
+  TEMPLATE_LABELS,
+  type CalendarEvent,
+  type Recording,
+} from "@/lib/types";
 
 export default function Recordings() {
   const t = useTheme();
@@ -30,7 +56,13 @@ export default function Recordings() {
   useFocusEffect(
     useCallback(() => {
       upcomingEvents(1)
-        .then((r) => setNext(r.events.find((e) => new Date(e.start).getTime() - Date.now() < 24 * 3600_000) ?? null))
+        .then((r) =>
+          setNext(
+            r.events.find(
+              (e) => new Date(e.start).getTime() - Date.now() < 24 * 3600_000,
+            ) ?? null,
+          ),
+        )
         .catch(() => setNext(null));
     }, []),
   );
@@ -51,19 +83,32 @@ export default function Recordings() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
   useEffect(() => subscribe(() => void load()), [load]);
 
   // The plan and the minutes: the server decides, this screen shows the answer.
   const loadBilling = useCallback(async () => {
-    const [plan, ids] = await Promise.all([getBilling(), waitingRecordings().catch(() => [] as string[])]);
+    const [plan, ids] = await Promise.all([
+      getBilling(),
+      waitingRecordings().catch(() => [] as string[]),
+    ]);
     setBilling(plan);
     setWaiting(ids);
   }, []);
-  useFocusEffect(useCallback(() => { void loadBilling(); }, [loadBilling]));
+  useFocusEffect(
+    useCallback(() => {
+      void loadBilling();
+    }, [loadBilling]),
+  );
 
   // While anything is processing, refresh every few seconds.
-  const processing = items.some((r) => !['ready', 'failed', 'scheduled', 'cancelled'].includes(r.status));
+  const processing = items.some(
+    (r) => !["ready", "failed", "scheduled", "cancelled"].includes(r.status),
+  );
   useEffect(() => {
     if (!processing) return;
     const timer = setInterval(() => void load(), 5000);
@@ -85,46 +130,103 @@ export default function Recordings() {
       <FlatList
         data={items}
         keyExtractor={(r) => r.id}
-        contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 140 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={t.muted} />}
+        contentContainerStyle={{
+          padding: space.lg,
+          gap: space.md,
+          paddingBottom: 140,
+        }}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={load}
+            tintColor={t.muted}
+          />
+        }
         ListHeaderComponent={
           <View style={{ gap: space.md }}>
-            {offline ? <Banner text="You're offline. Recordings will upload when you're back online." /> : null}
+            {offline ? (
+              <Banner text="You're offline. Recordings will upload when you're back online." />
+            ) : null}
             {billing?.paywall ? (
               <Card style={{ gap: space.sm }}>
                 <T weight="600">{meterTitle(billing)}</T>
-                <T muted size={13}>{meterDetail(billing)}</T>
-                {billing.overLimit ? <T size={13} style={{ color: t.warn }}>{limitText(billing)}</T> : null}
-                {billing.warn && !billing.overLimit ? <T size={13} style={{ color: t.warn }}>{warningText(billing)}</T> : null}
-                <Button label="See your plan" kind="secondary" onPress={() => router.push('/settings')} />
+                <T muted size={13}>
+                  {meterDetail(billing)}
+                </T>
+                {billing.overLimit ? (
+                  <T size={13} style={{ color: t.warn }}>
+                    {limitText(billing)}
+                  </T>
+                ) : null}
+                {billing.warn && !billing.overLimit ? (
+                  <T size={13} style={{ color: t.warn }}>
+                    {warningText(billing)}
+                  </T>
+                ) : null}
+                <Button
+                  label="See your plan"
+                  kind="secondary"
+                  onPress={() => router.push("/settings")}
+                />
               </Card>
             ) : null}
-            {billing?.waiting ? <Banner text={waitingText(billing.waiting)} tone="info" /> : null}
+            {billing?.waiting ? (
+              <Banner text={waitingText(billing.waiting)} tone="info" />
+            ) : null}
             {next ? (
-              <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/brief', params: briefParams(next) })}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() =>
+                  router.push({ pathname: "/brief", params: briefParams(next) })
+                }
+              >
                 <Card style={{ gap: 4, borderColor: t.accent }}>
-                  <T muted size={12} weight="600">NEXT MEETING · {dayLabel(next.start).toUpperCase()} {timeRange(next)}</T>
-                  <T weight="600" numberOfLines={2}>{next.title}</T>
-                  <T size={13} style={{ color: t.accent }}>Open brief →</T>
+                  <T muted size={12} weight="600">
+                    NEXT MEETING · {dayLabel(next.start).toUpperCase()}{" "}
+                    {timeRange(next)}
+                  </T>
+                  <T weight="600" numberOfLines={2}>
+                    {next.title}
+                  </T>
+                  <T size={13} style={{ color: t.accent }}>
+                    Open brief →
+                  </T>
                 </Card>
               </Pressable>
             ) : null}
           </View>
         }
-        ListEmptyComponent={loading ? null : <Empty title="No recordings yet" body="Tap Record to capture a meeting, call, lecture or site walk." />}
+        ListEmptyComponent={
+          loading ? undefined : (
+            <Empty
+              title="No recordings yet"
+              body="Tap Record to capture a meeting, call, lecture or site walk."
+            />
+          )
+        }
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push({ pathname: '/recording/[id]', params: { id: item.id } })}
+            onPress={() =>
+              router.push({
+                pathname: "/recording/[id]",
+                params: { id: item.id },
+              })
+            }
           >
             <Card style={{ gap: space.sm }}>
-              <T size={17} weight="600" numberOfLines={2}>{item.title}</T>
+              <T size={17} weight="600" numberOfLines={2}>
+                {item.title}
+              </T>
               <T muted size={13}>
-                {shortDate(item.created_at)} · {TEMPLATE_LABELS[item.template]}{item.duration_ms ? ` · ${minutes(item.duration_ms)}` : ''}
+                {shortDate(item.created_at)} · {TEMPLATE_LABELS[item.template]}
+                {item.duration_ms ? ` · ${minutes(item.duration_ms)}` : ""}
               </T>
               {waiting.includes(item.id) ? (
-                <T muted size={13}>Notes are waiting. Your audio is safe.</T>
-              ) : item.status !== 'ready' ? (
+                <T muted size={13}>
+                  Notes are waiting. Your audio is safe.
+                </T>
+              ) : item.status !== "ready" ? (
                 <StatusPill status={item.status} />
               ) : null}
             </Card>
@@ -132,16 +234,31 @@ export default function Recordings() {
         )}
       />
 
-      <View style={[styles.dock, { backgroundColor: t.bg, borderTopColor: t.border }]}>
-        <Button label="Add" kind="secondary" onPress={() => setAddMenu(true)} style={{ flex: 1 }} />
+      <View
+        style={[
+          styles.dock,
+          { backgroundColor: t.bg, borderTopColor: t.border },
+        ]}
+      >
+        <Button
+          label="Add"
+          kind="secondary"
+          onPress={() => setAddMenu(true)}
+          style={{ flex: 1 }}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Start recording"
-          onPress={() => router.push('/record')}
-          style={({ pressed }) => [styles.record, { backgroundColor: t.record, opacity: pressed ? 0.85 : 1 }]}
+          onPress={() => router.push("/record")}
+          style={({ pressed }) => [
+            styles.record,
+            { backgroundColor: t.record, opacity: pressed ? 0.85 : 1 },
+          ]}
         >
           <View style={styles.dot} />
-          <T size={17} weight="700" style={{ color: '#fff' }}>Record</T>
+          <T size={17} weight="700" style={{ color: "#fff" }}>
+            Record
+          </T>
         </Pressable>
       </View>
       <ActionMenu
@@ -149,9 +266,19 @@ export default function Recordings() {
         title="Add a recording"
         onClose={() => setAddMenu(false)}
         actions={[
-          { label: 'Import a file', onPress: () => void onImport() },
-          { label: 'Import from a link', onPress: () => router.push('/import-link') },
-          ...(hasBot ? [{ label: 'Send a notetaker to a meeting', onPress: () => router.push('/notetaker') }] : []),
+          { label: "Import a file", onPress: () => void onImport() },
+          {
+            label: "Import from a link",
+            onPress: () => router.push("/import-link"),
+          },
+          ...(hasBot
+            ? [
+                {
+                  label: "Send a notetaker to a meeting",
+                  onPress: () => router.push("/notetaker"),
+                },
+              ]
+            : []),
         ]}
       />
     </View>
@@ -159,7 +286,24 @@ export default function Recordings() {
 }
 
 const styles = StyleSheet.create({
-  dock: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: space.md, padding: space.lg, borderTopWidth: StyleSheet.hairlineWidth },
-  record: { flex: 2, minHeight: 50, borderRadius: radius.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
-  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#fff' },
+  dock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    gap: space.md,
+    padding: space.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  record: {
+    flex: 2,
+    minHeight: 50,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.sm,
+  },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#fff" },
 });

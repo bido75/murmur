@@ -174,7 +174,7 @@ async function hashFile(file: File): Promise<string> {
   try {
     const chunk = 4 * 1024 * 1024;
     for (;;) {
-      const bytes = handle.readBytes(chunk);
+      const bytes = await handle.readBytes(chunk);
       if (!bytes || bytes.length === 0) break;
       hasher.update(bytes);
       // A short read means the end of the file.

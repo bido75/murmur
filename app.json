@@ -46,7 +46,9 @@
         {
           "color": "#1F6F5C"
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-status-bar"
     ],
     "scheme": "murmur",
     "experiments": {
