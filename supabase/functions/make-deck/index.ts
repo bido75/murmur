@@ -1,7 +1,7 @@
 // POST { kind, recording_id? | project_id?, audience? } → { url, filename }
 // Builds a .pptx from a recording's (or a whole project's) verified notes.
 import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, sanitizeSlides, type DeckData, type DeckKind } from '../_shared/deck.ts';
-import { adminClient, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 
 type Rec = { id: string; title: string; created_at: string };
@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
     });
     if (upErr) throw new Error(upErr.message);
     const { data: signed } = await admin.storage.from('exports').createSignedUrl(path, 60 * 60, { download: filename });
-    return json({ url: signed?.signedUrl, filename, slides: deck.slides.length + 1 });
+    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1 });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     return json({ error: (e as Error).message }, status);
