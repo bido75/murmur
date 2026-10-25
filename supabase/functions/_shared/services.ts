@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { Utterance } from './verify.ts';
 import { deepgramParams } from './stt.ts';
 import { audioContentType } from './ingest.ts';
-import { chooseSttProvider, mistralUtterances } from './mistral.ts';
+import { mistralUtterances, sttFallbackOrder, type SttProvider } from './mistral.ts';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -99,12 +99,15 @@ async function readAudio(audioUrl: string, storagePath?: string): Promise<ArrayB
  * so the file is uploaded on every request. Speaker labels are asked for, because a
  * meeting has more than one person in it.
  */
+type SttResult = { utterances: (Utterance & { channel?: number })[]; durationMs: number; language: string | null };
+type SttOptions = { language?: string | null; redact?: string[]; multichannel?: boolean };
+
 async function transcribeWithMistral(
   audioUrl: string,
   keyterms: string[],
-  opts: { language?: string | null; multichannel?: boolean },
+  opts: SttOptions,
   storagePath?: string,
-): Promise<{ utterances: (Utterance & { channel?: number })[]; durationMs: number; language: string | null }> {
+): Promise<SttResult> {
   const bytes = await readAudio(audioUrl, storagePath);
   const name = storagePath ?? audioUrl;
   const extension = name.split('.').pop()?.toLowerCase() ?? 'wav';
@@ -134,28 +137,13 @@ function sttTimeoutMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 300_000;
 }
 
-/**
- * Transcribe one audio file, with speaker labels. Times come back in ms, relative to
- * the file.
- *
- * The audio is given to the speech service as a link, which is the quick way. But a
- * local setup keeps the audio on a machine the service cannot reach, so when that
- * happens the audio is sent directly instead.
- *
- * Deepgram and Mistral can both read it. Which one is used is decided by
- * STT_PROVIDER, and a redaction always goes to Deepgram, which can keep it.
- */
-export async function transcribe(
+/** Transcribe with Deepgram, given the audio as a link and falling back to its bytes. */
+async function transcribeWithDeepgram(
   audioUrl: string,
-  keyterms: string[] = [],
-  opts: { language?: string | null; redact?: string[]; multichannel?: boolean } = {},
-  fallback?: { storagePath: string },
-): Promise<{ utterances: (Utterance & { channel?: number })[]; durationMs: number; language: string | null }> {
-  const provider = chooseSttProvider(Deno.env.get('STT_PROVIDER'), (opts.redact ?? []).length > 0);
-  if (provider === 'mistral') {
-    return await transcribeWithMistral(audioUrl, keyterms, opts, fallback?.storagePath);
-  }
-
+  keyterms: string[],
+  opts: SttOptions,
+  storagePath?: string,
+): Promise<SttResult> {
   const o = {
     model: env('DEEPGRAM_MODEL', 'nova-3'),
     keyterms,
@@ -185,14 +173,14 @@ export async function transcribe(
 
   // The service could not reach the audio: it is on a machine only this computer can
   // see. Send the audio itself instead of a link to it.
-  if (!res.ok && fallback) {
+  if (!res.ok && storagePath) {
     const failed = await res.text();
     if (cannotReachAudio(res.status, failed)) {
-      const { data, error } = await adminClient().storage.from('audio').download(fallback.storagePath);
+      const { data, error } = await adminClient().storage.from('audio').download(storagePath);
       if (error) throw new Error(`Could not read the audio: ${error.message}`);
       console.warn('The audio is not reachable from outside, sending it directly');
       const bytes = new Uint8Array(await data.arrayBuffer());
-      res = await send(deepgramParams(o, false), bytes, audioContentType(fallback.storagePath));
+      res = await send(deepgramParams(o, false), bytes, audioContentType(storagePath));
     } else {
       throw new Error(`Transcription failed (${res.status}): ${failed.slice(0, 300)}`);
     }
@@ -212,6 +200,57 @@ export async function transcribe(
   const durationMs = Math.round((body?.metadata?.duration ?? 0) * 1000);
   const language = body?.results?.channels?.[0]?.detected_language ?? null;
   return { utterances, durationMs, language };
+}
+
+/** A network blip worth a retry, rather than a fault the other engine would hit too. */
+function isTransientNetworkError(e: Error): boolean {
+  return /name resolution|dns error|temporary failure|econnreset|etimedout|fetch failed|networkerror/i.test(e.message);
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Transcribe one audio file, with speaker labels. Times come back in ms, relative to
+ * the file.
+ *
+ * Both engines are tried: the configured one first, then the other, so one being
+ * down, rate-limited or unreachable does not fail the recording. A transient network
+ * blip is retried once before moving on. A redaction still goes only to Deepgram,
+ * which is the engine that can keep it.
+ */
+export async function transcribe(
+  audioUrl: string,
+  keyterms: string[] = [],
+  opts: SttOptions = {},
+  fallback?: { storagePath: string },
+): Promise<SttResult> {
+  const wantsRedaction = (opts.redact ?? []).length > 0;
+  const order = sttFallbackOrder(Deno.env.get('STT_PROVIDER'), wantsRedaction);
+
+  let lastError: Error | null = null;
+  const backoff = [500, 1500]; // waits before the second and third tries
+  for (const engine of order) {
+    const key = engine === 'mistral' ? 'MISTRAL_API_KEY' : 'DEEPGRAM_API_KEY';
+    if (!Deno.env.get(key)) continue; // not configured, so not something to fall back to
+
+    for (let attempt = 0; attempt <= backoff.length; attempt++) {
+      try {
+        return engine === 'mistral'
+          ? await transcribeWithMistral(audioUrl, keyterms, opts, fallback?.storagePath)
+          : await transcribeWithDeepgram(audioUrl, keyterms, opts, fallback?.storagePath);
+      } catch (e) {
+        lastError = e as Error;
+        if (attempt < backoff.length && isTransientNetworkError(lastError)) {
+          console.warn(`${engine} hit a network blip, retrying`, lastError.message.slice(0, 200));
+          await sleep(backoff[attempt]);
+          continue;
+        }
+        console.warn(`${engine} transcription failed`, lastError.message.slice(0, 200));
+        break;
+      }
+    }
+  }
+  throw lastError ?? new Error('No speech engine is configured (set DEEPGRAM_API_KEY or MISTRAL_API_KEY)');
 }
 
 type ClaudeMessage = { role: 'user' | 'assistant'; content: string };

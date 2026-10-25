@@ -35,16 +35,17 @@ export function speakerNumber(id: string | null | undefined): number {
 }
 
 /**
- * Which engine reads the audio.
+ * The speech engines to try, in order.
  *
- * Mistral cannot redact. A redaction is a promise that personal details were taken
- * out of the transcript, so when one is asked for and this engine cannot keep it,
- * Deepgram is used instead. Dropping it silently is not an option.
+ * The configured engine is tried first and the other is the fallback, so one engine
+ * being down, rate-limited or unreachable does not fail the recording. The one
+ * exception is a redaction: only Deepgram can take personal details out, so when a
+ * redaction is asked for, Deepgram is the only engine that may run.
  */
-export function chooseSttProvider(asked: string | undefined, wantsRedaction: boolean): SttProvider {
+export function sttFallbackOrder(asked: string | undefined, wantsRedaction: boolean): SttProvider[] {
+  if (wantsRedaction) return ['deepgram'];
   const wanted = (asked ?? '').trim().toLowerCase();
-  if (wanted !== 'mistral') return 'deepgram';
-  return wantsRedaction ? 'deepgram' : 'mistral';
+  return wanted === 'mistral' ? ['mistral', 'deepgram'] : ['deepgram', 'mistral'];
 }
 
 /**

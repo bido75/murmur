@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseSttProvider, mistralUtterances, speakerNumber } from './mistral.ts';
+import { sttFallbackOrder, mistralUtterances, speakerNumber } from './mistral.ts';
 
 test('Mistral speaker labels are turned into the numbers the rest of the app uses', () => {
   assert.equal(speakerNumber('speaker_1'), 0);
@@ -67,13 +67,14 @@ test('segments with no words are dropped, and the language is passed through', (
   assert.equal(out.language, 'fr');
 });
 
-test('Mistral is only used when asked for, and never when a redaction is wanted', () => {
-  assert.equal(chooseSttProvider('mistral', false), 'mistral');
-  assert.equal(chooseSttProvider('MISTRAL', false), 'mistral');
-  // The promise of redaction is kept by the engine that can keep it.
-  assert.equal(chooseSttProvider('mistral', true), 'deepgram');
-  assert.equal(chooseSttProvider('deepgram', false), 'deepgram');
-  assert.equal(chooseSttProvider(undefined, false), 'deepgram');
-  assert.equal(chooseSttProvider('', false), 'deepgram');
-  assert.equal(chooseSttProvider('nonsense', false), 'deepgram');
+test('the engines are tried in order, and a redaction stays with Deepgram', () => {
+  assert.deepEqual(sttFallbackOrder('mistral', false), ['mistral', 'deepgram']);
+  assert.deepEqual(sttFallbackOrder('MISTRAL', false), ['mistral', 'deepgram']);
+  assert.deepEqual(sttFallbackOrder('deepgram', false), ['deepgram', 'mistral']);
+  assert.deepEqual(sttFallbackOrder(undefined, false), ['deepgram', 'mistral']);
+  assert.deepEqual(sttFallbackOrder('', false), ['deepgram', 'mistral']);
+  assert.deepEqual(sttFallbackOrder('nonsense', false), ['deepgram', 'mistral']);
+  // Only Deepgram can redact, so it is the only engine allowed then.
+  assert.deepEqual(sttFallbackOrder('mistral', true), ['deepgram']);
+  assert.deepEqual(sttFallbackOrder('deepgram', true), ['deepgram']);
 });

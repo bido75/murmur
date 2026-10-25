@@ -24,6 +24,20 @@ MISTRAL_STT_MODEL=voxtral-mini-transcribe-3   # or voxtral-small-transcribe-3
 
 Without `STT_PROVIDER`, Deepgram is used.
 
+## Fallback
+
+**Both engines are tried, so one failing does not fail the recording.** The
+configured engine goes first and the other is the fallback. A transient network
+blip (a "Temporary failure in name resolution", say) is retried three times with a
+short wait before moving on, so a one-second wobble does not fail a recording that
+took an hour to make.
+
+The one exception is redaction: only Deepgram can keep that promise, so when a
+redaction is asked for, Deepgram is the only engine that may run. A privacy setting
+is never dropped silently.
+
+If an engine's key is not set, it is skipped rather than tried and failed.
+
 ## The one rule that matters
 
 **A redaction is a promise, and Mistral cannot keep it.**
