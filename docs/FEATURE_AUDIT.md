@@ -27,6 +27,25 @@ The Murmure reference was audited at commit
 
 ---
 
+---
+
+## Remediation branch (feature/murmur-app-remediation)
+
+Before/after for the specific audit findings. Each is cross-referenced in
+`REMEDIATION_PLAN.md` and `IMPLEMENTATION_LOG.md`.
+
+| Finding | Before | After | Evidence |
+|---|---|---|---|
+| Field Mode overwrote the saved default recording type | BROKEN | WORKING | `settings.tsx` no longer writes `default_template`; `record.tsx` computes the effective type as `fieldMode ? "site_walk" : defaultTemplate`. |
+| Radios exposed `selected` instead of `checked` | BROKEN (a11y) | WORKING | 6 files now use `accessibilityState={{ checked }}`; `Segmented` keeps `selected`. |
+| Account preferences were device-only | PARTIAL | WORKING | `consent_reminder`/`field_mode`/`default_template`/`my_state` now persist in `user_settings` with saved/rollback UI; DB test added. |
+| Webhook destinations unsafely fetched private IPs (SSRF) | BROKEN (security) | WORKING | `_shared/ssrf.ts` + delivery guard + `webhook_url_public` check; unit + DB tests. |
+| OAuth redirects used the Docker-internal `kong` host | BROKEN | WORKING | `publicApiBaseUrl()` uses `PUBLIC_API_BASE_URL` → `EXTERNAL_SUPABASE_URL` → `SUPABASE_URL`. |
+| Signed download URLs used `kong` | BROKEN | WORKING | `clientUrl()` rewrites the host (previous branch). |
+| Ask-AI citations | VERIFIED ALREADY WORKING | — | `ask` is RLS-scoped and instructed to cite `(title, m:ss)`. |
+| Recording types "six vs seven" | PARTIAL (doc audit) | WORKING | Seven canonical types in `TEMPLATE_LABELS`; single source of truth. |
+| Google/Slack/Procore OAuth | BLOCKED (no creds) | PARTIAL → mostly BLOCKED | Credentials wired; live round-trip still needs the provider console redirect URIs registered. |
+
 ## 1. Local transcription
 
 | Feature | Status | Evidence |

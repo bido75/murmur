@@ -46,8 +46,8 @@ const HELP: Record<TokenConn, { where: string; url: string }> = {
     url: "https://id.atlassian.com/manage-profile/security/api-tokens",
   },
   monday: {
-    where: "monday.com → your picture → Developers → My access tokens",
-    url: "https://monday.com/developers/apps",
+    where: "monday.com → Developers → My access tokens",
+    url: "https://developer.monday.com/apps/docs/intro",
   },
   clickup: {
     where: "ClickUp → Settings → Apps → API token",

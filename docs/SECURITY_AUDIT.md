@@ -138,6 +138,19 @@ holds only `EXPO_PUBLIC_*` settings, which are meant to be public.
 no key name, and no part of a key is in it. `EXPO_PUBLIC_*` is the only thing Expo
 puts in the client.
 
+### 9. A webhook could make the server fetch a private address — fixed
+
+An outbound webhook destination only had to start with `https://`, so a URL of
+`https://127.0.0.1/…` or `https://169.254.169.254/…` (the cloud metadata service)
+would have been fetched by the server and the response discarded — a classic SSRF
+foothold. Closed in three layers:
+
+- `_shared/ssrf.ts` blocks private/reserved IPv4 and IPv6 ranges, localhost,
+  single-label names, and `.local`/`.internal` hosts; unit-tested.
+- `after_ready.ts` re-checks the destination before fetching, including a DNS
+  resolve that blocks anything landing on a private address.
+- A `webhook_url_public` check constraint stops a direct PostgREST insert.
+
 ## What was checked in the existing app
 
 | Area | How it was checked | Result |
