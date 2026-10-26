@@ -19,6 +19,21 @@ export function json(body: unknown, status = 200): Response {
 }
 
 /**
+ * The address a browser can use to reach this server, for OAuth redirects and
+ * anything a provider has to call back to. PUBLIC_API_BASE_URL (a tunnel or the
+ * deployed domain) wins, then EXTERNAL_SUPABASE_URL (the LAN address), then the
+ * Docker-internal SUPABASE_URL as a last resort.
+ */
+export function publicApiBaseUrl(): string {
+  const v =
+    Deno.env.get('PUBLIC_API_BASE_URL') ||
+    Deno.env.get('EXTERNAL_SUPABASE_URL') ||
+    Deno.env.get('SUPABASE_URL') ||
+    '';
+  return v.replace(/\/$/, '');
+}
+
+/**
  * Rewrite a storage-signed URL so the app can actually fetch it. See
  * `client_url.ts` for the pure logic; this only supplies the configured address.
  */

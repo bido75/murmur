@@ -3,14 +3,14 @@
 //   POST /start      { return_to }      → { url } to open in the browser
 //   GET  /callback   Procore redirect: exchanges the code, stores the tokens server-side
 //   POST /daily-log  { recording_id, date? } → adds the site log to the chosen project's daily log (Notes)
-import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, corsHeaders, HttpError, json, publicApiBaseUrl, requireUser } from '../_shared/services.ts';
 import { isSafeReturn } from '../_shared/calendar.ts';
 import { randomToken } from '../_shared/oauth.ts';
 import { authorizeUrl, createNotesLog, requestToken, tokenRequest, whoAmI } from '../_shared/procore.ts';
 import { env, loadProcore, procoreAccess } from '../_shared/procore_db.ts';
 import { formatSiteLog, siteLogIsEmpty, type SiteLog } from '../_shared/field.ts';
 
-const callbackUrl = () => `${((Deno.env.get('EXTERNAL_SUPABASE_URL') ?? Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, ''))}/functions/v1/procore/callback`;
+const callbackUrl = () => `${publicApiBaseUrl()}/functions/v1/procore/callback`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
