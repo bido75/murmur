@@ -1,8 +1,9 @@
 # 15 — Final release readiness
 
 Date: 2026-10-26
-Branch: `feature/murmur-app-remediation` @ `aad9a61` (post-remediation)
+Branch: `feature/murmur-app-remediation` @ `8ac5ab6` (post-remediation; the documentation-corrections commit is applied on top of this snapshot and remains HEAD)
 Audited snapshot: `c2bf90f` (verified ancestor; audit was of the exact implementation)
+Implementation HEAD at audit: `c7cdc1d` (parent of the audit commit)
 Base: `main` @ `8d7ef8138f5c5b8f6b9cb1764484ff70397adaf9`
 Pushed: **No** — publication awaits authorization.
 
@@ -63,7 +64,8 @@ release and cannot be executed from this environment.
 
 ## Rollback
 
-- Code: `git revert` of the 5 remediation commits; no shared-state rewrite.
+- Code: `git revert` of the 5 post-audit remediation commits plus the
+  documentation-corrections commit; no shared-state rewrite.
 - DB: drop the 4 added columns and the constraint; both migrations are additive
   and reversible without data loss.
 - Credentials: keep old values available until replacements are verified, then

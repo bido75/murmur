@@ -28,13 +28,19 @@ remediation commits.
 
 ## Post-audit changes
 
-Two commits were made after reconciliation, so HEAD is now ahead of the audit
-commit:
+Five commits were made after reconciliation, so HEAD is ahead of the audit
+commit. Current HEAD at reconciliation update: `8ac5ab6`.
 
 | Commit | Contents |
 |---|---|
 | `9540d62` | Recording-recovery plan extraction + 5 regression tests + CI workflow (Stage B/C) |
 | `72093f9` | Settings save/rollback reducer + 5 regression tests (Stage D) |
+| `5d7ac7c` | Post-audit deliverables: baseline reconciliation, remediation matrix, recovery/OAuth/credential/CI validation docs |
+| `aad9a61` | Post-audit docs: settings-save/recovery validation, migration NOT-VALID fix, operator checklists |
+| `8ac5ab6` | Final release readiness: CONDITIONAL, gates documented |
+
+A documentation-corrections commit (deliverable numbering 04, remediation CSV,
+JSON validity, HEAD references) is applied on top of `8ac5ab6`.
 
 ## Conclusion
 
