@@ -1,0 +1,35 @@
+{
+  "id": "REM-001",
+  "requirement": "REQ-1.3b",
+  "status": "PASS",
+  "files": ["src/lib/recoveryPlan.ts", "src/lib/recoveryPlan.test.ts", "src/lib/recorder.ts"],
+  "evidence": "5 Node tests; unreadable-part-still-finalizes case covered; recorder applies the tested plan"
+},
+{
+  "id": "REM-002",
+  "requirement": "REQ-3.4a",
+  "status": "PASS",
+  "files": ["src/lib/settingsSave.ts", "src/lib/settingsSave.test.ts", "src/app/(tabs)/settings.tsx"],
+  "evidence": "5 Node tests; rollback + no-leak-after-fail + field-mode override covered; component drives the reducer"
+},
+{
+  "id": "REM-003",
+  "requirement": "REQ-9/5.1c (SSRF)",
+  "status": "PASS",
+  "files": ["supabase/functions/_shared/ssrf.ts", "supabase/migrations/20261025020000_webhook_ssrf.sql", "supabase/functions/_shared/after_ready.ts"],
+  "evidence": "7 host-classification tests + DB constraint (NOT VALID with cleanup path) + delivery-time DNS check"
+},
+{
+  "id": "REM-004",
+  "requirement": "REQ-10 (CI)",
+  "status": "PASS",
+  "files": [".github/workflows/ci.yml"],
+  "evidence": "3 jobs (app/functions/desktop) with least-privilege permissions, pinned actions, lockfile installs"
+},
+{
+  "id": "REM-005",
+  "requirement": "REQ-11 (migrations)",
+  "status": "PASS",
+  "files": ["supabase/migrations/20261025010000_user_prefs.sql", "supabase/migrations/20261025020000_webhook_ssrf.sql"],
+  "evidence": "both additive; SSRF constraint corrected to NOT VALID after review found the deployment-abort risk"
+}

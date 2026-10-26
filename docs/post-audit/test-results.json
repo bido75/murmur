@@ -1,0 +1,26 @@
+{
+  "executed": [
+    { "command": "npx tsc --noEmit", "result": "clean" },
+    { "command": "npx expo lint", "result": "clean" },
+    { "command": "npm test (test:logic)", "tests": 185, "pass": 185, "fail": 0, "runs": 3, "stable": true },
+    { "command": "npm test (test:app)", "tests": 20, "pass": 20, "fail": 0, "note": "+5 recoveryPlan, +5 settingsSave" },
+    { "command": "npm test (test:db)", "tests": 77, "pass": 77, "fail": 0 },
+    { "command": "deno check .", "result": "clean" },
+    { "command": "deno test --allow-all _shared/", "tests": 185, "pass": 185, "fail": 0 },
+    { "command": "desktop: npx tsc --noEmit", "result": "clean" },
+    { "command": "desktop: npm test", "tests": 94, "pass": 92, "fail": 0, "skipped": 2 }
+  ],
+  "new_tests": [
+    { "file": "src/lib/recoveryPlan.test.ts", "tests": 5, "guards": "interrupted-recording recovery (FIND-001)" },
+    { "file": "src/lib/settingsSave.test.ts", "tests": 5, "guards": "settings save rollback + field-mode override (FIND-006)" },
+    { "file": "supabase/tests/connections.test.mjs (SSRF test)", "tests": 1, "guards": "webhook private-host rejection" },
+    { "file": "supabase/functions/_shared/ssrf.test.ts", "tests": 7, "guards": "SSRF host classification" }
+  ],
+  "not_executed": [
+    "live OAuth round-trips (needs console registration)",
+    "physical-device matrix (hardware)",
+    "screen-reader runs (hardware)",
+    "60-minute recording + scale benchmarks (needs fixtures)",
+    "production-data migration dry run (needs sanitized dump)"
+  ]
+}
