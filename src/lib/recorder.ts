@@ -380,12 +380,12 @@ export function useSegmentedRecorder() {
         silenceSince.current ??= now;
         if (now - silenceSince.current > SILENCE_WARN_MS) {
           setWarning(
-            "Not hearing anything for a while. Check the mic isn't covered.",
+            "Not hearing anything yet — tap to make sure the mic is picking you up.",
           );
         }
       } else {
         silenceSince.current = null;
-        setWarning((w) => (w?.startsWith("Not hearing") ? null : w));
+        setWarning((w) => (w?.startsWith("Not hearing anything") ? null : w));
       }
     }, 500);
     return () => clearInterval(timer);

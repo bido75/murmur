@@ -8,7 +8,7 @@ import { isSafeReturn } from '../_shared/calendar.ts';
 import { randomToken } from '../_shared/oauth.ts';
 import { authorizeUrl, codeExchangeBody, OAUTH_PROVIDERS, providerConf, storedConnection, type OAuthProvider } from '../_shared/oauth_providers.ts';
 
-const callbackUrl = () => `${(Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '')}/functions/v1/connect/callback`;
+const callbackUrl = () => `${((Deno.env.get('EXTERNAL_SUPABASE_URL') ?? Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, ''))}/functions/v1/connect/callback`;
 const creds = (p: OAuthProvider) => {
   const c = providerConf(p, (k) => Deno.env.get(k));
   return { conf: c, id: Deno.env.get(c.idEnv) ?? '', secret: Deno.env.get(c.secretEnv) ?? '' };

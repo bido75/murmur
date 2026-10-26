@@ -9,7 +9,8 @@ import { isSafeReturn, matchProject, sortAndFilter, type CalProvider } from '../
 import { randomToken } from '../_shared/oauth.ts';
 import { creds, fetchEvents, PROVIDERS } from '../_shared/calendar_fetch.ts';
 
-const callbackUrl = () => `${(Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '')}/functions/v1/calendar/callback`;
+const callbackUrl = () =>
+  `${((Deno.env.get('EXTERNAL_SUPABASE_URL') ?? Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, ''))}/functions/v1/calendar/callback`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });

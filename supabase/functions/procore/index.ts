@@ -10,7 +10,7 @@ import { authorizeUrl, createNotesLog, requestToken, tokenRequest, whoAmI } from
 import { env, loadProcore, procoreAccess } from '../_shared/procore_db.ts';
 import { formatSiteLog, siteLogIsEmpty, type SiteLog } from '../_shared/field.ts';
 
-const callbackUrl = () => `${(Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '')}/functions/v1/procore/callback`;
+const callbackUrl = () => `${((Deno.env.get('EXTERNAL_SUPABASE_URL') ?? Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, ''))}/functions/v1/procore/callback`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });

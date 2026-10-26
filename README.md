@@ -143,6 +143,9 @@ You need: a Supabase project, an Anthropic API key, a Deepgram API key, Node 20+
    supabase functions deploy bot --no-verify-jwt       # Recall's webhook; other routes check the user
    ```
    Optional: `supabase secrets set APP_URL=https://your-web-app.example.com` so tasks sent to trackers link back to the recording.
+    Optional (OAuth connections): see `docs/INTEGRATION_STATUS.md` for the per-provider
+    client IDs/secrets and the exact redirect URIs to register. Locally, `EXTERNAL_SUPABASE_URL`
+    is the address the app uses to reach the server, and the redirect URIs are derived from it.
 6. **Run on a phone.** Background recording needs a development build (Expo Go won't keep recording when locked):
    ```bash
    npx expo run:ios        # or: npx expo run:android
