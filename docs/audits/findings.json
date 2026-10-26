@@ -1,0 +1,154 @@
+{
+  "audit": {
+    "repository": "https://github.com/bido75/murmur.git",
+    "base": "main@8d7ef8138f5c5b8f6b9cb1764484ff70397adaf9",
+    "head": "feature/murmur-app-remediation@c7cdc1d6014df28bc258505b84c3febd1fb5137b",
+    "commits_ahead": 37,
+    "files_changed": 145,
+    "pushed": false,
+    "date": "2026-10-26"
+  },
+  "requirements": { "total": 107, "pass": 61, "partial": 14, "fail": 1, "blocked": 22, "deferred": 9 },
+  "tests": {
+    "app_logic": { "pass": 185, "fail": 0 },
+    "app_units": { "pass": 10, "fail": 0 },
+    "db_security": { "pass": 77, "fail": 0 },
+    "deno": { "pass": 185, "fail": 0 },
+    "desktop": { "pass": 92, "fail": 0, "skipped": 2 },
+    "static": { "tsc": "clean", "expo_lint": "clean", "deno_check": "clean" }
+  },
+  "findings": [
+    {
+      "id": "FIND-001",
+      "severity": "HIGH",
+      "area": "reliability",
+      "requirement": "REQ-1.3b",
+      "title": "Interrupted-recording recovery has no automated test and no end-to-end proof",
+      "root_cause": "recoverInterruptedRecording() exists in src/lib/recorder.ts but nothing drives it through a crash/restart cycle in CI or in this audit.",
+      "file": "src/lib/recorder.ts",
+      "symbol": "recoverInterruptedRecording",
+      "reproduction": "Crash the app mid-recording; relaunch; observe recovery — manual only, unscripted.",
+      "impact": "Data-loss path for the product's most important promise (a recording is never lost) is unproven.",
+      "fix": "Add a unit test that seeds AsyncStorage with an ACTIVE_KEY fixture and asserts the recovery enqueue + saveActive(null).",
+      "regression_test_required": true,
+      "complexity": "Low"
+    },
+    {
+      "id": "FIND-002",
+      "severity": "HIGH",
+      "area": "security",
+      "requirement": "REQ-6.2a/6.3a",
+      "title": "Live OAuth round-trips unverified; Google rejects the local private-IP redirect",
+      "root_cause": "Redirect URIs are not registered in provider consoles for the local address; Google returns 400 invalid_request (device_id/device_name required for private IP).",
+      "file": "supabase/functions/calendar/index.ts, supabase/functions/connect/index.ts",
+      "evidence": "publicApiBaseUrl() builds callbacks from PUBLIC_API_BASE_URL/EXTERNAL_SUPABASE_URL/SUPABASE_URL; /calendar/providers returns [\"google\"], /connect/available returns [\"slack\",\"google_docs\"].",
+      "impact": "Calendar/Slack/Docs/Procore connections cannot be proven working end-to-end.",
+      "fix": "Expose the server via a public HTTPS origin (cloudflared/domain), set PUBLIC_API_BASE_URL, register {origin}/functions/v1/{calendar,connect,procore}/callback in each console, then retest.",
+      "regression_test_required": false,
+      "complexity": "Medium (external)"
+    },
+    {
+      "id": "FIND-003",
+      "severity": "CRITICAL",
+      "area": "secrets",
+      "requirement": "REQ-9c",
+      "title": "Provider credentials were pasted into chat and are unrotated",
+      "root_cause": "Operational process, not code. Google, Slack, Procore, HubSpot tokens/secrets shared in conversation.",
+      "file": "(none committed — verified)",
+      "evidence": "git grep for secret shapes finds only doc placeholders; .env/.env.local/supabase/functions/.env gitignored.",
+      "impact": "Any secret exposed in chat must be treated as public.",
+      "fix": "Rotate every credential; move to a secret manager; never paste secrets in chat.",
+      "regression_test_required": false,
+      "complexity": "Low (process)"
+    },
+    {
+      "id": "FIND-004",
+      "severity": "MEDIUM",
+      "area": "integrations",
+      "requirement": "REQ-6.3d",
+      "title": "OneNote/Salesforce OAuth configured but unverified (no credentials)",
+      "file": "supabase/functions/_shared/oauth_providers.ts",
+      "impact": "Two destinations cannot be connected.",
+      "fix": "Provide MICROSOFT_* and SALESFORCE_* credentials and register redirects.",
+      "complexity": "Low (external)"
+    },
+    {
+      "id": "FIND-005",
+      "severity": "MEDIUM",
+      "area": "integrations",
+      "requirement": "REQ-7.4a",
+      "title": "Telephony provider mismatch: repo targets RingCentral; provided creds are Aircall/Twilio-shaped",
+      "file": "supabase/functions/ringcentral/index.ts",
+      "impact": "Phone-calls feature unusable until a provider decision is made.",
+      "fix": "Either supply RINGCENTRAL_CLIENT_ID/SECRET or scope an Aircall-native import path.",
+      "complexity": "High"
+    },
+    {
+      "id": "FIND-006",
+      "severity": "MEDIUM",
+      "area": "testing",
+      "requirement": "REQ-3.4a",
+      "title": "Settings save/rollback has no automated UI test",
+      "file": "src/app/(tabs)/settings.tsx",
+      "impact": "The saved-indicator and rollback path is only manually verified.",
+      "fix": "Add a component test or scripted E2E for the saved/rollback states.",
+      "complexity": "Medium"
+    },
+    {
+      "id": "FIND-007",
+      "severity": "MEDIUM",
+      "area": "integrations",
+      "requirement": "REQ-6.3c",
+      "title": "OAuth client secrets for Notion/Atlassian/Asana/Linear/monday/ClickUp/Trello have no server-side home",
+      "root_cause": "Architecture: these providers connect by user-pasted personal token in this codebase.",
+      "file": "supabase/functions/_shared/trackers.ts",
+      "impact": "Cannot offer server-mediated OAuth for those providers without new architecture.",
+      "fix": "Decide: keep token-paste (current) or build an OAuth-client registry.",
+      "complexity": "High"
+    },
+    {
+      "id": "FIND-008",
+      "severity": "LOW",
+      "area": "ux",
+      "requirement": "REQ-4.4b",
+      "title": "Search filters (date/project/type) not present in UI",
+      "file": "src/app/(tabs)/search.tsx",
+      "impact": "Search works but lacks filters the remediation prompt listed.",
+      "fix": "Add filter chips above results.",
+      "complexity": "Medium"
+    },
+    {
+      "id": "FIND-009",
+      "severity": "LOW",
+      "area": "reliability",
+      "requirement": "REQ-5.1d",
+      "title": "Webhook delivery records only the last attempt; no retry/backoff queue",
+      "file": "supabase/functions/_shared/after_ready.ts",
+      "impact": "A failed delivery is visible but not retried automatically.",
+      "fix": "Add a delivery-log table + scheduled retry with backoff.",
+      "complexity": "Medium"
+    },
+    {
+      "id": "FIND-010",
+      "severity": "LOW",
+      "area": "performance",
+      "requirement": "REQ-11a",
+      "title": "No performance measurements taken",
+      "impact": "Large-collection/long-transcript behavior unmeasured.",
+      "fix": "Measure render/pagination with a seeded dataset.",
+      "complexity": "Medium"
+    },
+    {
+      "id": "FIND-011",
+      "severity": "LOW",
+      "area": "hygiene",
+      "requirement": "REQ-10",
+      "title": "Branch never pushed; 60 uncommitted reformat files; 4 trailing-whitespace lines",
+      "file": "scripts/test-transcription.mjs",
+      "impact": "Single-machine work; no review/backup.",
+      "fix": "Push both branches; commit audit docs; tidy whitespace.",
+      "complexity": "Low"
+    }
+  ],
+  "release": "CONDITIONAL"
+}
