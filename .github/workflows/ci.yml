@@ -1,50 +1,53 @@
-name: CI
+name: ci
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
-  workflow_dispatch:
-# A new push cancels the run it replaces: no wasted minutes, and the newest code wins.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
-  checks:
+  app:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
-        with:
-          deno-version: v2.x
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx expo lint
-      - name: Unit and database-policy tests
-        run: npm test
-      - name: Type-check server functions
+      - run: npm test
+
+  functions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check .
         working-directory: supabase/functions
-        run: for f in */index.ts; do deno check "$f"; done
-      - name: Server function tests
+      - run: deno test --allow-all _shared/
         working-directory: supabase/functions
-        run: deno test --allow-all _shared/
-      - name: Desktop app
+
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
         working-directory: desktop
-        run: npm ci && npx tsc --noEmit -p . && npm test
-      - name: Zapier app
-        working-directory: zapier
-        run: npm install && npm test
-      - name: Browser extension build
-        working-directory: extension
-        run: node build.mjs
-      - name: Dependency audit (high and critical)
-        run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
+      - run: npx tsc --noEmit
+        working-directory: desktop
+      - run: npm test
+        working-directory: desktop

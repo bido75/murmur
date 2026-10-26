@@ -23,6 +23,7 @@ import { AppState, Platform } from "react-native";
 import { LOCAL_RECORDING } from "./localStt";
 import { PcmWavRecorder, repairWav } from "./pcmRecorder";
 import { enqueue, keepFile, keepRecording } from "./sync";
+import { recoveryPlan, type InterruptedSession } from "./recoveryPlan";
 
 const OPTIONS: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -56,53 +57,34 @@ async function saveActive(a: Active | null) {
 /**
  * Call once at startup. If the app died mid-recording, queue what was captured.
  * Returns the recovered recording id, or null.
+ *
+ * The decision is `recoveryPlan` (pure, tested); this applies it against the real
+ * file system and queue.
  */
 export async function recoverInterruptedRecording(): Promise<string | null> {
   const raw = await AsyncStorage.getItem(ACTIVE_KEY);
   if (!raw) return null;
-  const a = JSON.parse(raw) as Active;
+  const a = JSON.parse(raw) as InterruptedSession;
+  let part = { present: false, readable: false, keptUri: null as string | null };
   try {
     if (a.currentUri && !isWeb) {
       const f = new File(a.currentUri);
-      if (f.exists && f.size > 4096) {
+      const readable = f.exists && f.size > 4096;
+      let keptUri: string | null = null;
+      if (readable) {
         const ext = a.local ? "wav" : EXT;
         if (a.local && Platform.OS === "android") repairWav(a.currentUri); // header sizes weren't written
-        const uri = keepFile(a.currentUri, a.recordingId, a.segIdx, ext);
-        // Duration unknown; the server measures it during transcription.
-        if (a.local)
-          await enqueue({
-            kind: "local_segment",
-            recordingId: a.recordingId,
-            idx: a.segIdx,
-            localUri: uri,
-            offsetMs: a.doneMs,
-            durationMs: 0,
-          });
-        else
-          await enqueue({
-            kind: "segment",
-            recordingId: a.recordingId,
-            idx: a.segIdx,
-            localUri: uri,
-            ext,
-            durationMs: 0,
-          });
+        keptUri = keepFile(a.currentUri, a.recordingId, a.segIdx, ext);
       }
+      part = { present: Boolean(a.currentUri), readable, keptUri };
     }
   } catch {
     // The partial file was unreadable; earlier segments are still safe.
   }
-  await enqueue(
-    a.local
-      ? {
-          kind: "local_finalize",
-          recordingId: a.recordingId,
-          durationMs: a.doneMs,
-        }
-      : { kind: "finalize", recordingId: a.recordingId, durationMs: a.doneMs },
-  );
+  const plan = recoveryPlan(a, part);
+  for (const op of plan.ops) await enqueue(op);
   await saveActive(null);
-  return a.recordingId;
+  return plan.recordingId;
 }
 
 export type Phase = "idle" | "recording" | "paused" | "stopping";
