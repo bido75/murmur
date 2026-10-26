@@ -32,6 +32,24 @@ test('webhooks: https only, private to their owner, secret generated', async () 
   assert.ok(await fails(b, `insert into webhooks (url, user_id) values ('https://x.example', $1)`, [a.id]));
 });
 
+test('webhooks cannot point at the server or private networks (SSRF)', async () => {
+  const blocked = [
+    'https://127.0.0.1/x',
+    'https://169.254.169.254/latest/meta-data/',
+    'https://10.0.0.5/x',
+    'https://192.168.1.1/x',
+    'https://localhost/x',
+    'https://kong/x',
+    'https://foo.local/x',
+    'https://foo.internal/x',
+  ];
+  for (const url of blocked) {
+    assert.ok(await fails(a, `insert into webhooks (url) values ($1::text)`, [url]), `should block ${url}`);
+  }
+  // A real public host still works.
+  await rows(a, `insert into webhooks (url) values ('https://hooks.zapier.com/hooks/catch/1/abc')`);
+});
+
 test('automations and topic alerts are private and validated', async () => {
   await rows(a, `insert into automations (name, actions) values ('Post to Slack', '[{"type":"slack"}]')`);
   assert.ok(await fails(a, `insert into automations (name, actions) values ('Empty', '[]')`));
