@@ -40,4 +40,7 @@ begin
 end $$;
 
 alter table public.webhooks drop constraint if exists webhooks_url_public;
-alter table public.webhooks add constraint webhooks_url_public check (webhook_url_public(url));
+-- NOT VALID: adding the constraint validates existing rows and would abort on any
+-- pre-existing private URL. Add it unvalidated, clean up violating rows, then
+-- validate explicitly (see below).
+alter table public.webhooks add constraint webhooks_url_public check (webhook_url_public(url)) not valid;
