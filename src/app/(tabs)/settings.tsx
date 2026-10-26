@@ -33,6 +33,11 @@ import {
 import { calendarReturnUrl } from "@/lib/calendarUi";
 import { APP_NAME } from "@/lib/config";
 import { confirm, isWeb, notify } from "@/lib/dialog";
+import {
+  initSettingsUi,
+  reduceSave,
+  type SaveEvent,
+} from "@/lib/settingsSave";
 import { supabase } from "@/lib/supabase";
 import { flush, pendingOps } from "@/lib/sync";
 import { radius, space, useTheme } from "@/lib/theme";
@@ -46,7 +51,9 @@ import {
 
 export default function SettingsScreen() {
   const t = useTheme();
-  const [settings, setSettings] = useState<Settings | null>(null);
+  // The toggles and radios here go through a tested save state machine:
+  // optimistic change, commit on success, rollback on failure.
+  const [ui, setUi] = useState<ReturnType<typeof initSettingsUi<Settings>> | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
   const [teams, setTeams] = useState<Workspace[]>([]);
@@ -58,11 +65,10 @@ export default function SettingsScreen() {
   const [billing, setBilling] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [buying, setBuying] = useState(false);
-  // Save feedback for the toggles and radios on this page.
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const settings = ui?.settings ?? null;
 
   useEffect(() => {
-    getSettings().then(setSettings);
+    getSettings().then((s) => setUi(initSettingsUi(s)));
     supabase.auth
       .getUser()
       .then(({ data }) => setEmail(data.user?.email ?? null));
@@ -115,21 +121,16 @@ export default function SettingsScreen() {
     }
   }
 
-  async function update(patch: Partial<Settings>) {
-    if (!settings) return;
-    const prev = settings;
-    const next = { ...settings, ...patch };
-    setSettings(next);
-    setSaveState("saving");
-    try {
-      await saveSettings(next);
-      setSaveState("saved");
-    } catch (e) {
-      // Roll back the control so the UI matches what was actually saved.
-      setSettings(prev);
-      setSaveState("error");
-      notify("Couldn't save", (e as Error).message);
-    }
+  function update(patch: Partial<Settings>) {
+    if (!ui) return;
+    const event: SaveEvent<Settings> = { type: "change", patch };
+    setUi(reduceSave(ui, event));
+    void saveSettings(reduceSave(ui, event).settings)
+      .then(() => setUi((cur) => (cur ? reduceSave(cur, { type: "saveOk" }) : cur)))
+      .catch((e) => {
+        setUi((cur) => (cur ? reduceSave(cur, { type: "saveFail" }) : cur));
+        notify("Couldn't save", (e as Error).message);
+      });
   }
 
   async function upgrade() {
@@ -167,11 +168,11 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
-      {saveState === "saved" || saveState === "error" ? (
-        <T muted size={13} style={{ color: saveState === "error" ? t.danger : t.muted }}>
-          {saveState === "saved" ? "Saved." : "Couldn't save — your change was undone."}
-        </T>
-      ) : null}
+        {ui && (ui.saveState === "saved" || ui.saveState === "error") ? (
+          <T muted size={13} style={{ color: ui.saveState === "error" ? t.danger : t.muted }}>
+            {ui.saveState === "saved" ? "Saved." : "Couldn't save — your change was undone."}
+          </T>
+        ) : null}
       {billing?.paywall ? (
         <Card style={{ gap: space.sm }}>
           <T weight="600">Your plan</T>
