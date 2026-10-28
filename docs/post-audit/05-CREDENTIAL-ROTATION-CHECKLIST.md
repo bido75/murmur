@@ -24,6 +24,8 @@ pending operator execution.
 | 14 | Anthropic | API key | console.anthropic.com | Rotate | Old key → 401 |
 | 15 | Aircall | API id + token | dashboard.aircall.io | Regenerate | Old pair → 401 on `/v1/ping` |
 | 16 | Supabase (local dev) | Service role / anon keys are local-stack defaults; **no production keys were exposed** | supabase.com dashboard | Not required for local | — |
+| 17 | **Cloudflare — Global API Key** | Full-account API key (highest privilege) — pasted into chat | dash.cloudflare.com → My Profile → API Tokens → **API Key → Roll** | Roll the Global API Key (or, better, replace its uses with scoped tokens); every use of the old key fails | Old key rejected by the Cloudflare API |
+| 18 | **Cloudflare — scoped API token** (`cfut_…`) + **tunnel token** | Scoped API token and the `murmur-app` tunnel connector token — both pasted into chat | dash.cloudflare.com → My Profile → API Tokens (roll the API token); Zero Trust → Networks → Tunnels → murmur-app → **Refresh token** (tunnel token) | Roll the API token; refresh the tunnel token then redeploy the connector with the new token | Old API token → 401; old tunnel token's connector cannot connect |
 
 ## Procedure notes
 

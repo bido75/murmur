@@ -1,5 +1,38 @@
 # 06 — OAuth deployment configuration
 
+## Public origin: LIVE (2026-10-28)
+
+The public HTTPS origin is **`https://notes.giscop.com`** — a Cloudflare Tunnel
+(`murmur-app`) in front of the local Supabase gateway:
+
+```
+app / providers → https://notes.giscop.com (Cloudflare edge, proxied CNAME)
+              → cloudflared connector (container `cloudflared-notes`, token-run)
+              → host.docker.internal:54321 (kong: auth, REST, storage, functions)
+```
+
+Verified end-to-end: tunnel status `healthy`; `/rest/v1/…` with the anon key →
+200; `/functions/v1/calendar/providers` → the function's own auth check answers
+through the domain.
+
+- Ingress (remotely managed): `notes.giscop.com → http://host.docker.internal:54321`,
+  everything else → 404.
+- DNS: `CNAME notes.giscop.com → <tunnel-id>.cfargotunnel.com` (proxied).
+- `PUBLIC_API_BASE_URL=https://notes.giscop.com` is set in
+  `supabase/functions/.env` (gitignored) and the Edge Runtime restarted.
+
+**Migration story (why this survives moving hosts):** the domain, the CNAME and
+the tunnel ingress live in the Cloudflare account — nothing to migrate. The only
+thing that moves to the hosting platform is the **connector** (the
+`docker run cloudflare/cloudflared … --token …` container) plus the app stack.
+Because the ingress service is `host.docker.internal:54321`, it points at
+whatever host the connector runs on — the same command works unchanged as long
+as the Supabase stack runs in Docker there.
+
+`host.docker.internal` requires `--add-host host.docker.internal:host-gateway`
+on Linux hosts (Docker Desktop provides it natively). Note it down for the
+migration runbook.
+
 ## Current state (verified)
 
 - `publicApiBaseUrl()` (in `services.ts`) resolves the public origin in order:
@@ -12,38 +45,29 @@
 
 | Variable | Local value shape | Purpose |
 |---|---|---|
-| `EXTERNAL_SUPABASE_URL` | `http://<LAN-IP>:54325` | reachable address for OAuth callbacks and signed downloads |
+| `PUBLIC_API_BASE_URL` | `https://notes.giscop.com` | the public HTTPS origin for OAuth callbacks (cloudflared tunnel) |
+| `EXTERNAL_SUPABASE_URL` | `http://<LAN-IP>:54325` | LAN-reachable address for signed downloads (phone on Wi-Fi) |
 | `APP_URL` | `http://<LAN-IP>:8090` | validates OAuth return addresses |
 | `APP_SCHEME` | `murmur` | allows the native deep-link return |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | provided | Calendar + Google Docs connect |
 | `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` | provided | Slack destination connect |
 | `PROCORE_CLIENT_ID` / `PROCORE_CLIENT_SECRET` | provided | Procore connect (sandbox via `PROCORE_LOGIN_URL` etc.) |
 
-## Redirect URIs to register per provider
+## Redirect URIs to register per provider (exact, with the live origin)
 
 | Provider | Redirect URI |
 |---|---|
-| Google (Calendar + Docs) | `{PUBLIC_API_BASE_URL}/functions/v1/calendar/callback` and `{PUBLIC_API_BASE_URL}/functions/v1/connect/callback` |
-| Slack | `{PUBLIC_API_BASE_URL}/functions/v1/connect/callback` |
-| Procore | `{PUBLIC_API_BASE_URL}/functions/v1/procore/callback` |
-
-`PUBLIC_API_BASE_URL` must be **public HTTPS** — Google rejects private-IP
-redirects (the `device_id and device_name are required for private IP` error).
-Two supported options:
-
-1. A tunnel in front of the local server (`cloudflared tunnel --url http://10.0.0.180:54325`),
-   then set `PUBLIC_API_BASE_URL=https://<tunnel>.trycloudflare.com` and restart
-   the Edge Runtime.
-2. The deployed backend domain (`notes.giscop.com`), already registered for some
-   providers per the operator's env notes — verify each URI matches the paths
-   above.
+| Google (Calendar + Docs) | `https://notes.giscop.com/functions/v1/calendar/callback` **and** `https://notes.giscop.com/functions/v1/connect/callback` |
+| Slack | `https://notes.giscop.com/functions/v1/connect/callback` |
+| Procore | `https://notes.giscop.com/functions/v1/procore/callback` |
 
 ## Operator checklist to unlock live OAuth
 
-1. Expose a public HTTPS origin for the server.
-2. Set `PUBLIC_API_BASE_URL` in `supabase/functions/.env`.
-3. Register each redirect URI above in the provider console.
-4. `powershell -ExecutionPolicy Bypass -File scripts\restart-local-functions.ps1 -FromFunctionsEnv`
-5. In the app: Settings → Calendar → Connect Google; Connections → Slack.
-6. Record: consent screen shown → callback lands → connection row created →
-   account label shown in Settings.
+1. ~~Expose a public HTTPS origin for the server~~ **done** (`notes.giscop.com`).
+2. ~~Set `PUBLIC_API_BASE_URL`~~ **done**.
+3. **Register each redirect URI above in the provider console** (this is the
+   step that unblocks BL-4a; Google's private-IP rejection is resolved by
+   these public URIs).
+4. In the app: Settings → Calendar → Connect Google; Connections → Slack.
+5. Record: consent screen shown → callback lands → connection row created →
+   account label shown in Settings (that is BL-4b).
