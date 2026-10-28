@@ -88,7 +88,6 @@ migration runbook.
 | `PUBLIC_API_BASE_URL` | `https://notes.giscop.com` | the public HTTPS origin for OAuth callbacks (cloudflared tunnel) |
 | `APP_URL` | `https://notes.giscop.com` | the web origin the functions accept as OAuth `return_to` |
 | `EXTERNAL_SUPABASE_URL` | `http://<LAN-IP>:54325` | LAN-reachable address for signed downloads (phone on Wi-Fi) |
-| `APP_URL` | `http://<LAN-IP>:8090` | validates OAuth return addresses |
 | `APP_SCHEME` | `murmur` | allows the native deep-link return |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | provided | Calendar + Google Docs connect |
 | `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` | provided | Slack destination connect |
