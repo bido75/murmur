@@ -21,10 +21,10 @@ test('maps browser error names to problem types', () => {
 test('micMessage produces actionable web messages', () => {
   const blocked = micMessage('blocked', 'web');
   assert.match(blocked, /site permissions/);
-  
+
   const noDevice = micMessage('no-device', 'web');
   assert.match(noDevice, /No microphone was found/);
-  
+
   assert.equal(
     micMessage('no-device', 'web'),
     'No microphone was found. Plug one in, or choose one in the browser settings, and try again.'

@@ -39,8 +39,17 @@ commit. Current HEAD at reconciliation update: `8ac5ab6`.
 | `aad9a61` | Post-audit docs: settings-save/recovery validation, migration NOT-VALID fix, operator checklists |
 | `8ac5ab6` | Final release readiness: CONDITIONAL, gates documented |
 
-A documentation-corrections commit (deliverable numbering 04, remediation CSV,
-JSON validity, HEAD references) is applied on top of `8ac5ab6`.
+A documentation-corrections commit (`c4b26e3e7b149621b5abe6047318796e9e42e812`)
+— deliverable numbering 04, remediation CSV, JSON validity, HEAD references —
+is applied on top of `8ac5ab6`.
+
+## Commit roles
+
+| SHA | Role |
+|---|---|
+| `8ac5ab6` | Application implementation snapshot (last application-code commit; all functional suites were run against this state) |
+| `c4b26e3` | Documentation-only corrections (no application code) |
+| current HEAD | Verify dynamically (`git rev-parse HEAD`) — do not hardcode a moving HEAD in prose |
 
 ## Conclusion
 

@@ -1,7 +1,17 @@
 # 15 — Final release readiness
 
 Date: 2026-10-26
-Branch: `feature/murmur-app-remediation` @ `8ac5ab6` (post-remediation; the documentation-corrections commit is applied on top of this snapshot and remains HEAD)
+Branch: `feature/murmur-app-remediation`
+
+Snapshot roles (verified by `git merge-base --is-ancestor` on 2026-10-28):
+
+| SHA | Role |
+|---|---|
+| `8d7ef81` | `main` base (merge-base with this branch) |
+| `8ac5ab6` | **Application implementation snapshot** — last commit containing application code changes; the state all functional tests were run against |
+| `c4b26e3e7b149621b5abe6047318796e9e42e812` | **Documentation-correction commit** — post-audit deliverable completion and JSON/CSV validity fixes; no application code |
+| current HEAD | **Verified dynamically** at report generation — see `docs/release-verification/01-GIT-BASELINE.md`; this document intentionally does not hardcode a moving HEAD |
+
 Audited snapshot: `c2bf90f` (verified ancestor; audit was of the exact implementation)
 Implementation HEAD at audit: `c7cdc1d` (parent of the audit commit)
 Base: `main` @ `8d7ef8138f5c5b8f6b9cb1764484ff70397adaf9`
