@@ -50,15 +50,43 @@ migration runbook.
 
 - `publicApiBaseUrl()` (in `services.ts`) resolves the public origin in order:
   `PUBLIC_API_BASE_URL` → `EXTERNAL_SUPABASE_URL` → `SUPABASE_URL`.
-- `calendar`, `connect` and `procore` build their redirect URIs from it.
+- `calendar`, `connect` and `procore` build their redirect URIs from it, and
+  validate the app's `return_to` against `APP_URL` — which must be the web
+  origin (`https://notes.giscop.com`), or connect buttons fail with 400.
+- Sign-in codes: requested through the public domain → verified → session →
+  `calendar/start` returns the provider consent URL (verified end-to-end
+  2026-10-28 with a real code read from Mailpit).
 - `/calendar/providers` reports `["google"]` and `/connect/available` reports
   `["slack","google_docs"]` against the local stack (verified by curl).
+
+## Sign-in codes: Mailpit (dev) vs real email
+
+- **Mailpit is the local catch-all**, not a mail relay: GoTrue hands it the
+  sign-in emails ("Your Murmur sign-in code", custom templates in
+  `supabase/templates/`), and codes are read from its API for testing. It is
+  **not exposed publicly** — port 54324 is not in the tunnel ingress, has no
+  DNS record, and is unreachable through the domain (verified). Codes never
+  leave the machine in dev.
+- **For real delivery to users' inboxes**, enable the `[auth.email.smtp]`
+  block in `supabase/config.toml` with real SMTP credentials
+  (`pass = "env(SMTP_PASSWORD)"` keeps the secret out of the file; set the
+  variable in the environment before `supabase start`). Also set
+  `admin_email` / `sender_name` to a real sender on the giscop.com domain —
+  the local default is `Admin <admin@email.com>`. **Do not enable SMTP with
+  placeholder credentials** — GoTrue would fail to send sign-in codes until
+  real values are present. Ask the operator for their chosen SMTP provider
+  (cPanel mail, SendGrid, Postmark, …) and wire it then.
+- Until SMTP is enabled, public visitors cannot receive real sign-in codes:
+  the codes go to Mailpit on this machine. Sign-in over the public domain is
+  therefore **dev-only until SMTP is wired** — that is an operator step, not
+  a code defect.
 
 ## Local development values (in `supabase/functions/.env`, gitignored)
 
 | Variable | Local value shape | Purpose |
 |---|---|---|
 | `PUBLIC_API_BASE_URL` | `https://notes.giscop.com` | the public HTTPS origin for OAuth callbacks (cloudflared tunnel) |
+| `APP_URL` | `https://notes.giscop.com` | the web origin the functions accept as OAuth `return_to` |
 | `EXTERNAL_SUPABASE_URL` | `http://<LAN-IP>:54325` | LAN-reachable address for signed downloads (phone on Wi-Fi) |
 | `APP_URL` | `http://<LAN-IP>:8090` | validates OAuth return addresses |
 | `APP_SCHEME` | `murmur` | allows the native deep-link return |

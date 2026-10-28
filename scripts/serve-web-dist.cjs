@@ -36,7 +36,13 @@ const server = http.createServer((req, res) => {
     filePath = path.join(ROOT, "index.html");
   }
   const ext = path.extname(filePath).toLowerCase();
-  res.writeHead(200, { "content-type": MIME[ext] || "application/octet-stream" });
+  // Hashed build assets may cache forever; the HTML that names them must not,
+  // or browsers keep loading a stale bundle from a previous deployment.
+  const immutable = filePath.includes(`${path.sep}_expo${path.sep}static${path.sep}`);
+  res.writeHead(200, {
+    "content-type": MIME[ext] || "application/octet-stream",
+    "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+  });
   fs.createReadStream(filePath).pipe(res);
 });
 
