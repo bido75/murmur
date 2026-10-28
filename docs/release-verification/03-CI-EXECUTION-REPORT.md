@@ -1,6 +1,23 @@
 # 03 — CI execution report
 
-Status: **WORKFLOW HARDENED — VERIFIED (local); GitHub run BLOCKED on publication**
+Status: **VERIFIED — passing GitHub Actions run on this branch** (2026-10-28)
+
+- Run: https://github.com/bido75/murmur/actions/runs/40749378217 (`ci`, push event)
+- Commit: `5b27effc63242142032e872ddd36bedf06d63cc7` ("CI fix: secret-scan diff mode resolves origin/main on CI checkouts")
+- Result: **success — all five jobs passed**
+
+| Job | Duration | Conclusion |
+|---|---|---|
+| app (tsc, lint, tests, iOS Metro bundle build) | 1m53s | ✓ |
+| security (secret scan tree+diff, npm audits root/desktop/zapier, critical gates, artifacts) | 34s | ✓ |
+| db-security (92 RLS/authorization tests on PGlite with real migrations) | 1m35s | ✓ |
+| functions (deno check, tests, dependency audit) | 16s | ✓ |
+| desktop (tsc, tests) | 17s | ✓ |
+
+First run (40748762455) failed exactly as a real CI run should surface things:
+`git merge-base main HEAD` failed on the runner (only `origin/main` exists
+there). Fixed in `scripts/secret-scan.mjs` (origin/main with main fallback,
+commit `5b27eff`), re-run green. The draft PR (#15) carries the required checks.
 
 ## What the workflow now contains (`.github/workflows/ci.yml`)
 
@@ -30,16 +47,10 @@ concurrency cancel, YAML parse-validated. The secret scanner is repo-owned
 | `node --test supabase/tests/*.test.mjs` (what `test:db` runs) | 92 pass / 0 fail |
 | `npx expo export --platform ios` | previously verified this sprint (4.2 MB bundle) |
 
-## What is still BLOCKED
+## What is still open (repo admin, optional hardening)
 
-A **GitHub Actions run cannot exist until the branch is pushed** (publication
-awaits authorization — the same blocker as the audit). Exact steps once
-authorized:
+1. Enable branch protection on `main` requiring the five CI checks (owner).
+2. Optionally add a Dependabot config for the three manifests (dependabot branches already exist on origin, so the bot is enabled org-side).
 
-1. `git push -u origin feature/murmur-app-remediation`
-2. Open the Actions tab → confirm all five jobs on the push run → record the run URL + SHA here.
-3. Enable branch protection on `main` requiring the five checks (repo admin).
-4. Optionally add Dependabot config (`versioning-strategy` for the three manifests) — dependabot branches already exist on origin, so the bot is enabled org-side.
-
-Until step 1 happens, "CI verified on GitHub" remains **BLOCKED**; the workflow
-file alone is not claimed as proof.
+The "CI not verified on GitHub" blocker (BL-15) is **closed**: the exact run URL
+and SHA are recorded above.
