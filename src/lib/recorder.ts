@@ -22,8 +22,9 @@ import { requestMic } from "./mic";
 import { AppState, Platform } from "react-native";
 import { LOCAL_RECORDING } from "./localStt";
 import { PcmWavRecorder, repairWav } from "./pcmRecorder";
-import { enqueue, keepFile, keepRecording } from "./sync";
-import { recoveryPlan, type InterruptedSession } from "./recoveryPlan";
+import { enqueue, keepFile, keepRecording, pendingOps } from "./sync";
+import { recoverSession } from "./recoveryFlow";
+import { MIN_RECOVERABLE_BYTES } from "./recoveryPlan";
 
 const OPTIONS: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -58,33 +59,39 @@ async function saveActive(a: Active | null) {
  * Call once at startup. If the app died mid-recording, queue what was captured.
  * Returns the recovered recording id, or null.
  *
- * The decision is `recoveryPlan` (pure, tested); this applies it against the real
- * file system and queue.
+ * The orchestration lives in `recoveryFlow` (integration-tested with fault
+ * injection); this wires it to the real storage, file system and outbox.
  */
 export async function recoverInterruptedRecording(): Promise<string | null> {
-  const raw = await AsyncStorage.getItem(ACTIVE_KEY);
-  if (!raw) return null;
-  const a = JSON.parse(raw) as InterruptedSession;
-  let part = { present: false, readable: false, keptUri: null as string | null };
-  try {
-    if (a.currentUri && !isWeb) {
+  return recoverSession({
+    loadSession: () => AsyncStorage.getItem(ACTIVE_KEY),
+    probePart: (a) => {
+      // The web cannot read a blob URL after a reload; the finished parts are
+      // safe in IndexedDB, so only the part in progress is checked, natively.
+      if (!a.currentUri || isWeb)
+        return Promise.resolve({
+          present: Boolean(a.currentUri) && !isWeb,
+          readable: false,
+          keptUri: null,
+        });
       const f = new File(a.currentUri);
-      const readable = f.exists && f.size > 4096;
+      const readable = f.exists && f.size > MIN_RECOVERABLE_BYTES;
       let keptUri: string | null = null;
       if (readable) {
         const ext = a.local ? "wav" : EXT;
         if (a.local && Platform.OS === "android") repairWav(a.currentUri); // header sizes weren't written
         keptUri = keepFile(a.currentUri, a.recordingId, a.segIdx, ext);
       }
-      part = { present: Boolean(a.currentUri), readable, keptUri };
-    }
-  } catch {
-    // The partial file was unreadable; earlier segments are still safe.
-  }
-  const plan = recoveryPlan(a, part);
-  for (const op of plan.ops) await enqueue(op);
-  await saveActive(null);
-  return plan.recordingId;
+      return Promise.resolve({
+        present: true,
+        readable,
+        keptUri,
+      });
+    },
+    pendingOps: () => pendingOps(),
+    enqueueOp: (op) => enqueue(op),
+    clearSession: () => AsyncStorage.removeItem(ACTIVE_KEY),
+  });
 }
 
 export type Phase = "idle" | "recording" | "paused" | "stopping";

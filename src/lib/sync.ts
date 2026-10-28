@@ -131,33 +131,42 @@ export function flush(): Promise<void> {
 }
 
 async function run() {
-  const q = await load();
-  const { data } = await supabase.auth.getSession();
-  const session = data.session;
-  if (!session) return;
+  // Ops can be enqueued while a run is in flight (enqueue fires flush() on
+  // every push). The for-loop works on a snapshot, so keep running passes
+  // until a pass removes nothing; a pass that only hits backoff blockers
+  // removes nothing and ends the loop.
+  for (let progressed = true; progressed; ) {
+    progressed = false;
+    const q = await load();
+    const { data } = await supabase.auth.getSession();
+    const session = data.session;
+    if (!session) return;
 
-  const blocked = new Set<string>(); // keep each recording's ops in order
-  for (const op of [...q]) {
-    if (blocked.has(op.recordingId)) continue;
-    if (op.nextAt > Date.now()) {
-      blocked.add(op.recordingId);
-      continue;
-    }
-    try {
-      await perform(op, session.user.id, session.access_token);
-      q.splice(q.indexOf(op), 1);
-    } catch (e) {
-      if (e instanceof LostAudioError) {
-        q.splice(q.indexOf(op), 1);
-        await save();
+    const blocked = new Set<string>(); // keep each recording's ops in order
+    for (const op of [...q]) {
+      if (blocked.has(op.recordingId)) continue;
+      if (op.nextAt > Date.now()) {
+        blocked.add(op.recordingId);
         continue;
       }
-      op.attempts += 1;
-      op.lastError = (e as Error).message;
-      op.nextAt = Date.now() + Math.min(5000 * 2 ** op.attempts, 10 * 60 * 1000);
-      blocked.add(op.recordingId);
+      try {
+        await perform(op, session.user.id, session.access_token);
+        q.splice(q.indexOf(op), 1);
+        progressed = true;
+      } catch (e) {
+        if (e instanceof LostAudioError) {
+          q.splice(q.indexOf(op), 1);
+          await save();
+          continue;
+        }
+        op.attempts += 1;
+        op.lastError = (e as Error).message;
+        op.nextAt =
+          Date.now() + Math.min(5000 * 2 ** op.attempts, 10 * 60 * 1000);
+        blocked.add(op.recordingId);
+      }
+      await save();
     }
-    await save();
   }
 }
 
