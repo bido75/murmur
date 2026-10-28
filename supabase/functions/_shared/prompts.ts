@@ -50,6 +50,17 @@ export function systemPrompt(template: string, custom: string | null = null): st
   ].join('\n');
 }
 
+/** The most of a transcript the notes prompt will carry. ~30K tokens: room for a
+ * three-hour meeting, but small enough that the model answers well within the
+ * time limit (a multi-hundred-KB prompt can kill the worker before it does). */
+export const NOTES_MAX_TRANSCRIPT_CHARS = 120_000;
+
+/** Cap an over-long transcript for the notes prompt, keeping the beginning. */
+export function capForNotes(transcript: string): string {
+  if (transcript.length <= NOTES_MAX_TRANSCRIPT_CHARS) return transcript;
+  return `${transcript.slice(0, NOTES_MAX_TRANSCRIPT_CHARS)}\n…[transcript truncated for the notes]`;
+}
+
 export function userMessage(transcript: string, openTasks: { ref: string; text: string }[], userNotes: string | null = null): string {
   const parts = [];
   if (userNotes?.trim()) {
@@ -61,7 +72,7 @@ export function userMessage(transcript: string, openTasks: { ref: string; text: 
     parts.push(...openTasks.map((t) => `${t.ref}: ${t.text}`));
     parts.push('');
   }
-  parts.push('Transcript:', '', transcript);
+  parts.push('Transcript:', '', capForNotes(transcript));
   return parts.join('\n');
 }
 
