@@ -60,7 +60,13 @@ if (mode === "tree") {
     content.split(/\r?\n/).forEach((line, i) => scanLine(f, i + 1, line));
   }
 } else {
-  const base = execSync("git merge-base main HEAD", { encoding: "utf8" }).trim();
+  // On a CI checkout only the pushed branch exists locally; prefer origin/main.
+  let base;
+  try {
+    base = execSync("git merge-base origin/main HEAD", { encoding: "utf8" }).trim();
+  } catch {
+    base = execSync("git merge-base main HEAD", { encoding: "utf8" }).trim();
+  }
   const diff = execSync(`git diff ${base}...HEAD --unified=0 --no-color`, {
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
