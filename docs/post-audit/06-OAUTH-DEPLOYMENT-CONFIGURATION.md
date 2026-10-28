@@ -2,32 +2,45 @@
 
 ## Public origin: LIVE (2026-10-28)
 
-The public HTTPS origin is **`https://notes.giscop.com`** — a Cloudflare Tunnel
-(`murmur-app`) in front of the local Supabase gateway:
+`https://notes.giscop.com` serves **both** the web app and the API, over one
+Cloudflare Tunnel (`murmur-app`) with path-based routing:
 
 ```
-app / providers → https://notes.giscop.com (Cloudflare edge, proxied CNAME)
-              → cloudflared connector (container `cloudflared-notes`, token-run)
-              → host.docker.internal:54321 (kong: auth, REST, storage, functions)
+Browser / providers → https://notes.giscop.com (Cloudflare edge, proxied CNAME)
+                   → cloudflared connector (container `cloudflared-notes`, token-run)
+                   →  /rest/v1|/auth/v1|/storage/v1|/functions/v1/*  → kong :54321
+                      everything else                                → web app :8090
 ```
 
-Verified end-to-end: tunnel status `healthy`; `/rest/v1/…` with the anon key →
-200; `/functions/v1/calendar/providers` → the function's own auth check answers
-through the domain.
-
-- Ingress (remotely managed): `notes.giscop.com → http://host.docker.internal:54321`,
-  everything else → 404.
+- The web app is a static export (`npx expo export --platform web`, output
+  `dist-web`) served by `scripts/serve-web-dist.cjs` on port 8090 with SPA
+  fallback, **built with `EXPO_PUBLIC_SUPABASE_URL=https://notes.giscop.com` and
+  `EXPO_PUBLIC_APP_URL=https://notes.giscop.com`** so the browser calls the same
+  origin it was served from.
+- Ingress (remotely managed): `notes.giscop.com` with
+  `path ^/(rest|auth|storage|functions)/v1/` → `host.docker.internal:54321`;
+  `notes.giscop.com` (everything else) → `host.docker.internal:8090`;
+  fallback → 404.
 - DNS: `CNAME notes.giscop.com → <tunnel-id>.cfargotunnel.com` (proxied).
 - `PUBLIC_API_BASE_URL=https://notes.giscop.com` is set in
   `supabase/functions/.env` (gitignored) and the Edge Runtime restarted.
 
+**Why not an `api.` subdomain:** `api.notes.giscop.com` is a second-level
+subdomain, which Cloudflare's Universal SSL certificate (`*.giscop.com`) does
+not cover — the TLS handshake fails before the tunnel is reached. Path-based
+routing on `notes.giscop.com` works with the zone's free certificate and keeps
+the OAuth redirects single-origin (no CORS at all). The `api.notes.giscop.com`
+DNS record was removed; it can be re-added only together with Advanced
+Certificate Manager / Total TLS on the zone.
+
 **Migration story (why this survives moving hosts):** the domain, the CNAME and
 the tunnel ingress live in the Cloudflare account — nothing to migrate. The only
 thing that moves to the hosting platform is the **connector** (the
-`docker run cloudflare/cloudflared … --token …` container) plus the app stack.
-Because the ingress service is `host.docker.internal:54321`, it points at
-whatever host the connector runs on — the same command works unchanged as long
-as the Supabase stack runs in Docker there.
+`docker run cloudflare/cloudflared … --token …` container) plus the app stack:
+the exported web app served on 8090 and the Supabase stack behind kong. Because
+the ingress services use `host.docker.internal`, they point at whatever host the
+connector runs on — the same commands work unchanged as long as both services
+run there.
 
 `host.docker.internal` requires `--add-host host.docker.internal:host-gateway`
 on Linux hosts (Docker Desktop provides it natively). Note it down for the
