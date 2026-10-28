@@ -3,6 +3,7 @@
 import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, sanitizeSlides, type DeckData, type DeckKind } from '../_shared/deck.ts';
 import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
+import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
 
 type Rec = { id: string; title: string; created_at: string };
 type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
@@ -117,8 +118,16 @@ async function deckPhotos(client: any, ids: string[], logs: { recording_id: stri
   for (const p of chosen) {
     const { data: blob } = await admin.storage.from('photos').download(p.storage_path);
     if (!blob) continue;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const check = classifyEmbeddedImage(bytes);
+    if (!check.ok) {
+      // image-size (via pptxgenjs) has unbounded parsers for non-JPEG/PNG
+      // formats; user photos are untrusted bytes, so they are never embedded.
+      console.log(JSON.stringify({ event: 'deck_photo_skipped', recording_id: p.recording_id, storage_path: p.storage_path, reason: check.reason }));
+      continue;
+    }
     out.push({
-      dataUri: `data:image/jpeg;base64,${encodeBase64(new Uint8Array(await blob.arrayBuffer()))}`,
+      dataUri: `data:image/${check.format};base64,${encodeBase64(bytes)}`,
       width: p.width,
       height: p.height,
       caption: p.title,

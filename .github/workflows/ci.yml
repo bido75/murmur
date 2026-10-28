@@ -1,19 +1,29 @@
 name: ci
+
 on:
   push:
     branches: [main, "feature/**"]
   pull_request:
 
+# Least privilege: jobs only read the repository. No secrets are provided to
+# any job; pull requests from forks run with a read-only token.
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Third-party actions are pinned to immutable commit SHAs (version in comment).
+# Dependabot keeps these SHAs current via its normal update PRs.
 
 jobs:
   app:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -21,26 +31,50 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx expo lint
       - run: npm test
+      # Build verification: Metro bundle for iOS needs no native toolchain.
+      - run: npx expo export --platform ios --output-dir dist-ios
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-metro-bundle
+          path: dist-ios/_expo/static/js/ios/*.hbc
+          retention-days: 7
+          if-no-files-found: warn
+
+  db-security:
+    # RLS and authorization tests run against an in-process Postgres (PGlite)
+    # with the real migrations applied — no database service needed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:db
 
   functions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
       - run: deno check .
         working-directory: supabase/functions
       - run: deno test --allow-all _shared/
         working-directory: supabase/functions
+      - run: deno audit --level critical --frozen-lockfile
+        working-directory: supabase/functions
 
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -51,3 +85,50 @@ jobs:
         working-directory: desktop
       - run: npm test
         working-directory: desktop
+
+  security:
+    # Dependency and secret scanning. No secrets are provided to this job.
+    # npm audit gates at critical; accepted high-severity risks are tracked in
+    # docs/release-verification/dependency-findings.json and the full reports
+    # are uploaded as artifacts for review. The secret scanner is repo-owned
+    # and redacts matched values from the log.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Secret scan (tracked tree and branch diff)
+        run: |
+          node scripts/secret-scan.mjs
+          node scripts/secret-scan.mjs --diff
+      - run: npm ci
+      - name: npm audit reports (app)
+        run: |
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit-root-prod.json" || true
+          npm audit --json > "$RUNNER_TEMP/audit-root-all.json" || true
+      - name: Gate critical production vulnerabilities (app)
+        run: npm audit --omit=dev --audit-level=critical
+      - name: npm audit (desktop)
+        working-directory: desktop
+        run: |
+          npm ci
+          npm audit --json > "$RUNNER_TEMP/audit-desktop-all.json" || true
+          npm audit --audit-level=critical
+      - name: npm audit (zapier)
+        working-directory: zapier
+        run: |
+          npm ci
+          npm audit --json > "$RUNNER_TEMP/audit-zapier-all.json" || true
+          npm audit --audit-level=critical
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-audit-reports
+          path: |
+            ${{ runner.temp }}/audit-*.json
+          retention-days: 30
+          if-no-files-found: warn
