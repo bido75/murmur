@@ -1,0 +1,24 @@
+{
+  "generated": "2026-10-28",
+  "head_at_generation": "052c730 (Stage 5); the Stage 6 documentation commit follows on top — verify with git rev-parse HEAD",
+  "suites": [
+    { "name": "app typecheck", "command": "npx tsc --noEmit", "result": "VERIFIED", "detail": "exit 0" },
+    { "name": "app logic tests", "command": "npm test (logic half)", "result": "VERIFIED", "detail": "192 pass / 0 fail (was 185; +4 imageGuard, +3 prompts cap)" },
+    { "name": "app unit tests", "command": "npm test (app half)", "result": "VERIFIED", "detail": "32 pass / 0 fail (was 20; +12 recovery integration tests in 3 processes)" },
+    { "name": "database security tests", "command": "npm run test:db", "result": "VERIFIED", "detail": "92 pass / 0 fail (was 77; +11 migration rehearsal, +4 stale-processing)" },
+    { "name": "server typecheck", "command": "deno check .", "result": "VERIFIED", "detail": "exit 0" },
+    { "name": "server tests", "command": "deno test --allow-all _shared/", "result": "VERIFIED", "detail": "192 pass / 0 fail" },
+    { "name": "deno dependency audit", "command": "deno audit --level critical --frozen-lockfile", "result": "VERIFIED", "detail": "exit 0 (2 high mitigated at application layer)" },
+    { "name": "npm dependency audits", "command": "npm audit --audit-level=critical (root prod, desktop, zapier)", "result": "VERIFIED", "detail": "all exit 0" },
+    { "name": "secret scan", "command": "node scripts/secret-scan.mjs [--diff]", "result": "VERIFIED", "detail": "clean; scanner negative-test validated (planted key detected, exit 1)" },
+    { "name": "desktop typecheck", "command": "desktop: npx tsc --noEmit", "result": "VERIFIED", "detail": "exit 0 after electron 44.10.0 bump" },
+    { "name": "desktop tests", "command": "desktop: npm test", "result": "VERIFIED", "detail": "92 pass / 0 fail" },
+    { "name": "full feature e2e", "command": "scripts/test-features.cjs (deck/docx/zip/translate/follow-up, real audio)", "result": "VERIFIED", "detail": "all PASS; URLs rewritten off kong" },
+    { "name": "long-recording pipeline", "command": "scripts/test-long-recording.cjs 15|30|60", "result": "VERIFIED", "detail": "15min 336s, 30min 345s, 60min 611s, all reach ready with notes" },
+    { "name": "iOS Metro bundle build", "command": "npx expo export --platform ios", "result": "VERIFIED (earlier this sprint)", "detail": "4.2 MB bundle; wired into the CI app job" },
+    { "name": "GitHub Actions run", "command": "push + Actions tab", "result": "BLOCKED", "detail": "publication awaits authorization; workflow validated locally (YAML parse + all gates exercised)" },
+    { "name": "physical device matrix", "result": "BLOCKED", "detail": "no hardware attached" },
+    { "name": "live OAuth round-trips", "result": "BLOCKED", "detail": "needs public HTTPS origin + provider-console registration" },
+    { "name": "credential rotation", "result": "BLOCKED", "detail": "operator-only; 15 credential sets (checklist docs/post-audit/05)" }
+  ]
+}
