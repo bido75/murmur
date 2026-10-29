@@ -429,3 +429,61 @@ enabled = true
 # formatted with uppercase keywords, indent 2, max width 180, trailing commas,
 # and column/key alignment. Set to "null" to emit raw, unformatted SQL.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":180,\"commaStyle\":\"trailing\"}"
+
+# Provider callbacks and token-authed endpoints do their own authentication
+# (requireUser for user paths, one-time state tokens on OAuth callbacks,
+# webhook signatures and CRON secrets elsewhere), so the platform JWT check
+# is off for them: Google, Slack and Procore redirect browsers here with no
+# Authorization header.
+[functions.aircall]
+verify_jwt = false
+
+[functions.api]
+verify_jwt = false
+
+[functions.billing-webhook]
+verify_jwt = false
+
+[functions.bot]
+verify_jwt = false
+
+[functions.calendar]
+verify_jwt = false
+
+[functions.connect]
+verify_jwt = false
+
+[functions.consent]
+verify_jwt = false
+
+[functions.ingest]
+verify_jwt = false
+
+[functions.mcp]
+verify_jwt = false
+
+[functions.oauth]
+verify_jwt = false
+
+[functions.phone]
+verify_jwt = false
+
+[functions.procore]
+verify_jwt = false
+
+[functions.retention]
+verify_jwt = false
+
+[functions.ringcentral]
+verify_jwt = false
+
+[functions.scheduler]
+verify_jwt = false
+
+[functions.scim]
+verify_jwt = false
+
+[functions.share]
+verify_jwt = false
+
+

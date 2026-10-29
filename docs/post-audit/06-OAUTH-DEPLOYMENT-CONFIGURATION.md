@@ -97,9 +97,33 @@ migration runbook.
 
 | Provider | Redirect URI |
 |---|---|
-| Google (Calendar + Docs) | `https://notes.giscop.com/functions/v1/calendar/callback` **and** `https://notes.giscop.com/functions/v1/connect/callback` |
+| Google Calendar | `https://notes.giscop.com/functions/v1/calendar/callback` (scopes: `openid email https://www.googleapis.com/auth/calendar.readonly`) |
+| Google Docs (exports) | `https://notes.giscop.com/functions/v1/connect/callback` (scopes: `openid email https://www.googleapis.com/auth/drive.file` — files the app creates only, no `documents` scope needed) |
 | Slack | `https://notes.giscop.com/functions/v1/connect/callback` |
 | Procore | `https://notes.giscop.com/functions/v1/procore/callback` |
+
+One Google Cloud OAuth client serves all Google integrations — the redirect URI
+follows the app's callback endpoint, not the Google service. Register the
+JavaScript origin `https://notes.giscop.com` too. `…/auth/callback/google`
+(Supabase Auth's hosted broker) is only needed if you switch sign-in to
+Supabase Auth's Google provider — Murmur signs in by email OTP and brokers
+integrations itself, so it is optional.
+
+## The edge-runtime JWT gate (root cause of `UNAUTHORIZED_NO_AUTH_HEADER`)
+
+Supabase's edge runtime verifies a Supabase JWT on every function request by
+default. Google's callback redirect carries `?code=…&state=…` and **no
+Authorization header**, so the runtime rejected the browser redirect with
+`UNAUTHORIZED_NO_AUTH_HEADER` *before the function ran* — the function code was
+never the problem.
+
+Fix (in `supabase/config.toml`): `verify_jwt = false` for every function whose
+comment says "deploy with --no-verify-jwt" — 17 functions that authenticate
+themselves instead (`requireUser` on user paths, one-time `state` tokens on
+OAuth callbacks, webhook signatures, CRON secrets). Applied and verified:
+a callback with an unknown state now returns the function's own "expired" page,
+and with a valid state the full chain runs — state consumed (single-use),
+token exchange attempted, `302 …?connected=slack:failed` on a bad code.
 
 ## Operator checklist to unlock live OAuth
 
