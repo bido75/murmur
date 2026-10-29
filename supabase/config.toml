@@ -156,12 +156,12 @@ max_indexes = 5
 [auth]
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
-# in emails.
-site_url = "http://127.0.0.1:3000"
+# in emails. The public origin of the web app (the tunnel serves it).
+site_url = "https://notes.giscop.com"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+additional_redirect_urls = ["https://notes.giscop.com", "http://127.0.0.1:8090"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -245,15 +245,17 @@ content_path = "./supabase/templates/email_otp.html"
 subject = "Your Murmur sign-in code"
 content_path = "./supabase/templates/magiclink.html"
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# Production SMTP: the giscop.com mailbox (STARTTLS on 587). The password is
+# read from the environment (SMTP_PASSWORD) so it never lands in this file;
+# it lives in the untracked local .env and must be present before `supabase start`.
+[auth.email.smtp]
+enabled = true
+host = "mail.giscop.com"
+port = 587
+user = "info@giscop.com"
+pass = "env(SMTP_PASSWORD)"
+admin_email = "info@giscop.com"
+sender_name = "Murmur"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
