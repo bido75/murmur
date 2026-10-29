@@ -26,7 +26,7 @@ try {
 const s = JSON.parse(status.slice(status.indexOf("{"), status.lastIndexOf("}") + 1));
 const key = s.SERVICE_ROLE_KEY;
 
-const body = JSON.stringify({ type: "magiclink", email });
+const body = JSON.stringify({ type: "magiclink", email, redirect_to: "https://notes.giscop.com" });
 const res = execSync(
   `curl.exe -s -X POST "http://127.0.0.1:54321/auth/v1/admin/generate_link" -H "Authorization: Bearer ${key}" -H "apikey: ${key}" -H "Content-Type: application/json" -d "${body.replace(/"/g, '\\"')}"`,
   { encoding: "utf8", maxBuffer: 1024 * 1024 },
@@ -36,13 +36,12 @@ if (!out.action_link) {
   console.error("failed:", res.slice(0, 300));
   process.exit(1);
 }
-// The generated link carries the local gateway host; the user cannot click
-// that. Rewrite it to the public origin (GoTrue serves /auth/v1/verify there
-// and verifies the same token), and land the user in the web app afterwards.
-const link = out.action_link.replace(
-  /^http:\/\/127\.0\.0\.1:54321/,
-  "https://notes.giscop.com",
-) + "&redirect_to=https%3A%2F%2Fnotes.giscop.com";
+// The generated link should already carry the public origin (config.toml
+// external_url = https://notes.giscop.com/auth/v1). If the stack was started
+// without that setting, rewrite the local gateway host as a fallback.
+const link = out.action_link
+  .replace(/^http:\/\/127\.0\.0\.1:54321\/auth\/v1/, "https://notes.giscop.com/auth/v1")
+  .replace(/redirect_to=[^&]*/, "redirect_to=https%3A%2F%2Fnotes.giscop.com");
 console.log(`Sign-in link for ${email} (one-time; clicking it signs the user in and lands them in the app):`);
 console.log(link);
 console.log("");

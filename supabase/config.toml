@@ -159,7 +159,10 @@ enabled = true
 # in emails. The public origin of the web app (the tunnel serves it).
 site_url = "https://notes.giscop.com"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
-# external_url = ""
+# This is what {{ .ConfirmationURL }} in the email templates is built from. It must INCLUDE the
+# /auth/v1 path (as hosted Supabase does), or the fallback link in sign-in emails points at
+# localhost and verify requests never reach GoTrue.
+external_url = "https://notes.giscop.com/auth/v1"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 additional_redirect_urls = ["https://notes.giscop.com", "http://127.0.0.1:8090"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
