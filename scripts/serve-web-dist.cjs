@@ -100,6 +100,15 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, {
     "content-type": MIME[ext] || "application/octet-stream",
     "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+    // Security headers (found missing by the 2026-10-29 whitehat pass).
+    "strict-transport-security": "max-age=31536000; includeSubDomains",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "permissions-policy": "camera=(), microphone=(), geolocation=(self), payment=()",
+    // Report-only until the app's inline/style sources are audited, then enforce.
+    "content-security-policy-report-only":
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co https://api.openai.com https://api.anthropic.com https://openrouter.ai https://api.deepgram.com; frame-ancestors 'none'; report-uri /csp-report",
   });
   fs.createReadStream(filePath).pipe(res);
 });
