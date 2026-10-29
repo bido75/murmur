@@ -14,6 +14,21 @@ Status: **VERIFIED — passing GitHub Actions run on this branch** (2026-10-28)
 | functions (deno check, tests, dependency audit) | 16s | ✓ |
 | desktop (tsc, tests) | 17s | ✓ |
 
+## Latest run (2026-10-29, after the live-domain + onboarding work)
+
+- Run: https://github.com/bido75/murmur/actions/runs/40829899080 (`ci`, pull_request)
+- Commit: `a50565d` — all five jobs passed (app 2m21s, db-security 1m39s, functions 13s, security 40s, desktop 19s).
+
+Two intermediate failures were caught and fixed by CI itself, which is the gate
+doing its job:
+
+1. Run 40748762455 — `git merge-base main` fails on CI checkouts (only
+   `origin/main` exists there). Fixed in `scripts/secret-scan.mjs`.
+2. Runs 40824797373 / 40829147901 — `npm ci` refused the tree:
+   `npx expo install --fix` (dev-server fix) had bumped `package.json` without
+   the lockfile following. The aligned `package-lock.json` is now committed
+   (`a50565d`), and the run above is green.
+
 First run (40748762455) failed exactly as a real CI run should surface things:
 `git merge-base main HEAD` failed on the runner (only `origin/main` exists
 there). Fixed in `scripts/secret-scan.mjs` (origin/main with main fallback,

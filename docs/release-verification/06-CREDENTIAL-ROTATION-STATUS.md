@@ -1,6 +1,9 @@
 # 06 — Credential rotation status
 
-Status: **BLOCKED (operator)** — unchanged by this sprint by design; the
+Status: **BLOCKED (operator)** — the checklist has grown to **19 credential
+sets** (rows 17–19 added 2026-10-29: the Cloudflare Global API key, the scoped
+API + tunnel tokens, and the SMTP mailbox password — all were pasted into chat
+during the tunnel/SMTP setup). Rotation remains an operator action; the
 engineering environment cannot access provider consoles.
 
 ## Why this cannot be marked done here
