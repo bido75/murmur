@@ -18,6 +18,9 @@ import { PhotoStrip, PhotoViewer, SiteLogView } from "@/components/SiteLog";
 import { PromptModal, type Prompt } from "@/components/PromptModal";
 import { PlayerBar } from "@/components/PlayerBar";
 import { TaskRow } from "@/components/TaskRow";
+import { TourAnchor } from "@/components/tour/TourAnchor";
+import { useTourController } from "@/components/tour/TourProvider";
+import { markFirstReadyOpened, markFirstTaskAction } from "@/lib/onboardingStore";
 import { TimestampChip } from "@/components/TimestampChip";
 import {
   Banner,
@@ -87,6 +90,8 @@ type Data = Awaited<ReturnType<typeof getRecording>>;
 type Tab = "notes" | "transcript" | "tasks" | "ask";
 
 export default function RecordingDetail() {
+  // The tour provider lives at the root, so its controller works on this screen too.
+  const { userId } = useTourController();
   const { id, t: atParam } = useLocalSearchParams<{ id: string; t?: string }>();
   const t = useTheme();
   const [data, setData] = useState<Data | null>(null);
@@ -131,6 +136,11 @@ export default function RecordingDetail() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // "Open your notes" checklist activity: the first time a ready recording is opened.
+  useEffect(() => {
+    if (data?.recording?.status === "ready" && userId) void markFirstReadyOpened(userId);
+  }, [data?.recording?.status, userId]);
 
   const status = data?.recording?.status;
   useEffect(() => {
@@ -178,6 +188,9 @@ export default function RecordingDetail() {
           }
         : d,
     );
+    // A kept/dismissed/checked task counts as checklist activity.
+    if ((patch.status || "needs_review" in patch) && userId)
+      void markFirstTaskAction(userId);
     try {
       await updateTask(task.id, patch);
     } catch (e) {
@@ -686,7 +699,11 @@ export default function RecordingDetail() {
               {shortDate(rec.created_at)} · {TEMPLATE_LABELS[rec.template]}
               {rec.duration_ms ? ` · ${minutes(rec.duration_ms)}` : ""}
             </T>
-            {rec.status !== "ready" && <StatusPill status={rec.status} />}
+            {rec.status !== "ready" && (
+              <TourAnchor id="status-pill">
+                <StatusPill status={rec.status} />
+              </TourAnchor>
+            )}
             {bot &&
               !["done", "cancelled"].includes(bot.status) &&
               rec.status !== "ready" && (
@@ -748,6 +765,7 @@ export default function RecordingDetail() {
                 }
               />
             )}
+            <TourAnchor id="detail-tabs">
             <Segmented<Tab>
               value={tab}
               onChange={setTab}
@@ -760,10 +778,11 @@ export default function RecordingDetail() {
                     ? `Tasks (${reviewCount}!)`
                     : `Tasks${data.tasks.length ? ` (${data.tasks.length})` : ""}`,
                 },
-                { key: "ask", label: "Ask" },
-              ]}
-            />
-          </View>
+                 { key: "ask", label: "Ask" },
+               ]}
+             />
+             </TourAnchor>
+           </View>
 
           <View style={{ flex: 1 }}>
             {tab === "notes" && (

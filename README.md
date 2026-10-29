@@ -100,7 +100,16 @@ Still to come: phone-call recording, on-device transcription for no-signal sites
 | **Upgrade** by card (Stripe) or with the web purchase link (RevenueCat) | `supabase/functions/billing`, `src/app/(tabs)/settings.tsx` |
 | **Cancel in two taps**: "Cancel plan", then "Yes, cancel my plan"; you keep the plan until the period ends | `src/app/(tabs)/settings.tsx`, `_shared/billing_store.ts` |
 | **Provider webhooks** for Stripe and RevenueCat: verified, then applied once per event, so a replayed event cannot change your plan twice | `supabase/functions/billing-webhook` (+ tests) |
-| Limits only apply once the server turns them on (`app_features`), so the app behaves as it does today until you enable billing | `feature_enabled()` |
+  | Limits only apply once the server turns them on (`app_features`), so the app behaves as it does today until you enable billing | `feature_enabled()` |
+
+  ### Onboarding
+
+  | Feature | Where |
+  | --- | --- |
+  | **Welcome tour** (7 stops, skippable): starts on first sign-in, points at Record, Add, Projects, Search and Tasks; the notetaker entry only shows when it's available | `src/components/tour/`, `src/lib/onboarding.ts` |
+  | **Getting-started checklist** on Recordings, ticking itself off from real activity (first recording, notes opened, task checked, project made, search run) | `src/components/tour/GettingStarted.tsx` |
+  | **One-time tips** on record consent, first processing, transcript/tasks/Ask tabs, tasks To review, Share links, Settings, Field mode and team admin | `src/lib/onboarding.ts` (TIPS), `src/components/tour/Tips.tsx` |
+  | **Take the tour again / show the checklist / reset tips** in Settings; tour state stored per user (`user_onboarding`) with private analytics events (`onboarding_events`) | `src/app/(tabs)/settings.tsx`, `src/lib/onboardingStore.ts` |
 
 ## Setup
 
@@ -376,6 +385,12 @@ The code compiles and bundles for iOS and Android, but it has not been run on a 
 - [ ] Browser extension: link with a code, record a YouTube tab with your mic for 6 minutes (two parts), stop; notes arrive. Close the tab mid-recording: it finishes cleanly.
 - [ ] Apple Watch / Wear OS (after building): link, record 2 minutes with the screen off, stop out of Wi-Fi range, then reconnect: it uploads.
 - [ ] On-device transcription (iPhone and Android dev builds): download the model, record 6+ minutes, check no audio file appears in storage and notes arrive. On Android, force-quit mid-recording and reopen: the first part is still transcribed.
+- [ ] New account on a phone: the tour starts, all 7 stops point at the right things, Skip works on every stop.
+- [ ] Same account on the web: the tour does not start again.
+- [ ] Record the 30-second test from the last stop; the checklist ticks "Make your first recording", then "Open your notes" after opening it.
+- [ ] Turn on the screen reader (VoiceOver / TalkBack): every step is read out and can be completed.
+- [ ] Dark mode, a small phone and a narrow browser window: no card goes off-screen.
+- [ ] Settings, Help & tour: "Take the tour again" works; "Reset tips" brings the tips back.
 - [ ] Desktop: "Also record my screen", share a slide deck for 6 minutes, stop; "Watch screen recording" plays both parts.
 - [ ] Admin console: turn off public links → existing links say "turned off"; set link max 7 days → new links expire in 7 days; require consent → recording into a team project needs a consent choice.
 - [ ] Team retention 30 days on audio; backdate a team recording; run retention: audio gone.

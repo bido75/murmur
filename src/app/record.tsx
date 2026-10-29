@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionMenu } from "@/components/ActionMenu";
 import { ProjectPicker } from "@/components/ProjectPicker";
+import { TourAnchor } from "@/components/tour/TourAnchor";
 import { Banner, Button, Card, T } from "@/components/ui";
 import {
   attachConsentRequest,
@@ -300,6 +301,7 @@ export default function Record() {
             <Button label="Cancel" kind="ghost" onPress={() => router.back()} />
           </View>
 
+          <TourAnchor id="type-picker">
           <View style={{ gap: space.sm }}>
             <T muted size={13} weight="600">
               WHAT IS IT?
@@ -366,6 +368,7 @@ export default function Record() {
               })}
             </View>
           </View>
+          </TourAnchor>
 
           <View style={{ gap: space.sm }}>
             <T muted size={13} weight="600">
@@ -396,6 +399,7 @@ export default function Record() {
           )}
 
           {needConsent && (
+            <TourAnchor id="consent-section">
             <Card
               style={{
                 gap: space.md,
@@ -523,6 +527,7 @@ export default function Record() {
                 );
               })}
             </Card>
+            </TourAnchor>
           )}
 
           <Button

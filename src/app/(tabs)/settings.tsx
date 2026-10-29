@@ -8,7 +8,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Button, Card, T } from "@/components/ui";
+  import { Button, Card, T } from "@/components/ui";
+  import { TourAnchor } from "@/components/tour/TourAnchor";
+  import { useTourController } from "@/components/tour/TourProvider";
+  import { TIPS } from "@/lib/onboarding";
 import {
   calendarProviders,
   createWorkspace,
@@ -50,6 +53,7 @@ import {
 } from "@/lib/types";
 
 export default function SettingsScreen() {
+  const { retakeTour, showTip, hideChecklist, showChecklist, resetTips, state: obState } = useTourController();
   const t = useTheme();
   // The toggles and radios here go through a tested save state machine:
   // optimistic change, commit on success, rollback on failure.
@@ -230,6 +234,34 @@ export default function SettingsScreen() {
       ) : null}
 
       <Card style={{ gap: space.md }}>
+        <T weight="600">Help &amp; tour</T>
+        <Button
+          label="Take the tour again"
+          kind="secondary"
+          onPress={() => retakeTour()}
+        />
+        {!obState.checklistHidden ? (
+          <Button
+            label="Hide the getting-started checklist"
+            kind="ghost"
+            onPress={() => hideChecklist()}
+          />
+        ) : (
+          <Button
+            label="Show the getting-started checklist"
+            kind="ghost"
+            onPress={() => showChecklist()}
+          />
+        )}
+        <Button
+          label="Reset tips"
+          kind="ghost"
+          onPress={() => resetTips()}
+        />
+      </Card>
+
+      <TourAnchor id="settings-first-card">
+      <Card style={{ gap: space.md }}>
         <View
           style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
         >
@@ -247,7 +279,9 @@ export default function SettingsScreen() {
           />
         </View>
       </Card>
+      </TourAnchor>
 
+      <TourAnchor id="field-mode-toggle">
       <Card style={{ gap: space.md }}>
         <View
           style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
@@ -261,12 +295,20 @@ export default function SettingsScreen() {
           </View>
           <Switch
             value={settings.fieldMode}
-            onValueChange={(v) => update({ fieldMode: v })}
+            onValueChange={(v) => {
+              update({ fieldMode: v });
+              // One-time tip: what Field mode changes, shown right after it's on.
+              if (v) {
+                const tip = TIPS.find((x) => x.id === "field_mode_on");
+                if (tip && !obState.tipsSeen.includes(tip.id)) showTip(tip);
+              }
+            }}
             trackColor={{ true: t.accent, false: t.border }}
             accessibilityLabel="Field mode"
           />
         </View>
       </Card>
+      </TourAnchor>
 
       <Card style={{ gap: space.md }}>
         <T weight="600">Default type</T>

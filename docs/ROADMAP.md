@@ -38,6 +38,10 @@ misheard words, and billing frustration.
    must use the stores' in-app purchase, so use RevenueCat for iOS/Android and Stripe for web, both writing one
    `entitlements` row per user via webhook (new migration + RLS + tests). Show a minutes meter on Home, warn at 80 %.
    At the limit, keep recording and saving audio; queue processing until upgrade or reset. Cancel from Settings in two taps.
+7. [x] **Onboarding tour.** A 7-stop welcome tour on first sign-in (skippable everywhere), a self-ticking getting-started
+   checklist on Recordings, one-time in-context tips, and Settings entry points to retake the tour, show the checklist or reset
+   tips. State per user in `user_onboarding` (RLS-tested) with private `onboarding_events` analytics.
+   Files: `src/components/tour/`, `src/lib/onboarding.ts`, `supabase/migrations/20261029000000_create_onboarding_tables.sql`.
 
 ## Milestone 2 — Harden before anyone pays
 

@@ -7,8 +7,11 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Banner, Button, Card, Empty, StatusPill, T } from "@/components/ui";
-import { ActionMenu } from "@/components/ActionMenu";
+  import { Banner, Button, Card, Empty, StatusPill, T } from "@/components/ui";
+  import { ActionMenu } from "@/components/ActionMenu";
+  import { GettingStarted } from "@/components/tour/GettingStarted";
+  import { TourAnchor } from "@/components/tour/TourAnchor";
+  import { useTourController } from "@/components/tour/TourProvider";
 import {
   botAvailable,
   getSettings,
@@ -39,6 +42,7 @@ import {
 } from "@/lib/types";
 
 export default function Recordings() {
+  const { requestAutoTour } = useTourController();
   const t = useTheme();
   const [items, setItems] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,6 +57,14 @@ export default function Recordings() {
   }, []);
 
   // The next meeting in the coming 24 hours, if a calendar is connected.
+  // First-run onboarding: the welcome tour starts here, on the Recordings tab,
+  // once the list knows whether the user already has recordings.
+  useEffect(() => {
+    const done = items.length > 0;
+    const cancel = requestAutoTour(done);
+    return () => cancel();
+  }, [items.length, requestAutoTour]);
+
   useFocusEffect(
     useCallback(() => {
       upcomingEvents(1)
@@ -144,6 +156,7 @@ export default function Recordings() {
         }
         ListHeaderComponent={
           <View style={{ gap: space.md }}>
+            <GettingStarted />
             {offline ? (
               <Banner text="You're offline. Recordings will upload when you're back online." />
             ) : null}
@@ -240,26 +253,30 @@ export default function Recordings() {
           { backgroundColor: t.bg, borderTopColor: t.border },
         ]}
       >
-        <Button
-          label="Add"
-          kind="secondary"
-          onPress={() => setAddMenu(true)}
-          style={{ flex: 1 }}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start recording"
-          onPress={() => router.push("/record")}
-          style={({ pressed }) => [
-            styles.record,
-            { backgroundColor: t.record, opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <View style={styles.dot} />
-          <T size={17} weight="700" style={{ color: "#fff" }}>
-            Record
-          </T>
-        </Pressable>
+        <TourAnchor id="add-button" style={{ flex: 1 }}>
+          <Button
+            label="Add"
+            kind="secondary"
+            onPress={() => setAddMenu(true)}
+            style={{ flex: 1 }}
+          />
+        </TourAnchor>
+        <TourAnchor id="record-button" style={{ flex: 1 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Start recording"
+            onPress={() => router.push("/record")}
+            style={({ pressed }) => [
+              styles.record,
+              { backgroundColor: t.record, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <View style={styles.dot} />
+            <T size={17} weight="700" style={{ color: "#fff" }}>
+              Record
+            </T>
+          </Pressable>
+        </TourAnchor>
       </View>
       <ActionMenu
         visible={addMenu}
