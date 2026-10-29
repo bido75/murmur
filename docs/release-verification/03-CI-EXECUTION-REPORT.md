@@ -14,6 +14,11 @@ Status: **VERIFIED — passing GitHub Actions run on this branch** (2026-10-28)
 | functions (deno check, tests, dependency audit) | 16s | ✓ |
 | desktop (tsc, tests) | 17s | ✓ |
 
+## Final run (2026-10-29, after the release-verification refresh)
+
+- Run: https://github.com/bido75/murmur/actions/runs/40833586419 (`ci`, pull_request)
+- Commit: `8e28287` (release-verification refresh) — success, all five jobs.
+
 ## Latest run (2026-10-29, after the live-domain + onboarding work)
 
 - Run: https://github.com/bido75/murmur/actions/runs/40829899080 (`ci`, pull_request)
