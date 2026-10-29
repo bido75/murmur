@@ -3,6 +3,12 @@
 // deep links work on any path. Built for the cloudflared tunnel: bind all
 // interfaces so the connector can reach it via host.docker.internal.
 //
+// It also reverse-proxies the MCP + OAuth endpoints onto the web app's domain,
+// which is what MCP connectors (Claude.ai, ChatGPT) expect: one origin for the
+// MCP endpoint, the OAuth discovery documents, registration and token exchange
+// (the same map scripts/hosting-config.mjs writes for Vercel). The consent page
+// /oauth/authorize stays in the app itself.
+//
 //   node scripts/serve-web-dist.cjs [dir] [port]
 const http = require("node:http");
 const fs = require("node:fs");
@@ -10,6 +16,7 @@ const path = require("node:path");
 
 const ROOT = path.resolve(process.argv[2] || "dist-web");
 const PORT = Number(process.argv[3] || 8090);
+const KONG = process.env.KONG_ORIGIN || "http://127.0.0.1:54321";
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -27,8 +34,59 @@ const MIME = {
   ".txt": "text/plain",
 };
 
+/** Web-domain path -> Supabase edge path (exactly the hosting-config map). */
+const PROXIES = [
+  ["/.well-known/oauth-authorization-server", "/functions/v1/oauth/.well-known/oauth-authorization-server"],
+  ["/.well-known/oauth-protected-resource/mcp", "/functions/v1/mcp/.well-known/oauth-protected-resource"],
+  ["/.well-known/oauth-protected-resource", "/functions/v1/mcp/.well-known/oauth-protected-resource"],
+  ["/mcp", "/functions/v1/mcp"],
+  ["/oauth/token", "/functions/v1/oauth/token"],
+  ["/oauth/register", "/functions/v1/oauth/register"],
+  ["/oauth/revoke", "/functions/v1/oauth/revoke"],
+];
+
+function proxyTarget(urlPath) {
+  for (const [from, to] of PROXIES) {
+    if (urlPath === from || urlPath === `${from}/`) return to;
+  }
+  return null;
+}
+
+// The proxy reads the whole request body first (JSON-RPC bodies are small),
+// which avoids Node's streaming duplex pitfalls entirely.
+function proxy(req, res, target) {
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", async () => {
+    try {
+      const headers = { ...req.headers };
+      delete headers.host;
+      delete headers.connection;
+      const body = chunks.length ? Buffer.concat(chunks) : undefined;
+      const up = await fetch(target, {
+        method: req.method,
+        headers,
+        body,
+      });
+      const out = {};
+      up.headers.forEach((v, k) => {
+        if (!["content-encoding", "transfer-encoding", "connection", "content-length"].includes(k)) out[k] = v;
+      });
+      const buf = Buffer.from(await up.arrayBuffer());
+      out["content-length"] = String(buf.length);
+      res.writeHead(up.status, out);
+      res.end(buf);
+    } catch (e) {
+      res.writeHead(502, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `The API server did not answer: ${(e || {}).message}` }));
+    }
+  });
+}
+
 const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
+  const target = proxyTarget(urlPath);
+  if (target) return proxy(req, res, `${KONG}${target}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`);
   let filePath = path.join(ROOT, path.normalize(urlPath).replace(/^([/\\])+/, ""));
   if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
@@ -47,4 +105,4 @@ const server = http.createServer((req, res) => {
 });
 
 server.on("error", (e) => { console.error(`serve-web-dist: ${e.message}`); process.exit(1); });
-server.listen(PORT, "0.0.0.0", () => console.log(`web app on http://0.0.0.0:${PORT} (from ${ROOT}, SPA fallback on)`));
+server.listen(PORT, "0.0.0.0", () => console.log(`web app on http://0.0.0.0:${PORT} (from ${ROOT}, SPA fallback on, MCP/OAuth proxied to ${KONG})`));

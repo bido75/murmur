@@ -125,6 +125,28 @@ a callback with an unknown state now returns the function's own "expired" page,
 and with a valid state the full chain runs — state consumed (single-use),
 token exchange attempted, `302 …?connected=slack:failed` on a bad code.
 
+## MCP connectors (Claude.ai / ChatGPT)
+
+Claude connects to `https://notes.giscop.com/mcp` and runs OAuth 2.1 itself:
+it probes the endpoint unauthenticated (401 + `WWW-Authenticate: Bearer
+resource_metadata=…`), fetches the protected-resource and authorization-server
+discovery documents, registers a client dynamically (RFC 7591), then opens the
+consent page. All of those must live on the web app's domain — the design in
+`_shared/oauth_config.ts` expects the host to serve them (the same map
+`scripts/hosting-config.mjs` writes for Vercel):
+
+- `/mcp`, `/.well-known/oauth-protected-resource[/mcp]`,
+  `/.well-known/oauth-authorization-server`, `/oauth/token`, `/oauth/register`,
+  `/oauth/revoke` → the edge functions
+- `/oauth/authorize` → the app's consent screen (SPA)
+
+**The static server implements this map as a reverse proxy to kong**
+(`scripts/serve-web-dist.cjs`). Without it every probe returned SPA HTML and
+Claude failed with "Couldn't register with Murmur's sign-in service"
+(dynamic client registration). Verified end-to-end over the domain:
+401 + resource metadata hint → both discovery documents → DCR minted a client
+for Claude's callback URL.
+
 ## Operator checklist to unlock live OAuth
 
 1. ~~Expose a public HTTPS origin for the server~~ **done** (`notes.giscop.com`).
