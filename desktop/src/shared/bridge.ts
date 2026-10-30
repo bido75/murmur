@@ -110,6 +110,13 @@ export type Bridge = {
   /** Durable application settings; patches are validated in the main process. */
   settingsGet(): Promise<Settings>;
   settingsSet(patch: Record<string, unknown>): Promise<Settings>;
+  /**
+   * Start OAuth sign-in: reserves the loopback redirect URI the provider will call.
+   * The renderer builds the authorize URL with Supabase and passes it to authOpen.
+   */
+  authBegin(): Promise<{ redirectUri: string }>;
+  /** Open the authorize URL in the user's browser. */
+  authOpen(url: string): Promise<void>;
   /** Dictation: the settings, the history and the state. */
   dictationSettings(): Promise<unknown>;
   dictationHistory(): Promise<unknown[]>;
@@ -144,7 +151,8 @@ export type Bridge = {
       | "dictation:error"
       | "dictation:history"
       | "tray:start"
-      | "tray:stop",
+      | "tray:stop"
+      | "auth:code",
     fn: (payload: unknown) => void,
   ): () => void;
 };

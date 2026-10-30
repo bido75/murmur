@@ -12,6 +12,12 @@ export type Settings = {
   localOnly: boolean;
   /** Days to keep finished recordings locally; 0 means keep until the user deletes them. */
   retentionDays: number;
+  /** Account-wide (server user_settings.consent_reminder): show the consent notice before recording. */
+  consentReminder: boolean;
+  /** Account-wide override (server user_settings.field_mode). */
+  fieldMode: boolean;
+  /** Consent/location code (server user_settings.my_state). */
+  myState: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,18 +28,12 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultRecordingType: "meeting",
   localOnly: false,
   retentionDays: 0,
+  consentReminder: true,
+  fieldMode: false,
+  myState: "",
 };
 
 const THEMES: Theme[] = ["system", "light", "dark"];
-const RECORDING_TYPES = [
-  "meeting",
-  "lecture",
-  "interview",
-  "sales-call",
-  "phone-call",
-  "site-walk",
-  "voice-note",
-];
 
 function oneOf<T>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === typeof fallback && allowed.includes(value as T)
@@ -45,8 +45,14 @@ function flag(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function text(value: unknown, allowed: readonly string[], fallback: string): string {
-  return typeof value === "string" && allowed.includes(value) ? value : fallback;
+/**
+ * Template ids come from the account (the web/phone app can add one), so any
+ * well-formed id is kept rather than clobbered by this client's known list.
+ */
+function templateId(value: unknown, fallback: string): string {
+  return typeof value === "string" && /^[a-z][a-z0-9_]{0,31}$/.test(value)
+    ? value
+    : fallback;
 }
 
 function boundedInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -63,9 +69,12 @@ export function normalize(raw: unknown): Settings {
     theme: oneOf(o.theme, THEMES, DEFAULT_SETTINGS.theme),
     minimizeToTray: flag(o.minimizeToTray, DEFAULT_SETTINGS.minimizeToTray),
     notifyMeetings: flag(o.notifyMeetings, DEFAULT_SETTINGS.notifyMeetings),
-    defaultRecordingType: text(o.defaultRecordingType, RECORDING_TYPES, DEFAULT_SETTINGS.defaultRecordingType),
+    defaultRecordingType: templateId(o.defaultRecordingType, DEFAULT_SETTINGS.defaultRecordingType),
     localOnly: flag(o.localOnly, DEFAULT_SETTINGS.localOnly),
     retentionDays: boundedInt(o.retentionDays, 0, 365, DEFAULT_SETTINGS.retentionDays),
+    consentReminder: flag(o.consentReminder, DEFAULT_SETTINGS.consentReminder),
+    fieldMode: flag(o.fieldMode, DEFAULT_SETTINGS.fieldMode),
+    myState: typeof o.myState === "string" ? o.myState.slice(0, 64) : DEFAULT_SETTINGS.myState,
   };
 }
 
@@ -77,6 +86,9 @@ export function validatePatch(patch: Record<string, unknown>): Record<string, un
     "defaultRecordingType",
     "localOnly",
     "retentionDays",
+    "consentReminder",
+    "fieldMode",
+    "myState",
   ]);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {

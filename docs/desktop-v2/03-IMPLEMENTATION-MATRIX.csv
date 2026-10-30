@@ -3,12 +3,12 @@ D-01,Typed IPC bridge surface intact,1,PASS,Preserve and extend,desktop/src/shar
 D-02,Shared contract alignment with src/lib (types/utterance/queue ops),1,PARTIAL,Aligned,desktop/src/shared + src/lib/types.ts,Targeted convergence; no big-bang dedupe
 D-03,Real application id in electron-builder.yml,1,BLOCKED,Replaced placeholder,desktop/electron-builder.yml,com.example.murmur.desktop -> owner-confirmed id; ask operator
 D-04,Desktop CI lane (typecheck+tests+build),1,IMPLEMENTED BUT NOT TESTED,Added,.github/workflows/desktop.yml,Win+mac matrix; SHA-pinned actions; runs on push to feature/murmur-desktop-v2
-D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,105 pass / 0 fail baseline (2026-10-29; 92 baseline + 13 settings tests)
+D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,119 pass / 0 fail (2026-10-29; 92 baseline + 13 settings + 6 auth + 7 sync-rule tests)
 D-27,Durable typed settings store (atomic writes, validation, corrupt-file recovery),1,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/settings.ts + src/shared/settings.ts + 13 tests,IPC settings:get/set wired through preload bridge; server-backed prefs land in Phase 2
-D-06,OAuth provider sign-in (Google/Apple) with PKCE,2,MISSING,Added,desktop/src/main/auth.ts + renderer,Deep-link/loopback callback channel; OTP stays as fallback
+D-06,OAuth provider sign-in (Google) with PKCE,2,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/main/auth.ts + renderer startOAuth,Loopback capture + murmur:// deep-link both wired; live provider completion blocked pending operator-registered redirect URIs (BL-4b)
 D-07,Session persistence + token refresh verified,2,PASS,Maintained,desktop/src/renderer/supabase.ts,persistSession/autoRefresh already on
-D-08,Server-backed user_settings (consent_reminder/field_mode/default_template/my_state),2,PARTIAL,Migrated,renderer settings module,Only language is server-read today (sync.ts:131)
-D-09,Field-mode override semantics (never write default_template on toggle),2,NOT TESTED,Implemented + tested,settings tests,Handoff hard rule
+D-08,Server-backed user_settings (consent_reminder/field_mode/default_template/my_state),2,PARTIAL,Migrated,renderer loadServerPrefs + changeSettings,Server-to-local reconciliation at sign-in + write-through helper implemented and unit-tested; settings UI screen arrives with Phase 4
+D-09,Field-mode override semantics (never write default_template on toggle),2,IMPLEMENTED AND VERIFIED,Implemented + tested,desktop/src/shared/settingsSync.ts,Matches web src/lib/settingsSave.ts semantics exactly; server ids aligned (site_walk etc.)
 D-10,Webhook editor SSRF copy (public https URL),3,N/A,Added,renderer settings,Per webhook_ssrf handoff
 D-11,Capture robustness (segment rotation/silence/crash-safety) regression tests,3,PARTIAL,Extended,desktop/src/renderer/capture.ts + tests,Existing behavior solid; tests thin
 D-12,Local Parakeet transcription path (install/inference),3,BLOCKED,Preserved + unit-tested,transcriber/engine + speechModelManager,Runtime soak needs audio hardware; NOT TESTED rows recorded

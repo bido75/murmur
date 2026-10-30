@@ -1,5 +1,13 @@
 // Desktop UI: sign in → set up a recording → record → upload. Plain DOM, no framework.
 import type { Bridge } from "../shared/bridge";
+import { DEFAULT_SETTINGS, type Settings } from "../shared/settings";
+import {
+  applyServerPrefs,
+  effectiveDefaultType,
+  needsServerPush,
+  serverPatchFrom,
+  type ServerPrefs,
+} from "../shared/settingsSync";
 import { pendingSegments } from "../shared/queue";
 import { MEETING_LABELS, type MeetingApp } from "../shared/meetings";
 import { Capture } from "./capture";
@@ -30,6 +38,8 @@ const TEMPLATES: [string, string][] = [
   ["sales_call", "Sales call"],
   ["interview", "Interview"],
   ["lecture", "Lecture"],
+  ["phone_call", "Phone call"],
+  ["site_walk", "Site walk"],
   ["general", "General"],
 ];
 const CONSENT: [string, string][] = [
@@ -92,6 +102,11 @@ const state: State = {
 let capture: Capture | null = null;
 let recordingId: string | null = null;
 
+// The account-wide settings, cached locally and reconciled with user_settings.
+let appSettings: Settings = { ...DEFAULT_SETTINGS };
+/** What the server last had, so we only push real changes. */
+let lastSyncedRow: Partial<ServerPrefs> | null = null;
+
 // ---------- tiny DOM helpers ----------
 
 type Child = Node | string | null | false | undefined;
@@ -105,6 +120,62 @@ const clock = (ms: number) => {
 
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+// ---------- account-wide settings ----------
+
+/** Pull user_settings from the account, merge into the local store and adopt them. */
+async function loadServerPrefs() {
+  const { data } = await supabase
+    .from("user_settings")
+    .select("consent_reminder,field_mode,default_template,my_state")
+    .maybeSingle();
+  const row = (data ?? null) as Partial<ServerPrefs> | null;
+  const local = await bridge().settingsGet();
+  appSettings = applyServerPrefs(local, row);
+  await bridge().settingsSet({ ...appSettings });
+  lastSyncedRow = row;
+  state.form.template = effectiveDefaultType(appSettings);
+  render();
+}
+
+/** Apply a settings change locally; account-wide fields are pushed when signed in. */
+async function changeSettings(patch: Record<string, unknown>) {
+  appSettings = { ...appSettings, ...patch } as Settings;
+  await bridge().settingsSet(patch);
+  if (needsServerPush(appSettings, lastSyncedRow)) {
+    const serverPatch = serverPatchFrom(patch);
+    if (Object.keys(serverPatch).length) {
+      const { error } = await supabase.from("user_settings").upsert(serverPatch);
+      if (!error) lastSyncedRow = { ...lastSyncedRow, ...serverPatch };
+    }
+  }
+}
+
+/** Google sign-in through the system browser; the code comes back over "auth:code". */
+async function startOAuth() {
+  state.busy = true;
+  state.error = null;
+  render();
+  try {
+    const { redirectUri } = await bridge().authBegin();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { skipBrowserRedirect: true, redirectTo: redirectUri },
+    });
+    if (error || !data?.url) {
+      state.error = error?.message ?? "Sign-in could not start.";
+      state.busy = false;
+      render();
+      return;
+    }
+    state.busy = false;
+    await bridge().authOpen(data.url);
+  } catch (e) {
+    state.error = (e as Error).message;
+    state.busy = false;
+  }
+  render();
 }
 
 // ---------- views ----------
@@ -224,6 +295,15 @@ function signInView(): Child[] {
             },
             "Email me a sign-in code",
           ),
+          h(
+            "button",
+            {
+              class: "ghost",
+              disabled: state.busy,
+              onclick: () => void startOAuth(),
+            },
+            "Continue with Google",
+          ),
         ),
     state.error && h("div", { class: "banner" }, state.error),
   ];
@@ -329,11 +409,12 @@ function homeView(): Child[] {
       "div",
       { class: "card" },
       h("strong", {}, "Let people know"),
-      h(
-        "p",
-        { class: "muted" },
-        `Many places require everyone's permission to record. You can say: “${NOTICE}”`,
-      ),
+      appSettings.consentReminder &&
+        h(
+          "p",
+          { class: "muted" },
+          `Many places require everyone's permission to record. You can say: “${NOTICE}”`,
+        ),
       ...CONSENT.map(([v, l]) =>
         h(
           "label",
@@ -790,6 +871,10 @@ async function refresh() {
 async function goHome() {
   state.view = "home";
   render();
+  // The account's preferences win over whatever this device had cached.
+  void loadServerPrefs().catch(() => {
+    /* Offline: the cached settings stay in force and sync resumes later. */
+  });
   if (await recoverInterrupted()) {
     state.error = null;
     state.warning = null;
@@ -879,6 +964,21 @@ async function boot() {
     if (state.view === "home" && state.form.consent) void startRecording();
   });
   bridge().on("tray:stop", () => void stopRecording());
+
+  // OAuth sign-in: the main process caught the browser's redirect and hands us the
+  // code; Supabase's stored PKCE verifier is what makes it worth anything.
+  bridge().on("auth:code", (code) => {
+    void supabase.auth
+      .exchangeCodeForSession(String(code))
+      .then(async ({ error }) => {
+        if (error) {
+          state.error = error.message;
+          if (state.view !== "home") render();
+          return;
+        }
+        await goHome();
+      });
+  });
 
   // The speech model, and whether new recordings are made on this computer.
   await initSpeech();

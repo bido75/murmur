@@ -14,7 +14,7 @@ test("valid values are kept", () => {
     theme: "dark",
     minimizeToTray: false,
     notifyMeetings: false,
-    defaultRecordingType: "site-walk",
+    defaultRecordingType: "site_walk",
     localOnly: true,
     retentionDays: 30,
   });
@@ -23,9 +23,12 @@ test("valid values are kept", () => {
     theme: "dark",
     minimizeToTray: false,
     notifyMeetings: false,
-    defaultRecordingType: "site-walk",
+    defaultRecordingType: "site_walk",
     localOnly: true,
     retentionDays: 30,
+    consentReminder: true,
+    fieldMode: false,
+    myState: "",
   });
 });
 
@@ -33,9 +36,17 @@ test("invalid values fall back to defaults, not errors", () => {
   assert.equal(normalize({ theme: "hot pink" }).theme, "system");
   assert.equal(normalize({ retentionDays: 9999 }).retentionDays, 0);
   assert.equal(normalize({ retentionDays: 1.5 }).retentionDays, 0);
-  assert.equal(normalize({ defaultRecordingType: "hack" }).defaultRecordingType, "meeting");
+  assert.equal(normalize({ defaultRecordingType: "Not A Type" }).defaultRecordingType, "meeting");
+  assert.equal(normalize({ defaultRecordingType: 42 }).defaultRecordingType, "meeting");
   assert.equal(normalize({ localOnly: "yes" }).localOnly, DEFAULT_SETTINGS.localOnly);
   assert.equal(normalize({ minimizeToTray: 1 }).minimizeToTray, DEFAULT_SETTINGS.minimizeToTray);
+  assert.equal(normalize({ myState: 7 }).myState, "");
+});
+
+test("unknown but well-formed template ids from other clients are kept", () => {
+  // The account owns the template list; this client must not clobber it.
+  assert.equal(normalize({ defaultRecordingType: "town_hall" }).defaultRecordingType, "town_hall");
+  assert.equal(normalize({ myState: "x".repeat(100) }).myState.length, 64);
 });
 
 test("unknown setting keys are rejected", () => {

@@ -16,7 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -50,6 +50,7 @@ import {
   removeModel,
 } from "./speechModelManager";
 import { resourceStats } from "./resources";
+import { LoopbackCapture, parseCallbackUrl } from "./auth";
 import { loadSettings, saveSettings } from "./settings";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
@@ -63,6 +64,14 @@ let lastMeeting: MeetingApp | null = null;
 let macCapture: ChildProcessWithoutNullStreams | null = null;
 /** The download that is running, so it can be stopped. */
 let installAbort: AbortController | null = null;
+
+/** The loopback listener that catches the browser's OAuth redirect. */
+let authCapture: LoopbackCapture | null = null;
+
+/** Hand a sign-in code to the renderer once, through one channel. */
+function deliverAuthCode(code: string) {
+  win?.webContents.send("auth:code", code);
+}
 
 // ---------- Local store (everything under userData/pending) ----------
 
@@ -367,6 +376,20 @@ function registerIpc() {
       (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>,
     ),
   );
+
+  // OAuth: the renderer drives Supabase's PKCE flow; the main process only catches
+  // the browser's redirect (loopback listener first, murmur:// deep link as backup).
+  ipcMain.handle("auth:begin", async () => {
+    authCapture?.stop();
+    const capture = new LoopbackCapture();
+    await capture.start(null);
+    capture.onNextCode(deliverAuthCode);
+    authCapture = capture;
+    return { redirectUri: capture.redirectUri };
+  });
+  ipcMain.handle("auth:open", (_e, url: string) => {
+    if (/^https:\/\//.test(url)) void shell.openExternal(url);
+  });
 }
 
 // ---------- System audio ----------
@@ -609,8 +632,29 @@ function updateTray() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", showWindow);
+  app.on("second-instance", (_e, argv) => {
+    showWindow();
+    // Windows delivers deep links through the second instance's argv.
+    const link = argv.find((a) => a.startsWith("murmur://"));
+    if (link) {
+      const parsed = parseCallbackUrl(link);
+      if (parsed.ok) deliverAuthCode(parsed.code);
+    }
+  });
+  app.on("open-url", (e, url) => {
+    e.preventDefault();
+    const parsed = parseCallbackUrl(url);
+    if (parsed.ok) deliverAuthCode(parsed.code);
+  });
   app.whenReady().then(() => {
+    // The deep-link channel for OAuth callbacks (no effect in dev until registered).
+    if (process.defaultApp) {
+      app.setAsDefaultProtocolClient("murmur", process.execPath, [
+        resolve(process.argv[1] ?? "."),
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient("murmur");
+    }
     // Microphone (and screen capture for system audio) only for our own pages.
     session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => {
       cb(
@@ -639,6 +683,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     (app as unknown as { quitting?: boolean }).quitting = true;
     stopMacCapture();
+    authCapture?.stop();
+    authCapture = null;
     // The shortcuts belong to the app, so they are given back when it closes.
     dictation?.unregisterShortcuts();
   });

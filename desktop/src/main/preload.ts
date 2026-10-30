@@ -14,6 +14,7 @@ const CHANNELS = new Set([
   "dictation:history",
   "tray:start",
   "tray:stop",
+  "auth:code",
 ]);
 
 const bridge: Bridge = {
@@ -44,6 +45,8 @@ const bridge: Bridge = {
   resources: () => ipcRenderer.invoke("app:resources"),
   settingsGet: () => ipcRenderer.invoke("settings:get"),
   settingsSet: (patch) => ipcRenderer.invoke("settings:set", patch),
+  authBegin: () => ipcRenderer.invoke("auth:begin"),
+  authOpen: (url) => ipcRenderer.invoke("auth:open", url),
   dictationSettings: () => ipcRenderer.invoke("dictation:settings"),
   dictationHistory: () => ipcRenderer.invoke("dictation:history"),
   dictationState: () => ipcRenderer.invoke("dictation:state"),
