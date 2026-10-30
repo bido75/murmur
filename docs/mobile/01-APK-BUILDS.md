@@ -48,6 +48,25 @@ Date: 2026-10-30 · Branch `feature/murmur-desktop-v2` · Source at submission: 
 4. Install → open **Murmur** → sign in (OTP email) → allow the microphone prompt → record.
 5. The dev-client APK (`Murmur-devclient-…`) is for Metro debugging only: `npx expo start` (port **8083**), then open the dev client from the same Wi-Fi or with `adb reverse tcp:8083 tcp:8083`.
 
+## Corrected build (2026-10-30 later) — the accessibility-role crash
+
+The first preview APK crashed right after login on Android: the onboarding TipCard
+passed `accessibilityRole="dialog"`, which React Native's Android view manager rejects
+(web-only ARIA role). Fixed in commit `f5ccaf6` — web keeps the ARIA dialog role,
+native relies on `accessible` + label + live region — plus a static audit test
+(`src/lib/accessibilityRoles.test.ts`, scans every role literal in the app against
+RN's Android role set, 3 tests). Full repo regression: typecheck clean, suite green.
+
+| Corrected preview build | |
+|---|---|
+| Build ID | `8219652c-1997-493b-91d4-04a280e6cbf5` (FINISHED) |
+| Download | https://expo.dev/artifacts/eas/OmI071fAAHsl0ljwdgXq1rQ7-swtXjpDsxr-PZRln18.apk |
+| Size / SHA-256 | 91.2 MB / `35ea50281469712e214e42b93377ff1878288d0c5182796ff10473f9a9eb05ff` |
+| Contents verified | package `com.giscop.murmur`, embedded bundle, `notes.giscop.com` origin, no LAN URLs |
+
+Install over the old one or uninstall first. The dev client picks the fix up instantly
+via Metro (reload the app).
+
 ## Known limitations (honest)
 
 - **No real-device test has been run yet** — launch, sign-in, mic prompt, 30s/5m/15m
