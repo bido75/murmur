@@ -1,4 +1,7 @@
 // The only API the web page can use (exposed by preload.ts through contextBridge).
+import type { Settings } from "./settings";
+
+export type { Settings };
 export type SpeechModelStatus = {
   id: string;
   label: string;
@@ -104,6 +107,9 @@ export type Bridge = {
   }>;
   /** What this app and this computer are using. */
   resources(): Promise<ResourceStats>;
+  /** Durable application settings; patches are validated in the main process. */
+  settingsGet(): Promise<Settings>;
+  settingsSet(patch: Record<string, unknown>): Promise<Settings>;
   /** Dictation: the settings, the history and the state. */
   dictationSettings(): Promise<unknown>;
   dictationHistory(): Promise<unknown[]>;

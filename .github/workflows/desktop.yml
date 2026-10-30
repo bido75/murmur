@@ -1,0 +1,51 @@
+name: desktop-ci
+
+on:
+  push:
+    branches:
+      - feature/murmur-desktop-v2
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Typecheck
+        working-directory: desktop
+        run: npm run typecheck
+      - name: Unit tests
+        working-directory: desktop
+        run: npm test
+      - name: Build bundles
+        working-directory: desktop
+        run: node build.mjs
+      - name: Upload built bundles
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-dist
+          path: desktop/dist
+          retention-days: 7

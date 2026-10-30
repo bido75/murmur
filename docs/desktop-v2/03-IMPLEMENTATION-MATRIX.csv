@@ -2,8 +2,9 @@ id,feature,phase,baseline_status,target,evidence_or_artifacts,notes
 D-01,Typed IPC bridge surface intact,1,PASS,Preserve and extend,desktop/src/shared/bridge.ts,All existing 92 tests must stay green after changes
 D-02,Shared contract alignment with src/lib (types/utterance/queue ops),1,PARTIAL,Aligned,desktop/src/shared + src/lib/types.ts,Targeted convergence; no big-bang dedupe
 D-03,Real application id in electron-builder.yml,1,BLOCKED,Replaced placeholder,desktop/electron-builder.yml,com.example.murmur.desktop -> owner-confirmed id; ask operator
-D-04,Desktop CI lane (typecheck+tests+build),1,MISSING,Added,.github/workflows/desktop.yml,Win+mac runners; unsigned artifact upload
-D-05,Unit tests green after Phase 1,1,PASS,Maintained,desktop npm test,92 pass / 0 fail baseline (2026-10-29)
+D-04,Desktop CI lane (typecheck+tests+build),1,IMPLEMENTED BUT NOT TESTED,Added,.github/workflows/desktop.yml,Win+mac matrix; SHA-pinned actions; runs on push to feature/murmur-desktop-v2
+D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,105 pass / 0 fail baseline (2026-10-29; 92 baseline + 13 settings tests)
+D-27,Durable typed settings store (atomic writes, validation, corrupt-file recovery),1,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/settings.ts + src/shared/settings.ts + 13 tests,IPC settings:get/set wired through preload bridge; server-backed prefs land in Phase 2
 D-06,OAuth provider sign-in (Google/Apple) with PKCE,2,MISSING,Added,desktop/src/main/auth.ts + renderer,Deep-link/loopback callback channel; OTP stays as fallback
 D-07,Session persistence + token refresh verified,2,PASS,Maintained,desktop/src/renderer/supabase.ts,persistSession/autoRefresh already on
 D-08,Server-backed user_settings (consent_reminder/field_mode/default_template/my_state),2,PARTIAL,Migrated,renderer settings module,Only language is server-read today (sync.ts:131)
@@ -22,6 +23,6 @@ D-20,Linux target,5,DEFERRED,Optional,electron-builder.yml,Only if operator want
 D-21,Crash capture + local rotating logs,6,MISSING,Added,main logger,Opt-in telemetry only; off by default
 D-22,Selftest/smoke harness extension,6,PASS,Extended,MURMUR_SELFTEST / MURMUR_SMOKE_SHOT hooks,Good existing bones in main.ts:519-544
 D-23,Desktop release-verification pack,6,MISSING,Produced,docs/desktop-v2/release-verification/,Mirrors docs/release-verification discipline
-D-24,Security review (CSP in renderer, permission surface audit),7,PARTIAL,Hardened,renderer CSP meta + main permission handler,contextIsolation/sandbox already correct
+D-24,Security review (CSP in renderer, permission surface audit),7,PARTIAL,Hardened,renderer CSP meta + main permission handler,CSP meta already present in both HTML files (Phase 0 finding); contextIsolation/sandbox already correct
 D-25,Final implementation matrix + PR,7,MISSING,Produced,docs/desktop-v2/03-IMPLEMENTATION-MATRIX.csv + PR,PR against feature/murmur-app-remediation or main per operator
 D-26,AGPL compliance guard (no Murmure code),ALL,PASS,Maintained,docs/LICENSE_REVIEW.md,Murmure study-only; Parakeet weights CC BY 4.0 with attribution

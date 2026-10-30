@@ -50,6 +50,7 @@ import {
   removeModel,
 } from "./speechModelManager";
 import { resourceStats } from "./resources";
+import { loadSettings, saveSettings } from "./settings";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
 import { Dictation, type OverlayRect } from "./dictation";
@@ -357,6 +358,15 @@ function registerIpc() {
   });
 
   ipcMain.handle("app:resources", () => resourceStats());
+
+  // Application settings: validated in the main process, stored atomically.
+  ipcMain.handle("settings:get", () => loadSettings(userDataDir()));
+  ipcMain.handle("settings:set", (_e, patch: unknown) =>
+    saveSettings(
+      userDataDir(),
+      (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>,
+    ),
+  );
 }
 
 // ---------- System audio ----------
