@@ -4,10 +4,17 @@ Date: 2026-10-30 · Branch `feature/murmur-desktop-v2` · Source at submission: 
 
 ## Builds
 
-| Profile | Build ID | Status | Artifact | Size | SHA-256 |
-|---|---|---|---|---|---|
-| **preview** (standalone APK, no Expo Go / no Metro needed) | `ff64106a-ca35-4c4b-a796-a10eea02de3a` | FINISHED | https://expo.dev/artifacts/eas/Rh3dImjygAgkVWfikkwoPQXV4eGFjxZ2DDE2iEFg7t8.apk | **91.2 MB** | `ee796e660ba366ad403f342db87e3832030623ca501ea0128f56715b676599f5` |
-| **development** (dev client; connects to Metro for debugging) | `d81abffa-3415-4633-8cdc-bc154cf4e12a` | FINISHED | https://expo.dev/artifacts/eas/YWcGTEFHHlp4NpMThws6k834B8LffZpzMvJBmnel6yY.apk | **214.9 MB** | `c0da172f25cd64cae665d39a6774a821ae0e6709e52c189f0aac0601d6a7dfbe` |
+> **Naming warning (learned the hard way on 2026-10-30):** the dev-client APK shows
+> "Unable to load script … make sure you're running Metro" when launched without
+> Metro — that is its designed behavior, not a bug. The **preview** APK is the one
+> that runs standalone. The operator installed the dev-client APK first and hit
+> exactly this. Verified inside the artifacts afterwards: preview contains
+> `assets/index.android.bundle`; the dev client contains none (by design).
+
+| Profile | Build ID | Status | Artifact | Size | SHA-256 | Runs standalone? |
+|---|---|---|---|---|---|---|
+| **preview** (standalone APK — THE ONE TO INSTALL) | `ff64106a-ca35-4c4b-a796-a10eea02de3a` | FINISHED | https://expo.dev/artifacts/eas/Rh3dImjygAgkVWfikkwoPQXV4eGFjxZ2DDE2iEFg7t8.apk | **91.2 MB** | `ee796e660ba366ad403f342db87e3832030623ca501ea0128f56715b676599f5` | **YES** (`assets/index.android.bundle` verified inside) |
+| **development** (dev client — Metro debugging only) | `d81abffa-3415-4633-8cdc-bc154cf4e12a` | FINISHED | https://expo.dev/artifacts/eas/YWcGTEFHHlp4NpMThws6k834B8LffZpzMvJBmnel6yY.apk | **214.9 MB** | `c0da172f25cd64cae665d39a6774a821ae0e6709e52c189f0aac0601d6a7dfbe` | NO — needs `npx expo start` (port 8083) + same Wi-Fi or `adb reverse tcp:8083 tcp:8083` |
 
 - Build pages: https://expo.dev/accounts/vgbewonyo/projects/murmur-notes/builds/ff64106a-ca35-4c4b-a796-a10eea02de3a and …/d81abffa-3415-4633-8cdc-bc154cf4e12a
 - Package: **`com.giscop.murmur`** · version 1.0.0 (versionCode auto; set explicitly before Play distribution)
@@ -35,10 +42,11 @@ Date: 2026-10-30 · Branch `feature/murmur-desktop-v2` · Source at submission: 
 
 ## Installation instructions (operator)
 
-1. Copy `Murmur-preview-0.1.0.apk` to the phone (or open the expo.dev artifact link on the phone).
-2. Allow "Install unknown apps" for the source when prompted (normal for sideloading).
-3. Install → open **Murmur** → sign in (OTP email) → allow the microphone prompt → record.
-4. The dev-client APK (`Murmur-devclient-…`) is for Metro debugging only: `npx expo start`, then open the dev client.
+1. **Uninstall any previously installed Murmur first** (both APKs share the package `com.giscop.murmur`).
+2. Copy `Murmur-preview-0.1.0.apk` to the phone (or open the preview artifact link on the phone).
+3. Allow "Install unknown apps" for the source when prompted (normal for sideloading).
+4. Install → open **Murmur** → sign in (OTP email) → allow the microphone prompt → record.
+5. The dev-client APK (`Murmur-devclient-…`) is for Metro debugging only: `npx expo start` (port **8083**), then open the dev client from the same Wi-Fi or with `adb reverse tcp:8083 tcp:8083`.
 
 ## Known limitations (honest)
 
