@@ -222,7 +222,7 @@ export default function RecordingDetail() {
           }),
         },
         ...projects.map((p) => ({
-          label: p.id === rec.project_id ? `${p.name} ✓` : p.name,
+          label: p.id === rec.project_id ? `${p.name} âœ“` : p.name,
           onPress: guard(async () => {
             await setRecordingProject(rec.id, p.id);
             await load();
@@ -327,7 +327,7 @@ export default function RecordingDetail() {
       },
       {
         // Anyone who can read the recording can collect clips in their own reels.
-        label: "Add to a highlight reel…",
+        label: "Add to a highlight reelâ€¦",
         onPress: guard(async () => {
           const reels = await listReels();
           const mine = reels.filter((r) => r.user_id === me);
@@ -340,7 +340,7 @@ export default function RecordingDetail() {
           };
           const add = async (reelId: string, name: string) => {
             await addToReel(reelId, clip);
-            notify("Added", `Clip added to “${name}”.`);
+            notify("Added", `Clip added to â€œ${name}â€.`);
           };
           setMenu({
             title: "Add this moment to",
@@ -350,7 +350,7 @@ export default function RecordingDetail() {
                 onPress: guard(() => add(r.id, r.title)),
               })),
               {
-                label: "New reel…",
+                label: "New reelâ€¦",
                 onPress: () =>
                   setPrompt({
                     title: "Name the reel",
@@ -415,7 +415,7 @@ export default function RecordingDetail() {
       });
     }
     setMenu({
-      title: `${clock(u.start_ms)} · ${u.text.slice(0, 60)}`,
+      title: `${clock(u.start_ms)} Â· ${u.text.slice(0, 60)}`,
       actions,
     });
   }
@@ -426,7 +426,7 @@ export default function RecordingDetail() {
     if (!procore?.config.target) {
       notify(
         "Choose a Procore project first",
-        "Go to Settings → Task trackers → Procore and pick the project.",
+        "Go to Settings â†’ Task trackers â†’ Procore and pick the project.",
       );
       return;
     }
@@ -457,7 +457,7 @@ export default function RecordingDetail() {
           d === "slack" && r.channel
             ? ` (${r.channel})`
             : r.linked != null
-              ? ` · linked to ${r.linked} contact${r.linked === 1 ? "" : "s"}`
+              ? ` Â· linked to ${r.linked} contact${r.linked === 1 ? "" : "s"}`
               : "";
         if (
           r.url &&
@@ -494,16 +494,19 @@ export default function RecordingDetail() {
     const actions: MenuAction[] = [
       {
         label: "Make a deck",
+        section: "AI tools",
         onPress: () =>
           router.push({ pathname: "/deck", params: { recordingId: rec.id } }),
       },
       {
         label: "Draft a follow-up email",
+        section: "AI tools",
         onPress: () =>
           router.push({ pathname: "/followup", params: { id: rec.id } }),
       },
       {
-        label: translation ? "Show original language" : "Translate…",
+        label: translation ? "Show original language" : "Translateâ€¦",
+        section: "AI tools",
         onPress: () => {
           if (translation) return setTranslation(null);
           setMenu({
@@ -526,6 +529,7 @@ export default function RecordingDetail() {
       },
       {
         label: "Share, email or export",
+        section: "Share & export",
         onPress: () =>
           router.push({ pathname: "/share", params: { id: rec.id } }),
       },
@@ -533,6 +537,7 @@ export default function RecordingDetail() {
     if (rec.has_video && data?.segments.some((sg) => sg.storage_path)) {
       actions.push({
         label: "Watch screen recording",
+        section: "Share & export",
         onPress: () =>
           setMenu({
             title: "Screen recording",
@@ -553,7 +558,8 @@ export default function RecordingDetail() {
     );
     if (rec.status === "ready") {
       actions.push({
-        label: dests.length ? "Send notes to…" : "Send notes to Slack, Notion…",
+        section: "Send",
+        label: dests.length ? "Send notes toâ€¦" : "Send notes to Slack, Notionâ€¦",
         onPress: () =>
           dests.length
             ? setMenu({
@@ -569,16 +575,23 @@ export default function RecordingDetail() {
     if (isOwner) {
       if (!isWeb)
         actions.push({
+          section: "Attachments",
           label: "Take a photo",
           onPress: () => void addPhoto("camera"),
         });
       actions.push({
+        section: "Attachments",
         label: "Add a photo from library",
         onPress: () => void addPhoto("library"),
       });
       actions.push(
-        { label: "Move to project", onPress: () => void chooseProject() },
         {
+          section: "Organize",
+          label: "Move to project",
+          onPress: () => void chooseProject(),
+        },
+        {
+          section: "Organize",
           label: "Re-run notes",
           onPress: guard(async () => {
             await retryProcessing(rec.id);
@@ -586,6 +599,7 @@ export default function RecordingDetail() {
           }),
         },
         {
+          section: "Delete",
           label: "Delete recording",
           destructive: true,
           onPress: guard(async () => {
@@ -654,16 +668,35 @@ export default function RecordingDetail() {
         options={{
           title: "",
           headerRight: () => (
-            <Pressable
-              onPress={openMenu}
-              accessibilityRole="button"
-              accessibilityLabel="More actions"
-              hitSlop={12}
-            >
-              <T size={22} weight="700" style={{ color: t.accent }}>
-                ···
-              </T>
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              {/* A visible labeled Export: the action new users could never find
+                  behind the icon-only overflow. It opens the share/export screen. */}
+              <Pressable
+                onPress={() =>
+                  rec?.id &&
+                  router.push({ pathname: "/share", params: { id: rec.id } })
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Export or share this recording"
+                hitSlop={8}
+                style={{ paddingHorizontal: 8, paddingVertical: 10 }}
+              >
+                <T size={15} weight="700" style={{ color: t.accent }}>
+                  Export
+                </T>
+              </Pressable>
+              <Pressable
+                onPress={openMenu}
+                accessibilityRole="button"
+                accessibilityLabel="More actions"
+                hitSlop={8}
+                style={{ paddingHorizontal: 8, paddingVertical: 10, minHeight: 48, justifyContent: "center" }}
+              >
+                <T size={15} weight="700" style={{ color: t.accent }}>
+                  More
+                </T>
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -696,8 +729,8 @@ export default function RecordingDetail() {
               blurOnSubmit
             />
             <T muted size={13}>
-              {shortDate(rec.created_at)} · {TEMPLATE_LABELS[rec.template]}
-              {rec.duration_ms ? ` · ${minutes(rec.duration_ms)}` : ""}
+              {shortDate(rec.created_at)} Â· {TEMPLATE_LABELS[rec.template]}
+              {rec.duration_ms ? ` Â· ${minutes(rec.duration_ms)}` : ""}
             </T>
             {rec.status !== "ready" && (
               <TourAnchor id="status-pill">
@@ -740,7 +773,7 @@ export default function RecordingDetail() {
             )}
             {translating && (
               <T muted size={13}>
-                Translating…
+                Translatingâ€¦
               </T>
             )}
             {translation && (
@@ -997,7 +1030,7 @@ function Notes({
       const lines = (x: string) =>
         x
           .split("\n")
-          .map((l) => l.replace(/^[-•*]\s*/, "").trim())
+          .map((l) => l.replace(/^[-â€¢*]\s*/, "").trim())
           .filter(Boolean);
       await updateSummary(data.recording.id, {
         overview: editing.overview.trim(),
@@ -1025,7 +1058,7 @@ function Notes({
           </Section>
         )}
         <Empty
-          title="Writing your notes…"
+          title="Writing your notesâ€¦"
           body="This usually takes a minute or two after you stop."
         />
       </ScrollView>
@@ -1143,7 +1176,7 @@ function Notes({
           />
           {sentTo ? (
             <Button
-              label="Open in Procore daily log ↗"
+              label="Open in Procore daily log â†—"
               kind="ghost"
               onPress={() => void Linking.openURL(sentTo)}
             />
@@ -1172,7 +1205,7 @@ function Notes({
                   gap: space.xs,
                 }}
               >
-                <T style={{ flex: 1 }}>• {p}</T>
+                <T style={{ flex: 1 }}>â€¢ {p}</T>
                 {ms != null ? (
                   <TimestampChip ms={ms} onPress={() => playAt(ms)} />
                 ) : null}
@@ -1203,7 +1236,7 @@ function Notes({
                     style={{ flex: 1 }}
                   >
                     <T muted size={13} style={{ fontStyle: "italic" }}>
-                      “{d.quote}”
+                      â€œ{d.quote}â€
                       {d.verified ? "" : "  (not found in transcript)"}
                     </T>
                   </Pressable>
@@ -1224,7 +1257,7 @@ function Notes({
               <Card key={i} style={{ gap: 4 }}>
                 <T weight="600">
                   {u.status === "done"
-                    ? "✓ Done: "
+                    ? "âœ“ Done: "
                     : u.status === "blocked"
                       ? "Blocked: "
                       : "In progress: "}
@@ -1245,7 +1278,7 @@ function Notes({
                       style={{ flex: 1 }}
                     >
                       <T muted size={13} style={{ fontStyle: "italic" }}>
-                        “{u.quote}”
+                        â€œ{u.quote}â€
                         {u.verified
                           ? ""
                           : "  (not found in transcript, task left open)"}
@@ -1264,7 +1297,7 @@ function Notes({
       {s.open_questions.length > 0 && (
         <Section title="Open questions">
           {s.open_questions.map((q, i) => (
-            <T key={i}>• {q}</T>
+            <T key={i}>â€¢ {q}</T>
           ))}
         </Section>
       )}
@@ -1283,7 +1316,7 @@ function Notes({
             >
               <T size={14}>
                 <T size={14} weight="600">
-                  {c.kind === "bookmark" ? "★ " : ""}
+                  {c.kind === "bookmark" ? "â˜… " : ""}
                   {c.author_email?.split("@")[0] ?? "Someone"}
                 </T>
                 {c.at_ms != null ? (
@@ -1299,7 +1332,7 @@ function Notes({
                 hitSlop={8}
               >
                 <T muted size={13}>
-                  ✕
+                  âœ•
                 </T>
               </Pressable>
             )}
@@ -1336,7 +1369,7 @@ function Notes({
               size={14}
               style={{ color: r.decision === "decline" ? t.danger : t.ink }}
             >
-              {r.decision === "agree" ? "✓ " : "✕ "}
+              {r.decision === "agree" ? "âœ“ " : "âœ• "}
               {r.name}
               {r.email ? ` (${r.email})` : ""}{" "}
               {r.decision === "agree" ? "agreed" : "did not agree"}
@@ -1344,7 +1377,7 @@ function Notes({
           ))}
           {responses.some((r) => r.decision === "decline") && (
             <T muted size={13}>
-              Someone didn’t agree. Consider deleting their parts or the
+              Someone didnâ€™t agree. Consider deleting their parts or the
               recording, and check the law where they are.
             </T>
           )}
@@ -1554,7 +1587,7 @@ function TranscriptView({
               <TimestampChip ms={item.start_ms} onPress={() => playAt(item.start_ms)} />
             )}
             <T>
-              {marks.has(item.start_ms) ? "★ " : ""}
+              {marks.has(item.start_ms) ? "â˜… " : ""}
               {item.text}
             </T>
           </Pressable>
@@ -1597,8 +1630,8 @@ function AskView({ recordingId }: { recordingId: string }) {
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
         {history.length === 0 && (
           <T muted>
-            Ask anything about this recording, e.g. “What did we agree on
-            pricing?”
+            Ask anything about this recording, e.g. â€œWhat did we agree on
+            pricing?â€
           </T>
         )}
         {history.map((h, i) => (

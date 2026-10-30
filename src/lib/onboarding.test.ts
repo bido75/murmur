@@ -187,7 +187,7 @@ test("tips are per-screen, one-time and gated by their requirement", () => {
   );
   assert.deepEqual(
     tipsForScreen("/recording/meeting-1", seenNothing, { reviewItems: false, fieldMode: false, isAdmin: false }).map((t) => t.id),
-    ["first_processing", "detail_transcript", "detail_tasks", "detail_ask"],
+    ["first_processing", "detail_transcript", "detail_tasks", "detail_ask", "detail_export", "detail_more"],
   );
 
   // Gated tips stay hidden until their requirement is met.
