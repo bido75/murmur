@@ -117,6 +117,10 @@ export type Bridge = {
   authBegin(): Promise<{ redirectUri: string }>;
   /** Open the authorize URL in the user's browser. */
   authOpen(url: string): Promise<void>;
+  /** The optional always-on-top controller shown while recording. */
+  floatingShow(): Promise<void>;
+  floatingHide(): Promise<void>;
+  floatingUpdate(elapsedMs: number, level: number): Promise<void>;
   /** Dictation: the settings, the history and the state. */
   dictationSettings(): Promise<unknown>;
   dictationHistory(): Promise<unknown[]>;

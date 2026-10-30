@@ -18,6 +18,8 @@ export type Settings = {
   fieldMode: boolean;
   /** Consent/location code (server user_settings.my_state). */
   myState: string;
+  /** Show the small always-on-top controller while recording (device-only). */
+  floatingControls: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   consentReminder: true,
   fieldMode: false,
   myState: "",
+  floatingControls: false,
 };
 
 const THEMES: Theme[] = ["system", "light", "dark"];
@@ -75,6 +78,7 @@ export function normalize(raw: unknown): Settings {
     consentReminder: flag(o.consentReminder, DEFAULT_SETTINGS.consentReminder),
     fieldMode: flag(o.fieldMode, DEFAULT_SETTINGS.fieldMode),
     myState: typeof o.myState === "string" ? o.myState.slice(0, 64) : DEFAULT_SETTINGS.myState,
+    floatingControls: flag(o.floatingControls, DEFAULT_SETTINGS.floatingControls),
   };
 }
 
@@ -89,6 +93,7 @@ export function validatePatch(patch: Record<string, unknown>): Record<string, un
     "consentReminder",
     "fieldMode",
     "myState",
+    "floatingControls",
   ]);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {

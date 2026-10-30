@@ -29,6 +29,7 @@ test("valid values are kept", () => {
     consentReminder: true,
     fieldMode: false,
     myState: "",
+    floatingControls: false,
   });
 });
 

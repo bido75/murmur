@@ -19,6 +19,10 @@ D-14,Onboarding checklist port (real-data derived),4,IMPLEMENTED AND VERIFIED,Po
 D-15,Tour analytics events match web schema,4,PARTIAL,Started,onboarding_events inserts,checklist_hidden + stamps written; full 7-stop spotlight tour deferred to Phase 5
 D-30,Model install disk-space pre-check,3,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/speechModelManager.ts,fs.statfs free-space + 512MB unpack margin; refuse with real numbers; statfs failure non-blocking
 D-31,Settings screen (account-wide fields),4,IMPLEMENTED BUT NOT E2E-TESTED,Added,desktop/src/renderer/app.ts settingsView,Default type/consent reminder/field mode/my_state with write-through; device-only localOnly stays in speech panel
+D-32,Transcript viewer (transcripts+summaries, RLS-scoped),5,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/renderer/transcriptView.ts + Notes button,Same tables as web (transcripts/summaries); overview/key points/decisions/questions/timestamped copyable words; local recordings show an honest banner
+D-33,Floating always-on-top recording controller,5,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/main/floating.ts + floatingPreload + floating.html,Sandboxed frameless window; stop reuses tray:stop path; gate by floatingControls setting; needs signed-in recording run to verify
+D-34,Floating controls setting (device-only),5,IMPLEMENTED AND VERIFIED,Added,desktop/src/shared/settings.ts,Schema + validation + default false; covered by settings tests
+D-35,Packaging and release documentation,5,IMPLEMENTED AND VERIFIED,Documented,docs/desktop-v2/15-PACKAGING-AND-RELEASE.md,Release gates + honest not-claimed list
 D-16,Packaging hygiene (asar integrity, mac hardened runtime, nsis config),5,PARTIAL,Hardened,electron-builder.yml + build.mjs,appId/signing pending D-03
 D-17,Win code signing,5,BLOCKED,Plumbing only,electron-builder.yml,Requires cert; environment cannot sign
 D-18,macOS notarization,5,BLOCKED,Plumbing only,build/entitlements.mac.plist,Requires Apple ID creds

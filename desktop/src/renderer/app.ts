@@ -30,6 +30,11 @@ import { dictationPanel, dictationSettings } from "./dictationView";
 import { useHistory } from "./historyPanel";
 import { historyPanel, historyState, setHistoryActions } from "./historyView";
 import { initSpeech, speechPanel } from "./speechPanel";
+import {
+  loadTranscript,
+  transcriptPanel,
+  transcriptState,
+} from "./transcriptView";
 import type { Shortcut } from "../shared/shortcuts";
 import {
   enqueue,
@@ -60,7 +65,7 @@ const NOTICE =
   "I'm recording this call so I can take accurate notes — is everyone okay with that?";
 
 type State = {
-  view: "loading" | "signin" | "home" | "recording" | "settings";
+  view: "loading" | "signin" | "home" | "recording" | "settings" | "transcript";
   email: string;
   codeSent: boolean;
   error: string | null;
@@ -254,9 +259,14 @@ function render() {
         ? homeView()
         : state.view === "settings"
           ? settingsView()
-          : state.view === "recording"
-            ? recordingView()
-            : [];
+          : state.view === "transcript"
+            ? transcriptPanel(() => {
+                state.view = "home";
+                render();
+              })
+            : state.view === "recording"
+              ? recordingView()
+              : [];
   for (const c of parts) if (c) r.append(c);
 }
 
@@ -446,6 +456,17 @@ function settingsView(): Child[] {
             myState: (e.target as HTMLInputElement).value.trim(),
           }).then(render),
       }),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "This device"),
+      checkbox(
+        "Show floating controls while recording",
+        s.floatingControls,
+        (v) => void changeSettings({ floatingControls: v }).then(render),
+        "A small always-on-top stop button",
+      ),
     ),
     state.error && h("div", { class: "banner" }, state.error),
   ];
@@ -696,11 +717,20 @@ function homeView(): Child[] {
                   },
                   r.status === "ready" ? "Open" : r.status,
                 )
-              : h(
-                  "span",
-                  { class: r.status === "ready" ? "pill ok" : "pill" },
-                  r.status,
-                ),
+              : h("span", {}, ""),
+            h(
+              "button",
+              {
+                class: "ghost",
+                "aria-label": `Read the transcript of ${r.title}`,
+                onclick: () => {
+                  state.view = "transcript";
+                  void loadTranscript(r.id, r.title).then(render);
+                  render();
+                },
+              },
+              "Notes",
+            ),
           ),
         ),
       ),
@@ -833,6 +863,7 @@ async function startRecording() {
     state.view = "recording";
     state.warning = state.warning ?? null;
     await bridge().setRecording(true);
+    if (appSettings.floatingControls) await bridge().floatingShow();
   } catch (e) {
     state.error = (e as Error).message;
     capture = null;
@@ -892,6 +923,7 @@ async function stopRecording() {
   state.form.title = "";
   state.form.consent = "";
   await bridge().setRecording(false);
+  await bridge().floatingHide();
   render();
   void refresh();
 }
@@ -1134,6 +1166,9 @@ async function boot() {
     const l = document.getElementById("level");
     if (l)
       l.style.width = `${Math.max(0, Math.min(100, ((state.level + 60) / 60) * 100))}%`;
+    // The floating controller reads the same numbers, only when it is enabled.
+    if (appSettings.floatingControls)
+      void bridge().floatingUpdate(capture.elapsedMs, state.level);
   }, 250);
   setInterval(() => void flush(), 30_000);
   onQueueChange(

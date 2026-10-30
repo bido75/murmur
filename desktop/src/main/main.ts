@@ -51,6 +51,13 @@ import {
 } from "./speechModelManager";
 import { resourceStats } from "./resources";
 import { LoopbackCapture, parseCallbackUrl } from "./auth";
+import {
+  floatingStop,
+  hideFloating,
+  onFloatingStop,
+  showFloating,
+  updateFloating,
+} from "./floating";
 import { loadSettings, saveSettings } from "./settings";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
@@ -390,6 +397,17 @@ function registerIpc() {
   ipcMain.handle("auth:open", (_e, url: string) => {
     if (/^https:\/\//.test(url)) void shell.openExternal(url);
   });
+
+  // The floating controller: a small always-on-top window while recording.
+  ipcMain.handle("floating:show", () => {
+    if (win) showFloating(win);
+  });
+  ipcMain.handle("floating:hide", () => hideFloating());
+  ipcMain.handle("floating:update", (_e, elapsedMs: number, level: number) =>
+    updateFloating({ elapsedMs: Number(elapsedMs) || 0, level: Number(level) || 0 }),
+  );
+  ipcMain.on("floating:stop", () => floatingStop());
+  ipcMain.on("floating:open", () => showWindow());
 }
 
 // ---------- System audio ----------
@@ -665,6 +683,8 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     registerDisplayMedia();
     createWindow();
+    // The floating controller's stop button means the same as the tray's.
+    onFloatingStop(() => win?.webContents.send("tray:stop"));
     // The shortcuts are claimed once the window is there, so the first one works.
     win?.webContents.once("did-finish-load", () => {
       const result = dictation?.registerShortcuts();
@@ -685,6 +705,7 @@ if (!app.requestSingleInstanceLock()) {
     stopMacCapture();
     authCapture?.stop();
     authCapture = null;
+    hideFloating();
     // The shortcuts belong to the app, so they are given back when it closes.
     dictation?.unregisterShortcuts();
   });
