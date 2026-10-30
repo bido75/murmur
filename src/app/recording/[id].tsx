@@ -327,7 +327,7 @@ export default function RecordingDetail() {
       },
       {
         // Anyone who can read the recording can collect clips in their own reels.
-        label: "Add to a highlight reelâ€¦",
+        label: "Add to a highlight reel…",
         onPress: guard(async () => {
           const reels = await listReels();
           const mine = reels.filter((r) => r.user_id === me);
@@ -340,7 +340,7 @@ export default function RecordingDetail() {
           };
           const add = async (reelId: string, name: string) => {
             await addToReel(reelId, clip);
-            notify("Added", `Clip added to â€œ${name}â€.`);
+            notify("Added", `Clip added to “${name}”.`);
           };
           setMenu({
             title: "Add this moment to",
@@ -350,7 +350,7 @@ export default function RecordingDetail() {
                 onPress: guard(() => add(r.id, r.title)),
               })),
               {
-                label: "New reelâ€¦",
+                label: "New reel…",
                 onPress: () =>
                   setPrompt({
                     title: "Name the reel",
@@ -415,7 +415,7 @@ export default function RecordingDetail() {
       });
     }
     setMenu({
-      title: `${clock(u.start_ms)} Â· ${u.text.slice(0, 60)}`,
+      title: `${clock(u.start_ms)} · ${u.text.slice(0, 60)}`,
       actions,
     });
   }
@@ -457,7 +457,7 @@ export default function RecordingDetail() {
           d === "slack" && r.channel
             ? ` (${r.channel})`
             : r.linked != null
-              ? ` Â· linked to ${r.linked} contact${r.linked === 1 ? "" : "s"}`
+              ? ` · linked to ${r.linked} contact${r.linked === 1 ? "" : "s"}`
               : "";
         if (
           r.url &&
@@ -505,7 +505,7 @@ export default function RecordingDetail() {
           router.push({ pathname: "/followup", params: { id: rec.id } }),
       },
       {
-        label: translation ? "Show original language" : "Translateâ€¦",
+        label: translation ? "Show original language" : "Translate…",
         section: "AI tools",
         onPress: () => {
           if (translation) return setTranslation(null);
@@ -559,7 +559,7 @@ export default function RecordingDetail() {
     if (rec.status === "ready") {
       actions.push({
         section: "Send",
-        label: dests.length ? "Send notes toâ€¦" : "Send notes to Slack, Notionâ€¦",
+        label: dests.length ? "Send notes to…" : "Send notes to Slack, Notion…",
         onPress: () =>
           dests.length
             ? setMenu({
@@ -729,8 +729,8 @@ export default function RecordingDetail() {
               blurOnSubmit
             />
             <T muted size={13}>
-              {shortDate(rec.created_at)} Â· {TEMPLATE_LABELS[rec.template]}
-              {rec.duration_ms ? ` Â· ${minutes(rec.duration_ms)}` : ""}
+              {shortDate(rec.created_at)} · {TEMPLATE_LABELS[rec.template]}
+              {rec.duration_ms ? ` · ${minutes(rec.duration_ms)}` : ""}
             </T>
             {rec.status !== "ready" && (
               <TourAnchor id="status-pill">
@@ -773,7 +773,7 @@ export default function RecordingDetail() {
             )}
             {translating && (
               <T muted size={13}>
-                Translatingâ€¦
+                Translating…
               </T>
             )}
             {translation && (
@@ -1030,7 +1030,7 @@ function Notes({
       const lines = (x: string) =>
         x
           .split("\n")
-          .map((l) => l.replace(/^[-â€¢*]\s*/, "").trim())
+          .map((l) => l.replace(/^[-•*]\s*/, "").trim())
           .filter(Boolean);
       await updateSummary(data.recording.id, {
         overview: editing.overview.trim(),
@@ -1058,7 +1058,7 @@ function Notes({
           </Section>
         )}
         <Empty
-          title="Writing your notesâ€¦"
+          title="Writing your notes…"
           body="This usually takes a minute or two after you stop."
         />
       </ScrollView>
@@ -1205,7 +1205,7 @@ function Notes({
                   gap: space.xs,
                 }}
               >
-                <T style={{ flex: 1 }}>â€¢ {p}</T>
+                <T style={{ flex: 1 }}>• {p}</T>
                 {ms != null ? (
                   <TimestampChip ms={ms} onPress={() => playAt(ms)} />
                 ) : null}
@@ -1236,7 +1236,7 @@ function Notes({
                     style={{ flex: 1 }}
                   >
                     <T muted size={13} style={{ fontStyle: "italic" }}>
-                      â€œ{d.quote}â€
+                      “{d.quote}”
                       {d.verified ? "" : "  (not found in transcript)"}
                     </T>
                   </Pressable>
@@ -1278,7 +1278,7 @@ function Notes({
                       style={{ flex: 1 }}
                     >
                       <T muted size={13} style={{ fontStyle: "italic" }}>
-                        â€œ{u.quote}â€
+                        “{u.quote}”
                         {u.verified
                           ? ""
                           : "  (not found in transcript, task left open)"}
@@ -1297,7 +1297,7 @@ function Notes({
       {s.open_questions.length > 0 && (
         <Section title="Open questions">
           {s.open_questions.map((q, i) => (
-            <T key={i}>â€¢ {q}</T>
+            <T key={i}>• {q}</T>
           ))}
         </Section>
       )}
@@ -1377,7 +1377,7 @@ function Notes({
           ))}
           {responses.some((r) => r.decision === "decline") && (
             <T muted size={13}>
-              Someone didnâ€™t agree. Consider deleting their parts or the
+              Someone didn’t agree. Consider deleting their parts or the
               recording, and check the law where they are.
             </T>
           )}
@@ -1630,8 +1630,8 @@ function AskView({ recordingId }: { recordingId: string }) {
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
         {history.length === 0 && (
           <T muted>
-            Ask anything about this recording, e.g. â€œWhat did we agree on
-            pricing?â€
+            Ask anything about this recording, e.g. “What did we agree on
+            pricing?”
           </T>
         )}
         {history.map((h, i) => (
