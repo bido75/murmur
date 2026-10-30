@@ -1,0 +1,51 @@
+# Murmur AI Android APKs — EAS build record
+
+Date: 2026-10-30 · Branch `feature/murmur-desktop-v2` · Source at submission: commit `c0a98b8` (+ the tested 56-file shared-lib quote normalization present in the working tree)
+
+## Builds
+
+| Profile | Build ID | Status | Artifact | Size | SHA-256 |
+|---|---|---|---|---|---|
+| **preview** (standalone APK, no Expo Go / no Metro needed) | `ff64106a-ca35-4c4b-a796-a10eea02de3a` | FINISHED | https://expo.dev/artifacts/eas/Rh3dImjygAgkVWfikkwoPQXV4eGFjxZ2DDE2iEFg7t8.apk | **91.2 MB** | `ee796e660ba366ad403f342db87e3832030623ca501ea0128f56715b676599f5` |
+| **development** (dev client; connects to Metro for debugging) | `d81abffa-3415-4633-8cdc-bc154cf4e12a` | FINISHED | https://expo.dev/artifacts/eas/YWcGTEFHHlp4NpMThws6k834B8LffZpzMvJBmnel6yY.apk | **214.9 MB** | `c0da172f25cd64cae665d39a6774a821ae0e6709e52c189f0aac0601d6a7dfbe` |
+
+- Build pages: https://expo.dev/accounts/vgbewonyo/projects/murmur-notes/builds/ff64106a-ca35-4c4b-a796-a10eea02de3a and …/d81abffa-3415-4633-8cdc-bc154cf4e12a
+- Package: **`com.giscop.murmur`** · version 1.0.0 (versionCode auto; set explicitly before Play distribution)
+- Signing: EAS-generated keystore (internal distribution; fine for testing, replace before store release)
+
+## Verified APK contents (inspected the actual artifacts)
+
+- `com.giscop.murmur` present in the binary manifest (UTF-16) ✓
+- `android.permission.RECORD_AUDIO` declared ✓
+- JS bundle embeds `https://notes.giscop.com` as the backend origin ✓
+- **No `localhost`/LAN URLs in the bundle** (127.0.0.1:54321 and :8090 absent) ✓
+- Public values only: `EXPO_PUBLIC_*` (anon key is the publishable key); no service-role/SMTP secrets (checked)
+
+## Build fixes made during this run
+
+1. First development build (`d447a5d7`) failed: `modules/murmur-foreground` Kotlin — bare
+   `return@Function` conflicted with expo-modules-core Function typing.
+   Fixed in commit `c0a98b8` (the module implements the Android-14-compliant
+   foreground recording service). Both re-submitted builds then passed, confirming the fix.
+2. `eas.json` env carries the public values explicitly: EAS uploads respect
+   `.gitignore`, so the gitignored `.env` (which holds localhost values) never reaches
+   the cloud builder — the APK was intentionally pointed at `https://notes.giscop.com`
+   for Supabase (auth/rest/storage/functions/realtime are all routed through the
+   tunnel, verified live) and for the app origin.
+
+## Installation instructions (operator)
+
+1. Copy `Murmur-preview-0.1.0.apk` to the phone (or open the expo.dev artifact link on the phone).
+2. Allow "Install unknown apps" for the source when prompted (normal for sideloading).
+3. Install → open **Murmur** → sign in (OTP email) → allow the microphone prompt → record.
+4. The dev-client APK (`Murmur-devclient-…`) is for Metro debugging only: `npx expo start`, then open the dev client.
+
+## Known limitations (honest)
+
+- **No real-device test has been run yet** — launch, sign-in, mic prompt, 30s/5m/15m
+  recording, backgrounding, screen lock, network loss, restart, and upload-retry rows
+  are all **PENDING-USER** (the 15-row checklist in the APK task).
+- Background/locked-screen recording depends on the `murmur-foreground` service
+  working under Android's foreground-service mic rules (Android 14+ requires starting
+  it while foregrounded) — to be verified on device, not promised.
+- Internal distribution signing; not Play-Store ready; no auto-update on Android yet.
