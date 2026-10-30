@@ -156,7 +156,13 @@ jobs:
       - name: Checksums
         working-directory: desktop/release
         run: |
-          if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS.txt; else shasum -a 256 * > SHA256SUMS.txt; fi
+          # Top-level files only: the unpacked app directories are build inputs,
+          # not artifacts, and a directory argument would fail the hash run.
+          if command -v sha256sum >/dev/null; then
+            find . -maxdepth 1 -type f -exec sha256sum {} + > SHA256SUMS.txt
+          else
+            find . -maxdepth 1 -type f -exec shasum -a 256 {} + > SHA256SUMS.txt
+          fi
           cat SHA256SUMS.txt
       - name: Upload the installer artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
