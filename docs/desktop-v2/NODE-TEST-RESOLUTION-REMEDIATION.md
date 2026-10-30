@@ -98,10 +98,21 @@ reported as "fixed in the environment".
   `global-agent` test files (win + mac blocks). This closes the only real
   "tests inside an installer" finding; it was never related to the reported errors.
 
-## 8. Open question (from the prompt, and still needed)
+## 8. Open question — closed
 
-The errors' exact surface was inferred from the fingerprint. To close fully:
-confirm where they appear (web IDE name/URL, VS Code extension, CI log). If they
-appear anywhere **other** than the web environment — e.g. a CI log or the packaged
-app — that is new information and this document's conclusion will be revisited with
-that log.
+The operator confirmed on 2026-10-30 that the errors appeared while testing the app
+in **githubox**, a web-based GitHub repository viewer/analysis environment. This
+matches every element of the fingerprint in §1: a browser-side analyzer that mounts
+the repo at `/`, sweeps the whole workspace (including test files no build imports),
+and resolves imports with a Node shim that does not provide `node:test`.
+
+Final classification: **environment limitation of githubox's analyzer**, not an
+application or build defect. No repo change is required beyond the installer test-file
+exclusion already applied (§7). Practical guidance when using githubox for Murmur:
+
+- Treat its dependency warnings for `*.test.*` files as analyzer noise; the supported
+  verification commands are the ones in §2/§6 (Node `npm test`, `deno test`, Zapier
+  `npm test`, `electron-builder`).
+- Do not modify imports or install shim packages to satisfy it.
+- Any future code review should still prefer the repo's own CI (real runtimes) as the
+  source of truth over a sandbox analyzer's resolver errors.
