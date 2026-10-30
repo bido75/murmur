@@ -21,3 +21,11 @@ Opened: 2026-10-30 · Status: **Web recording — ROOT CAUSE FIXED AND DEPLOYED 
 
 1. Open `https://notes.giscop.com` in Android Chrome → recording should prompt and work (force-close Chrome first if the page was open).
 2. The response header check: `curl -I https://notes.giscop.com | findstr permissions` → `camera=(), microphone=(self), …`
+
+## Addendum — 2026-10-30 later (export/share link failure)
+
+- The operator confirmed **web recording works on the phone** (Failure A closed on real hardware).
+- New finding: exported/shared notes produced links at \http://10.0.0.180:54325\ — a port **nothing listens on** (it was a stale value in \supabase/functions/.env: EXTERNAL_SUPABASE_URL\). Every signed URL from share/export/make-deck was rewritten there by \clientUrl()\.
+- Port map clarified for the operator: 54321 kong/API · 54322 postgres · 54323 studio · 54324 Inbucket (the local email-capture UI) · **54325 nothing**.
+- Two fixes: (1) \EXTERNAL_SUPABASE_URL=https://notes.giscop.com\ deployed to the Edge Runtime (verified in container env); (2) \ewriteHost\ port-leak bug fixed (kong:8000 leaked onto portless https origins) + regression test. Deno suite 193/0; functions healthy local + tunnel (bot/available 200 both).
+- Rollback: restore the old .env value and restart functions (restores the dead links).
