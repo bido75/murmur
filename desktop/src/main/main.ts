@@ -67,6 +67,7 @@ import {
 import { storeMode } from "../shared/secureStoreCore";
 import { loadSettings, saveSettings } from "./settings";
 import { writeLogEvent } from "./logWriter";
+import { checkForUpdates } from "./updaterRuntime";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
 import { Dictation, type OverlayRect } from "./dictation";
@@ -411,6 +412,13 @@ function registerIpc() {
   });
 
   ipcMain.handle("app:resources", () => resourceStats());
+
+  // Update checks: the gate stays shut until signed installers are verified.
+  ipcMain.handle("updates:status", async () => {
+    // Signed production installers do not exist yet, so the signing fact is false
+    // by construction; the module refuses to check anything in this state.
+    return checkForUpdates(false);
+  });
 
   // The OS-protected store for session tokens (safeStorage: DPAPI/Keychain/libsecret).
   const secureDir = () => app.getPath("userData");

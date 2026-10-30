@@ -55,6 +55,7 @@ const bridge: Bridge = {
   secureGet: (key) => ipcRenderer.invoke("secure:get", key),
   secureSet: (key, value) => ipcRenderer.invoke("secure:set", key, value),
   secureRemove: (key) => ipcRenderer.invoke("secure:remove", key),
+  updatesStatus: () => ipcRenderer.invoke("updates:status"),
   dictationSettings: () => ipcRenderer.invoke("dictation:settings"),
   dictationHistory: () => ipcRenderer.invoke("dictation:history"),
   dictationState: () => ipcRenderer.invoke("dictation:state"),

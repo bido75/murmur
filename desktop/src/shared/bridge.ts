@@ -129,6 +129,15 @@ export type Bridge = {
   secureGet(key: string): Promise<string | null>;
   secureSet(key: string, value: string): Promise<boolean>;
   secureRemove(key: string): Promise<boolean>;
+  /** Update-check status; the gate stays shut until signed installers are verified. */
+  updatesStatus(): Promise<{
+    enabled: boolean;
+    reason: string;
+    channel: string;
+    currentVersion: string;
+    latestVersion: string | null;
+    error: string | null;
+  }>;
   /** Dictation: the settings, the history and the state. */
   dictationSettings(): Promise<unknown>;
   dictationHistory(): Promise<unknown[]>;
