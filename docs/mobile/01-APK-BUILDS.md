@@ -1,5 +1,18 @@
 # Murmur AI Android APKs — EAS build record
 
+## Build history (newest first)
+
+| # | Profile | Build ID | Commit | What changed | Size / SHA-256 | Download |
+|---|---|---|---|---|---|---|
+| 4 | preview | `6a8e16e6-2a14-429d-972e-6cbfe3d9e59c` | `06dab9d` | **UX pass**: labeled `Export` + `More` header (≥48dp targets), grouped action menu (AI tools / Share & export / Send / Attachments / Organize / Delete), export+more walkthrough tips on the recording screen; TipCard role fix included | 91.2 MB / `ed939b84e2caa975a32f3a0a5039a343b9a856a157cda6163fc577c4bc002163` | https://expo.dev/artifacts/eas/Hsc-1W-o7lsZu9pn72z42b_vUW3qRsLbsWkNM0fmET8.apk |
+| 3 | preview | `8219652c-1997-493b-91d4-04a280e6cbf5` | `f5ccaf6` | TipCard accessibilityRole fix (dialog role was web-only; crashed Android after login) + static role audit | 91.2 MB / `35ea50281469712e214e42b93377ff1878288d0c5182796ff10473f9a9eb05ff` | https://expo.dev/artifacts/eas/OmI071fAAHsl0ljwdgXq1rQ7-swtXjpDsxr-PZRln18.apk |
+| 2 | preview | `ff64106a-ca35-4c4b-a796-a10eea02de3a` | `c0a98b8` | First standalone preview (tunnel-origin env baked in) | 91.2 MB / `ee796e660ba366ad403f342db87e3832030623ca501ea0128f56715b676599f5` | https://expo.dev/artifacts/eas/Rh3dImjygAgkVWfikkwoPQXV4eGFjxZ2DDE2iEFg7t8.apk |
+| 1 | development | `d81abffa-3415-4633-8cdc-bc154cf4e12a` | `c0a98b8` | Dev client (Metro debugging only; no embedded bundle by design) | 214.9 MB / `c0da172f25cd64cae665d39a6774a821ae0e6709e52c189f0aac0601d6a7dfbe` | https://expo.dev/artifacts/eas/YWcGTEFHHlp4NpMThws6k834B8LffZpzMvJBmnel6yY.apk |
+
+**Install build #4** for the current UX. Verified inside artifact #4: `com.giscop.murmur`, embedded bundle, `notes.giscop.com` origin only (no LAN/dev IPs), walkthrough text embedded. Regressions all green (app/logic/DB suites, role audit 3/3, typecheck).
+
+Earlier context (kept for the record):
+
 Date: 2026-10-30 · Branch `feature/murmur-desktop-v2` · Source at submission: commit `c0a98b8` (+ the tested 56-file shared-lib quote normalization present in the working tree)
 
 ## Builds
