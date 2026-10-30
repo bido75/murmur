@@ -4,7 +4,7 @@ D-02,Shared contract alignment with src/lib (types/utterance/queue ops),1,PARTIA
 D-03,Real application id in electron-builder.yml,1,BLOCKED,Replaced placeholder,desktop/electron-builder.yml,com.example.murmur.desktop -> owner-confirmed id; ask operator
 D-04,Desktop CI lane (typecheck+tests+build),1,IMPLEMENTED BUT NOT TESTED,Added,.github/workflows/desktop.yml,Win+mac matrix; SHA-pinned actions; runs on push to feature/murmur-desktop-v2
 D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,149 pass / 0 fail (2026-10-29; +11 this phase: queue-owner guard, logger rotation/line format)
-D-27,Durable typed settings store (atomic writes, validation, corrupt-file recovery),1,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/settings.ts + src/shared/settings.ts + 13 tests,IPC settings:get/set wired through preload bridge; server-backed prefs land in Phase 2
+D-27,Durable typed settings store (atomic writes / validation / corrupt-file recovery),1,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/settings.ts + src/shared/settings.ts + 13 tests,IPC settings:get/set wired through preload bridge; server-backed prefs land in Phase 2
 D-06,OAuth provider sign-in (Google) with PKCE,2,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/main/auth.ts + renderer startOAuth,Loopback capture + murmur:// deep-link both wired; live provider completion blocked pending operator-registered redirect URIs (BL-4b)
 D-07,Session persistence + token refresh verified,2,PASS,Maintained,desktop/src/renderer/supabase.ts,persistSession/autoRefresh already on
 D-08,Server-backed user_settings (consent_reminder/field_mode/default_template/my_state),2,IMPLEMENTED BUT NOT TESTED,Complete,renderer settingsView + changeSettings,Settings screen live with write-through; logic unit-tested; signed-in E2E not yet exercised
@@ -19,11 +19,11 @@ D-14,Onboarding checklist port (real-data derived),4,IMPLEMENTED AND VERIFIED,Po
 D-15,Tour analytics events match web schema,4,PARTIAL,Started,onboarding_events inserts,checklist_hidden + stamps written; full 7-stop spotlight tour deferred to Phase 5
 D-30,Model install disk-space pre-check,3,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/speechModelManager.ts,fs.statfs free-space + 512MB unpack margin; refuse with real numbers; statfs failure non-blocking
 D-31,Settings screen (account-wide fields),4,IMPLEMENTED BUT NOT E2E-TESTED,Added,desktop/src/renderer/app.ts settingsView,Default type/consent reminder/field mode/my_state with write-through; device-only localOnly stays in speech panel
-D-32,Transcript viewer (transcripts+summaries, RLS-scoped),5,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/renderer/transcriptView.ts + Notes button,Same tables as web (transcripts/summaries); overview/key points/decisions/questions/timestamped copyable words; local recordings show an honest banner
+D-32,Transcript viewer (transcripts+summaries; RLS-scoped),5,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/renderer/transcriptView.ts + Notes button,Same tables as web (transcripts/summaries); overview/key points/decisions/questions/timestamped copyable words; local recordings show an honest banner
 D-33,Floating always-on-top recording controller,5,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/main/floating.ts + floatingPreload + floating.html,Sandboxed frameless window; stop reuses tray:stop path; gate by floatingControls setting; needs signed-in recording run to verify
 D-34,Floating controls setting (device-only),5,IMPLEMENTED AND VERIFIED,Added,desktop/src/shared/settings.ts,Schema + validation + default false; covered by settings tests
 D-35,Packaging and release documentation,5,IMPLEMENTED AND VERIFIED,Documented,docs/desktop-v2/15-PACKAGING-AND-RELEASE.md,Release gates + honest not-claimed list
-D-16,Packaging hygiene (asar integrity, mac hardened runtime, nsis config),5,PARTIAL,Hardened,electron-builder.yml + build.mjs,appId/signing pending D-03
+D-16,Packaging hygiene (asar integrity / mac hardened runtime / nsis config),5,PARTIAL,Hardened,electron-builder.yml + build.mjs,appId/signing pending D-03
 D-17,Win code signing,5,BLOCKED,Plumbing only,electron-builder.yml,Requires cert; environment cannot sign
 D-18,macOS notarization,5,BLOCKED,Plumbing only,build/entitlements.mac.plist,Requires Apple ID creds
 D-19,Auto-update feed wiring (electron-updater),5,BLOCKED,Plumbed behind flag,main updater module,Enablement gated on signing creds
@@ -33,7 +33,10 @@ D-36,Upload queue account isolation (quarantine on user switch),6,IMPLEMENTED AN
 D-37,Integrations status screen (real connection state),6,IMPLEMENTED BUT NOT TESTED,Added,renderer settingsView integrations card + PROVIDER_LABELS from shared web types,RLS-scoped integrations table; manage links to web app; no fake disconnect
 D-38,Dictation documentation,6,IMPLEMENTED AND VERIFIED,Documented,docs/desktop-v2/09-DICTATION-AND-SHORTCUTS.md,Baseline features verified in Phase 0; behavior + safety recorded
 D-22,Selftest/smoke harness extension,6,PASS,Extended,MURMUR_SELFTEST / MURMUR_SMOKE_SHOT hooks,Good existing bones in main.ts:519-544
-D-23,Desktop release-verification pack,6,MISSING,Produced,docs/desktop-v2/release-verification/,Mirrors docs/release-verification discipline
-D-24,Security review (CSP in renderer, permission surface audit),7,PARTIAL,Hardened,renderer CSP meta + main permission handler,CSP meta already present in both HTML files (Phase 0 finding); contextIsolation/sandbox already correct
-D-25,Final implementation matrix + PR,7,MISSING,Produced,docs/desktop-v2/03-IMPLEMENTATION-MATRIX.csv + PR,PR against feature/murmur-app-remediation or main per operator
+D-23,Desktop release-verification pack,6,IMPLEMENTED AND VERIFIED,Produced,docs/desktop-v2/13-TEST-RESULTS.md + test-results.json + security-findings.json + platform-capabilities.json,Real command outputs recorded; not-claimed list explicit
+D-24,Security review (CSP in renderer; permission surface audit),7,IMPLEMENTED AND VERIFIED,Hardened,docs/desktop-v2/11-AUTH-AND-SECURITY.md + security-findings.json,Threat model complete; 2 real vulnerabilities fixed (plaintext refresh tokens, queue account isolation); 3 accepted risks documented
+D-25,Final implementation matrix + PR,7,MISSING,Produced (matrix),docs/desktop-v2/03-IMPLEMENTATION-MATRIX.csv,Matrix complete; PR creation awaits operator go-ahead (branch pushed)
 D-26,AGPL compliance guard (no Murmure code),ALL,PASS,Maintained,docs/LICENSE_REVIEW.md,Murmure study-only; Parakeet weights CC BY 4.0 with attribution
+D-39,OS-protected session token storage (safeStorage),7,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/secureStore.ts + shared/secureStoreCore.ts + renderer storage adapter,DPAPI/Keychain/libsecret; plaintext fallback flagged; 5 core tests; supabase client rewired
+D-40,Platform capability matrix,7,IMPLEMENTED AND VERIFIED,Documented,docs/desktop-v2/14-PLATFORM-CAPABILITY-MATRIX.md + platform-capabilities.json,No claim exceeds its evidence; Linux honestly UNSUPPORTED
+D-41,Release verification pack (test-results/security-findings/blockers),7,IMPLEMENTED AND VERIFIED,Produced,docs/desktop-v2/*.json + 13/16 docs,153/0 tests; boot smoke 3x; blockers DB-01..DB-09 enumerated

@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-29",
+  "scope": "desktop Electron app only",
+  "findings": [
+    { "id": "DS-01", "severity": "fixed", "title": "Refresh tokens stored in renderer localStorage (plaintext)", "resolution": "Session storage moved to main-process safeStorage-backed store (DPAPI/Keychain/libsecret); plaintext fallback flagged 'plain:true', never silent; corrupt/foreign ciphertext degrades to sign-in", "evidence": "desktop/src/main/secureStore.ts, desktop/src/shared/secureStoreCore.ts (5 tests), renderer supabase.ts custom storage adapter" },
+    { "id": "DS-02", "severity": "fixed", "title": "Upload queue had no account owner; cross-account upload possible on shared machines", "resolution": "queue-owner.json + quarantine on user switch (queue-{oldUser}.json, resumable)", "evidence": "desktop/src/shared/queueOwner.ts (5 tests), queue:rotate IPC, sync.ensureOwner" },
+    { "id": "DS-03", "severity": "pass", "title": "Renderer isolation", "resolution": "contextIsolation:true, nodeIntegration:false, sandbox:true on all three windows (main, dictation overlay, floating controller); verified in Phase 7 review", "evidence": "main.ts, dictation.ts, floating.ts" },
+    { "id": "DS-04", "severity": "pass", "title": "Navigation and window controls", "resolution": "will-navigate prevented; setWindowOpenHandler denies all except https->system browser; single-instance lock", "evidence": "main.ts createWindow" },
+    { "id": "DS-05", "severity": "pass", "title": "IPC surface minimality and validation", "resolution": "Segment paths derived main-side from validated (uuid, 1..2000, ext regex); settings patches key-validated + normalized; openExternal https-only; secure store keys length-bounded; preload channel allowlist", "evidence": "main.ts segmentPath/settings IPC, preload.ts CHANNELS" },
+    { "id": "DS-06", "severity": "pass", "title": "CSP", "resolution": "CSP meta present in index.html (self + supabase/degram connect) and strict 'none'-default in overlay.html and floating.html", "evidence": "renderer html files" },
+    { "id": "DS-07", "severity": "pass", "title": "Model supply chain", "resolution": "Pinned HTTPS release URL; archive + per-file SHA-256 verified before use; version markers; downloaded files never executed", "evidence": "speechModelManager.ts:236,303-316" },
+    { "id": "DS-08", "severity": "pass", "title": "Local Only enforcement", "resolution": "Provider selection refuses cloud under privacy:'local-only' even when sole provider; recordings made locally are never uploaded", "evidence": "shared/transcription/select.ts (7 tests)" },
+    { "id": "DS-09", "severity": "accepted-risk", "title": "OAuth state not double-checked by main process", "resolution": "State is validated by Supabase's PKCE verifier binding during exchange; loopback capture rejects mismatched state when one was issued. Documented rather than duplicated", "evidence": "main/auth.ts" },
+    { "id": "DS-10", "severity": "accepted-risk", "title": "openExternal accepts any https URL from renderer", "resolution": "A compromised renderer could open a phishing tab in the system browser; cannot exfiltrate app data or run code. Accepted; window.open is denied", "evidence": "main.ts app:open-external" },
+    { "id": "DS-11", "severity": "open", "title": "Local-only plaintext fallback when safeStorage unavailable", "resolution": "Recorded, flagged in the store file; Linux without libsecret is the realistic case; distribution gate notes it", "evidence": "secureStoreCore storeMode" }
+  ]
+}

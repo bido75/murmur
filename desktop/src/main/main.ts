@@ -25,6 +25,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  safeStorage,
   session,
   shell,
   systemPreferences,
@@ -58,6 +59,12 @@ import {
   showFloating,
   updateFloating,
 } from "./floating";
+import {
+  secureGet,
+  secureRemove,
+  secureSet,
+} from "./secureStore";
+import { storeMode } from "../shared/secureStoreCore";
 import { loadSettings, saveSettings } from "./settings";
 import { writeLogEvent } from "./logWriter";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
@@ -401,6 +408,24 @@ function registerIpc() {
   });
 
   ipcMain.handle("app:resources", () => resourceStats());
+
+  // The OS-protected store for session tokens (safeStorage: DPAPI/Keychain/libsecret).
+  const secureDir = () => app.getPath("userData");
+  ipcMain.handle("secure:mode", () => storeMode(safeStorage.isEncryptionAvailable()));
+  ipcMain.handle("secure:get", (_e, key: string) => {
+    if (typeof key !== "string" || !key || key.length > 256) return null;
+    return secureGet(secureDir(), key);
+  });
+  ipcMain.handle("secure:set", (_e, key: string, value: string) => {
+    if (typeof key !== "string" || !key || key.length > 256) return false;
+    if (typeof value !== "string" || value.length > 64_000) return false;
+    secureSet(secureDir(), key, value);
+    return true;
+  });
+  ipcMain.handle("secure:remove", (_e, key: string) => {
+    if (typeof key === "string") secureRemove(secureDir(), key);
+    return true;
+  });
 
   // Application settings: validated in the main process, stored atomically.
   ipcMain.handle("settings:get", () => loadSettings(userDataDir()));

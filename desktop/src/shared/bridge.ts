@@ -125,6 +125,10 @@ export type Bridge = {
   floatingShow(): Promise<void>;
   floatingHide(): Promise<void>;
   floatingUpdate(elapsedMs: number, level: number): Promise<void>;
+  /** The OS-protected store for session tokens (DPAPI/Keychain/libsecret). */
+  secureGet(key: string): Promise<string | null>;
+  secureSet(key: string, value: string): Promise<boolean>;
+  secureRemove(key: string): Promise<boolean>;
   /** Dictation: the settings, the history and the state. */
   dictationSettings(): Promise<unknown>;
   dictationHistory(): Promise<unknown[]>;
