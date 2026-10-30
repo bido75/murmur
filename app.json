@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.example.murmur"
+      "package": "com.giscop.murmur"
     },
     "web": {
       "favicon": "./assets/favicon.png"
