@@ -1,0 +1,8 @@
+[
+  { "id": "SEC-3", "severity": "CRITICAL", "status": "OPEN (operator)", "title": "Credentials pasted into chat are unrotated", "files": ["docs/post-audit/05-CREDENTIAL-ROTATION-CHECKLIST.md"], "note": "No real secret is committed; rotation checklist covers 15 provider credential sets." },
+  { "id": "SEC-1", "severity": "HIGH", "status": "RESOLVED", "title": "Webhook SSRF closed in three layers with unit + DB tests", "files": ["supabase/functions/_shared/ssrf.ts", "supabase/functions/_shared/after_ready.ts", "supabase/migrations/20261025020000_webhook_ssrf.sql"] },
+  { "id": "SEC-2", "severity": "HIGH", "status": "RESOLVED", "title": "OAuth/download URLs no longer leak the Docker-internal host", "files": ["supabase/functions/_shared/services.ts (publicApiBaseUrl)", "supabase/functions/_shared/client_url.ts"] },
+  { "id": "SEC-4", "severity": "MEDIUM", "status": "OPEN (operator)", "title": "Google OAuth private-IP redirect rejected; needs public origin + registered URIs", "files": ["docs/post-audit/06-OAUTH-DEPLOYMENT-CONFIGURATION.md"] },
+  { "id": "SEC-5", "severity": "MEDIUM", "status": "RESOLVED", "title": "No CI gates existed; workflow added (app/functions/desktop)", "files": [".github/workflows/ci.yml"] },
+  { "id": "SEC-6", "severity": "MEDIUM", "status": "RESOLVED", "title": "SSRF migration would abort on pre-existing violating rows; made NOT VALID with cleanup path", "files": ["supabase/migrations/20261025020000_webhook_ssrf.sql"] }
+]

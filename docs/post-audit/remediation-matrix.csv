@@ -1,0 +1,88 @@
+Requirement ID,Source,Title,File,Test evidence,Status before,Status after,Severity,Required action
+REQ-1.1a,Phase 1.1,Seven canonical recording types,src/lib/types.ts TEMPLATE_LABELS,logic+db suites green,PASS,PASS,Low,none
+REQ-1.1b,Phase 1.1,Recording type selection works,src/app/record.tsx type picker,manual UI run,PASS,PASS,Low,none
+REQ-1.1c,Phase 1.1,Project assignment at setup,src/components/ProjectPicker.tsx,logic+db suites,PASS,PASS,Low,none
+REQ-1.1d,Phase 1.1,Consent options behave correctly,record.tsx consent + consent functions,DB security tests,PASS,PASS,Low,none
+REQ-1.1e,Phase 1.1,Mic permission requested and handled,src/lib/mic.ts,mic.test.ts,PASS,PASS,Low,none
+REQ-1.1f,Phase 1.1,Start recording responds reliably,src/app/record.tsx start(),on-device run,PASS,PASS,Low,none
+REQ-1.1g,Phase 1.1,Immediate recording feedback,src/lib/recorder.ts indicator/timer/level,on-device run,PASS,PASS,Low,none
+REQ-1.2a,Phase 1.2,Pause/resume/stop/cancel,src/lib/recorder.ts,on-device run,PASS,PASS,Low,none
+REQ-1.2b,Phase 1.2,Mic disconnection handling,recorder.ts stall warning + retuned threshold,on-device run after fix,PASS,PASS,Low,monitor
+REQ-1.2c,Phase 1.2,Background recording where permitted,recorder.ts setAudioModeAsync,Expo Go limitation,PARTIAL,PARTIAL,Medium,dev-build test (BLOCKED hardware)
+REQ-1.3a,Phase 1.3,Audio saved before processing,sync.ts keepFile/keepRecording + enqueue,logic+db tests,PASS,PASS,Critical,none
+REQ-1.3b,Phase 1.3,Failed upload retry + interrupted-session recovery,src/lib/recoveryPlan.ts + recorder.ts,recoveryPlan.test.ts (5 tests),FAIL,PASS,High,fixed this remediation
+REQ-1.3c,Phase 1.3,Duplicate processing jobs prevented,pipeline.ts sttCacheKey + segment cache,logic tests,PASS,PASS,Medium,none
+REQ-1.3d,Phase 1.3,Status survives navigation/refresh,recordings.status in DB,DB tests,PASS,PASS,Medium,none
+REQ-1.4a,Phase 1.4,Provider selection with fallback,services.ts transcribe + mistral.ts sttFallbackOrder,mistral.test.ts (6 tests),PASS,PASS,High,none
+REQ-1.4b,Phase 1.4,Provider invocation + completion,transcribeWithMistral/transcribeWithDeepgram,real-run speech.wav,PASS,PASS,High,none
+REQ-1.4c,Phase 1.4,Timestamps/speaker/language metadata,mistral.ts + deepgram mapping,real run + unit,PASS,PASS,Medium,none
+REQ-1.4d,Phase 1.4,Transcript persistence,transcripts + segment_transcripts upsert,DB tests,PASS,PASS,Medium,none
+REQ-1.5a,Phase 1.5,Summary/notes/decisions/key points,after_ready.ts + prompts.ts,real run,PASS,PASS,High,none
+REQ-1.5b,Phase 1.5,Action items verified against transcript,verify.ts verifyActionItems,verify.test.ts,PASS,PASS,High,none
+REQ-1.5c,Phase 1.5,No fabricated owners/dates,field.ts + verify.ts,unit tests,PASS,PASS,High,none
+REQ-1.5d,Phase 1.5,Regenerate notes,process-recording re-invocation,manual menu run,PASS,PASS,Medium,none
+REQ-1.5e,Phase 1.5,Template-based notes,templates.tsx + templateLibrary.ts,logic tests,PASS,PASS,Medium,none
+REQ-2.1a,Phase 2.1,Dialogs close reliably + focus management,src/lib/dialog.tsx shared surface,not reproduced in source,PARTIAL,PARTIAL,Medium,keyboard/screen-reader run (BLOCKED hardware)
+REQ-2.2a,Phase 2.2,Radios expose correct a11y state,6 files accessibilityRole=radio,manual grep + UI run,FAIL,PASS,Medium,fixed before audit
+REQ-2.3a,Phase 2.3,Tabs switch content (Notes/Transcript/Tasks/Ask),Segmented component,manual UI run,PASS,PASS,Medium,none
+REQ-2.4a,Phase 2.4,Hidden a11y elements are legitimate,conditional visibility in projects/settings,source review,PASS,PASS,Low,none
+REQ-2.5a,Phase 2.5,No 404 destinations; webhooks route resolves,settings.tsx routes to /developers,manual route check,PASS,PASS,Low,none
+REQ-3.1a,Phase 3.1,Recording notice persists per user,user_settings.consent_reminder,account-preferences DB test,PASS,PASS,Medium,none
+REQ-3.2a,Phase 3.2,Field mode does not overwrite preferred type,settings.tsx toggles fieldMode only,manual + settingsSave.test.ts,FAIL,PASS,High,fixed before audit
+REQ-3.2b,Phase 3.2,Effective type = fieldMode ? site_walk : default,record.tsx + effectiveDefaultTemplate,settingsSave.test.ts,PASS,PASS,High,none
+REQ-3.3a,Phase 3.3,Default type persists cross-device,user_settings.default_template,account-preferences DB test,PASS,PASS,Medium,none
+REQ-3.4a,Phase 3.4,Saved indicator + rollback on failure,settingsSave reducer + settings.tsx,settingsSave.test.ts (5 tests),PARTIAL,PASS,Medium,fixed this remediation
+REQ-3.4b,Phase 3.4,Cross-device sync of transcription settings,language/redact in user_settings,DB tests,PASS,PASS,Low,none
+REQ-4.1a,Phase 4.1,Import audio/video + from link,import-link.tsx + ingest.ts,capture.test.ts,PASS,PASS,Medium,none
+REQ-4.1b,Phase 4.1,Rename/metadata/move/delete,recording detail menu actions,manual menu run,PASS,PASS,Medium,none
+REQ-4.1c,Phase 4.1,Playback,player.ts + audioUrl,unit tests,PASS,PASS,Medium,none
+REQ-4.1d,Phase 4.1,Export deck/docx/zip with reachable URLs,make-deck/share/export-data + clientUrl,test-features.cjs real run,PASS,PASS,High,none
+REQ-4.1e,Phase 4.1,Translate incl. African languages,translate.ts TRANSLATION_LANGUAGES,test-features.cjs real run,PASS,PASS,Medium,none
+REQ-4.1f,Phase 4.1,Follow-up email draft,share/followup,test-features.cjs real run,PASS,PASS,Medium,none
+REQ-4.2a,Phase 4.2,Projects create/rename/archive,projects page + DB,DB tests,PASS,PASS,Medium,none
+REQ-4.3a,Phase 4.3,Tasks verify/edit/status/tabs,TaskRow + tasks page,DB+unit tests,PASS,PASS,Medium,none
+REQ-4.3b,Phase 4.3,Duplicate tasks prevented on re-run,dropRepeats + verifyActionItems,unit tests,PASS,PASS,Medium,none
+REQ-4.4a,Phase 4.4,Search over titles/transcripts/notes/tasks,search.tsx + search_recordings RPC,search RLS DB test,PASS,PASS,Medium,none
+REQ-4.4b,Phase 4.4,Filters (date/project/type),search.tsx,manual,PARTIAL,PARTIAL,Low,backlog item 7
+REQ-4.5a,Phase 4.5,Ask with citations + no-evidence honesty,prompts.ts ASK_SYSTEM,source + manual,PASS,PASS,High,none
+REQ-4.5b,Phase 4.5,Ask authorization enforced,ask/index.ts requireUser + RLS client,source review,PASS,PASS,High,none
+REQ-5.1a,Phase 5.1,Webhook CRUD + events + https-only,webhooks table + api.ts,connections DB tests,PASS,PASS,High,none
+REQ-5.1b,Phase 5.1,HMAC signing + delivery status,after_ready.ts deliver() signWebhook,connect.test.ts,PASS,PASS,High,none
+REQ-5.1c,Phase 5.1,SSRF protection on destinations,ssrf.ts + webhook_url_public constraint,ssrf.test.ts (7) + connections DB test,FAIL,PASS,Critical,fixed this remediation
+REQ-5.1d,Phase 5.1,Retry failed deliveries,after_ready.ts last_status/error only,manual,PARTIAL,PARTIAL,Medium,backlog item 6
+REQ-5.1e,Phase 5.1,API docs page,/developers page,manual route check,PASS,PASS,Low,none
+REQ-5.2a,Phase 5.2,MCP endpoint from config not hardcoded,api-access.tsx APP_URL/SUPABASE_URL,source review,PASS,PASS,Medium,none
+REQ-5.2b,Phase 5.2,Token one-time reveal/revoke/last-used,api-access.tsx + mcp function,manual,partial,PARTIAL,Medium,live test (BLOCKED deploy origin)
+REQ-5.3a,Phase 5.3,Template library + CRUD + use in notes,templates.tsx + templateLibrary.ts,logic tests,PASS,PASS,Medium,none
+REQ-5.4a,Phase 5.4,Live upload queue state,settings.tsx pendingOps + Retry,manual,PARTIAL,PARTIAL,Low,failed-state detail (backlog)
+REQ-5.5a,Phase 5.5,Highlight reels create/clip/share,reels pages + share/index.ts,manual routes check,PARTIAL,PARTIAL,Low,live test (BLOCKED deploy origin)
+REQ-5.6a,Phase 5.6,Retention enforced by scheduled cleanup,retention function + retention_due,DB tests,PASS,PASS,High,none
+REQ-5.6b,Phase 5.6,Account deletion with confirmation,privacy.tsx deleteAccount,DB tests,PASS,PASS,High,none
+REQ-6.1a,Phase 6.1,Team create/join/invite/roles,teams functions + workspaces,teams DB tests,PASS,PASS,High,none
+REQ-6.2a,Phase 6.2,Google Calendar OAuth,calendar function + PROVIDERS,endpoint test verified google,PARTIAL,PARTIAL,High,live consent round-trip (BLOCKED console)
+REQ-6.2b,Phase 6.2,Microsoft Calendar OAuth,calendar function (microsoft),none,none,BLOCKED,BLOCKED,provide credentials
+REQ-6.2c,Phase 6.2,Token refresh + disconnect,calendar_fetch.ts accessToken + disconnectCalendar,calendar.test.ts,PASS,PASS,Medium,none
+REQ-6.3a,Phase 6.3,Slack/Google Docs connect,connect function + oauth_providers,endpoint test verified,PARTIAL,PARTIAL,Medium,live consent round-trip (BLOCKED console)
+REQ-6.3b,Phase 6.3,Procore OAuth sandbox,procore function,procore.test.ts + endpoint,PARTIAL,PARTIAL,Medium,live round-trip (BLOCKED console)
+REQ-6.3c,Phase 6.3,Trackers by user token,trackers.ts verifyToken,unit tests,PASS,PASS,Medium,none
+REQ-6.3d,Phase 6.3,OneNote/Salesforce OAuth,oauth_providers onenote/salesforce,none,BLOCKED,BLOCKED,Low,provide credentials
+REQ-6.3e,Phase 6.3,HubSpot connection model corrected,trackers.ts hubspot + integrations.tsx HELP,instructions corrected this branch,PARTIAL,PASS,Low,fixed (token-based; doc link corrected)
+REQ-7.1a,Phase 7.1,Automations rule engine,automations table + after_ready runAction,DB tests,PASS,PASS,Medium,none
+REQ-7.2a,Phase 7.2,Topic alerts + digest + timezone,topic_alerts + digest_time.ts,DB+unit tests,PASS,PASS,Medium,none
+REQ-7.3a,Phase 7.3,Device pairing/list/unpair,devices page + ingest DEVICE_SOURCES,manual,PARTIAL,PARTIAL,Low,hardware (BLOCKED)
+REQ-7.4a,Phase 7.4,Telephony RingCentral/Aircall/Twilio,ringcentral + aircall functions,none,none,BLOCKED,BLOCKED,provider decision (BLOCKED)
+REQ-8a,Phase 8,UX polish consistent with design system,ui.tsx shared components,manual,PASS,PASS,Low,none
+REQ-9a,Phase 9,No cross-user access (RLS),migrations + 77 DB tests,DB tests,PASS,PASS,Critical,none
+REQ-9b,Phase 9,No client-side service-role key,api.ts uses anon + server functions,source review,PASS,PASS,Critical,none
+REQ-9c,Phase 9,No committed secrets,git grep + gitignore check,audit scan,PASS,PASS,Critical,rotate pasted credentials (BLOCKED operator)
+REQ-9d,Phase 9,Webhook SSRF hardening,ssrf.ts + constraint + delivery check,ssrf.test.ts (7) + DB test,FAIL,PASS,Critical,fixed this remediation
+REQ-10a,Phase 10,Full suite green,tsc/lint/deno/npm,executed post-remediation,PASS,PASS,High,none
+REQ-10b,Phase 10,E2E: full pipeline with real audio,scripts/test-local-pipeline.cjs,real run,PASS,PASS,High,none
+REQ-10c,Phase 10,Production builds,iOS Metro export + desktop build,executed,PASS,PASS,Medium,none
+REQ-11a,Phase 11,Large-list/transcript performance,manual,not measured,NOT TESTED,NOT TESTED,Medium,measure (BLOCKED fixtures)
+REQ-12a,Phase 12,Desktop handoff documented,docs/DESKTOP_INTEGRATION_HANDOFF.md,created + audit-verified,PASS,PASS,Low,none
+REQ-12b,Phase 12,Additive-only migrations,2 new migrations reviewed,manual,PASS,PASS,Medium,SSRF constraint made NOT VALID
+REQ-12c,Phase 12,Desktop contracts verified,DESKTOP_COMPATIBILITY_HANDOFF docs,manual,PASS,PASS,Low,none
+REQ-D1,Phase 6/7 desktop-only features,Murmure desktop dictation/wake word/CLI,DEFERRED,deliberately deferred,DEFERRED,DEFERRED,Low,separate phase
+REQ-D2,Phase 12 desktop rebuild,Do not rebuild Electron,not rebuilt,instruction followed,DEFERRED,DEFERRED,Low,none
+REQ-D3,Phase 12 desktop packaging,Desktop packaging deferred,not done,instruction followed,DEFERRED,DEFERRED,Low,none

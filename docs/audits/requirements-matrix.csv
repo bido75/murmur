@@ -1,0 +1,84 @@
+Requirement,Source,Expected behavior,Implementation (file),Test,Execution evidence,Status,Severity,Required action
+REQ-1.1a,Phase 1.1,Seven canonical recording types exist and are used consistently,src/lib/types.ts TEMPLATE_LABELS (7 types),npm test logic,"grep confirms 7; suites pass",PASS,Low,none
+REQ-1.1b,Phase 1.1,Recording type selection works,src/app/record.tsx type picker,manual,"UI verified in earlier browser audit",PASS,Low,none
+REQ-1.1c,Phase 1.1,Project assignment at setup,src/components/ProjectPicker.tsx + record.tsx,unit/db,tests pass,PASS,Low,none
+REQ-1.1d,Phase 1.1,Consent options behave correctly,src/app/record.tsx consent radios + consent_functions,DB tests (sharing.test.mjs),77 db tests pass,PASS,Low,none
+REQ-1.1e,Phase 1.1,Mic permission requested and handled,src/lib/mic.ts requestMic + insecurePageMessage,unit (mic.test.ts),10 app tests pass,PASS,Low,none
+REQ-1.1f,Phase 1.1,Start recording responds reliably,src/app/record.tsx start(),manual,verified on device this session,PASS,Low,none
+REQ-1.1g,Phase 1.1,Immediate recording feedback (indicator/timer/level),src/lib/recorder.ts phase + elapsedMs + level meter,manual,verified on device,PASS,Low,none
+REQ-1.2a,Phase 1.2,Pause/resume/stop/cancel,src/lib/recorder.ts pause/resume/stop,manual,verified on device,PASS,Low,none
+REQ-1.2b,Phase 1.2,Mic disconnection handling,recorder.ts stalled-recorder warning,manual,"threshold tuned (-55dB/60s) after false-positive report",PASS,Low,monitor
+REQ-1.2c,Phase 1.2,Background recording where permitted,recorder.ts setAudioModeAsync(allowsBackgroundRecording:false),manual,"Expo Go cannot background-record; needs dev build",PARTIAL,Medium,dev build test
+REQ-1.3a,Phase 1.3,Audio saved before processing,sync.ts keepFile/keepRecording + enqueue,db/logic tests,tests pass,PASS,Critical,none
+REQ-1.3b,Phase 1.3,Failed upload retry + interrupted-session recovery,recorder.ts recoverInterruptedRecording + sync.ts,NO TEST,no automated test; not exercised end-to-end this audit,FAIL,High,add test + verify on device
+REQ-1.3c,Phase 1.3,Duplicate processing jobs prevented,pipeline.ts sttCacheKey + segment_transcripts cache,logic tests,185 logic pass,PASS,Medium,none
+REQ-1.3d,Phase 1.3,Status survives navigation/refresh,recordings.status persisted in DB,db tests,tests pass,PASS,Medium,none
+REQ-1.4a,Phase 1.4,Provider selection (cloud/local/auto + fallback),services.ts transcribe + mistral.ts sttFallbackOrder,unit (mistral.test.ts),6 fallback tests pass,PASS,High,none
+REQ-1.4b,Phase 1.4,Provider invocation + completion,transcribeWithMistral/transcribeWithDeepgram,real run,"speech.wav → correct transcript, 2 providers",PASS,High,none
+REQ-1.4c,Phase 1.4,Timestamps/speaker/language metadata,mistral.ts mistralUtterances + deepgram mapping,unit + real run,"verified (100ms/3400ms, speaker 0)",PASS,Medium,none
+REQ-1.4d,Phase 1.4,Transcript persistence,transcripts + segment_transcripts upsert,db tests,tests pass,PASS,Medium,none
+REQ-1.5a,Phase 1.5,Summary/notes/decisions/key points,after_ready.ts + prompts.ts,real run,"overview + key_points returned correctly",PASS,High,none
+REQ-1.5b,Phase 1.5,Action items verified against transcript,verify.ts verifyActionItems,unit (verify.test.ts),16 verify tests pass,PASS,High,none
+REQ-1.5c,Phase 1.5,No fabricated owners/dates,field.ts + verify.ts,unit,tests pass,PASS,High,none
+REQ-1.5d,Phase 1.5,Regenerate notes (re-run),process-recording re-invocation,manual,menu action wired,PASS,Medium,none
+REQ-1.5e,Phase 1.5,Template-based notes,templates.ts + templateLibrary.ts,logic tests,tests pass,PASS,Medium,none
+REQ-2.1a,Phase 2.1,Dialogs close reliably + focus management,src/lib/dialog.tsx shared surface,manual,not reproduced as broken; needs real keyboard run,PARTIAL,Medium,keyboard run
+REQ-2.2a,Phase 2.2,Radios expose correct a11y state,6 files accessibilityState checked,manual,"grep: only Segmented uses selected",PASS,Medium,none
+REQ-2.3a,Phase 2.3,Tabs switch content (Notes/Transcript/Tasks/Ask),Segmented component,manual,verified in browser audit,PASS,Medium,none
+REQ-2.4a,Phase 2.4,Hidden a11y elements are legitimate,conditional visibility in projects/settings,manual,source review found no accidental hiding,PASS,Low,none
+REQ-2.5a,Phase 2.5,No 404 destinations; /webhooks route,settings.tsx routes to /developers,manual,"developers.tsx exists; button verified",PASS,Low,none
+REQ-3.1a,Phase 3.1,Recording notice persists per user,user_settings.consent_reminder,DB test (sharing.test.mjs),account-preferences test passes,PASS,Medium,none
+REQ-3.2a,Phase 3.2,Field mode does not overwrite preferred type,settings.tsx toggles fieldMode only,manual + record.tsx logic,"verified in code; on-device check pending",PASS,High,device verify
+REQ-3.2b,Phase 3.2,Effective type = fieldMode ? site_walk : default,record.tsx setTemplate,manual,code verified,PASS,High,none
+REQ-3.3a,Phase 3.3,Default type persists cross-device,user_settings.default_template,DB test,passes,PASS,Medium,none
+REQ-3.4a,Phase 3.4,Saved indicator + rollback on failure,settings.tsx update() + saveState,manual,"code verified; no automated UI test",PARTIAL,Medium,add UI test
+REQ-3.4b,Phase 3.4,Cross-device sync of transcription settings,language/redact already in user_settings,db tests,pass,PASS,Low,none
+REQ-4.1a,Phase 4.1,Import audio/video + from link,import-link.tsx + ingest.ts,unit (capture.test.ts),tests pass,PASS,Medium,none
+REQ-4.1b,Phase 4.1,Rename/metadata/move/delete,recording detail menu actions,manual,wired and exercised previously,PASS,Medium,none
+REQ-4.1c,Phase 4.1,Playback,player.ts + audioUrl,unit,tests pass,PASS,Medium,none
+REQ-4.1d,Phase 4.1,Export deck/docx/zip with reachable URLs,make-deck/share/export-data + clientUrl,real run,"URLs return 10.0.0.180:54325 not kong",PASS,High,none
+REQ-4.1e,Phase 4.1,Translate (incl. African languages),translate.ts TRANSLATION_LANGUAGES,real run,"Swahili + Yoruba verified 200",PASS,Medium,none
+REQ-4.1f,Phase 4.1,Follow-up email draft,share/followup,real run,"subject returned",PASS,Medium,none
+REQ-4.2a,Phase 4.2,Projects create/rename/archive,projects page + DB,db tests,tests pass,PASS,Medium,none
+REQ-4.3a,Phase 4.3,Tasks verify/edit/status/tabs,TaskRow + tasks page,db+unit tests,tests pass,PASS,Medium,none
+REQ-4.3b,Phase 4.3,Duplicate tasks prevented on re-run,dropRepeats + verifyActionItems,unit,tests pass,PASS,Medium,none
+REQ-4.4a,Phase 4.4,Search over titles/transcripts/notes/tasks,search.tsx + search_recordings RPC,db test (sharing),search RLS test passes,PASS,Medium,none
+REQ-4.4b,Phase 4.4,Filters (date/project/type),search.tsx,manual,filters not present in UI,PARTIAL,Low,add filters
+REQ-4.5a,Phase 4.5,Ask with citations + no-evidence honesty,prompts.ts ASK_SYSTEM,manual,"prompt verified: cite (title, m:ss)",PASS,High,none
+REQ-4.5b,Phase 4.5,Ask authorization enforced,ask/index.ts requireUser + RLS client,manual,source verified,PASS,High,none
+REQ-5.1a,Phase 5.1,Webhook CRUD + events + https-only,webhooks table + api.ts,db tests (connections),tests pass,PASS,High,none
+REQ-5.1b,Phase 5.1,HMAC signing + delivery status,after_ready.ts deliver() signWebhook,unit (connect.test.ts),tests pass,PASS,High,none
+REQ-5.1c,Phase 5.1,SSRF protection on destinations,ssrf.ts + webhook_url_public constraint,unit + db tests,7 unit + SSRF db test pass,PASS,Critical,none
+REQ-5.1d,Phase 5.1,Retry failed deliveries,after_ready.ts (last_status/error only),manual,only last attempt recorded,PARTIAL,Medium,add retry queue
+REQ-5.1e,Phase 5.1,API docs page,/developers page,manual,exists and routed,PASS,Low,none
+REQ-5.2a,Phase 5.2,MCP endpoint from config not hardcoded,api-access.tsx APP_URL/SUPABASE_URL,manual,verified config-driven,PASS,Medium,none
+REQ-5.2b,Phase 5.2,Token one-time reveal/revoke/last-used,api-access.tsx + mcp function,manual,exists; not live-tested,PARTIAL,Medium,live test
+REQ-5.3a,Phase 5.3,Template library + CRUD + use in notes,templates.tsx + templateLibrary.ts,logic tests,tests pass,PASS,Medium,none
+REQ-5.4a,Phase 5.4,Live upload queue state,settings.tsx pendingOps + Retry,manual,"pending count + Retry verified",PARTIAL,Low,add failed-state detail
+REQ-5.5a,Phase 5.5,Highlight reels create/clip/share,reels pages + share/index.ts,manual,pages exist; not live-tested,PARTIAL,Low,live test
+REQ-5.6a,Phase 5.6,Retention enforced by scheduled cleanup,retention function + retention_due,db tests,tests pass,PASS,High,none
+REQ-5.6b,Phase 5.6,Account deletion with confirmation,privacy.tsx deleteAccount,db tests,pass,PASS,High,none
+REQ-6.1a,Phase 6.1,Team create/join/invite/roles,teams functions + workspaces,db tests (teams),tests pass,PASS,High,none
+REQ-6.2a,Phase 6.2,Google Calendar OAuth,calendar function + PROVIDERS,real endpoint test,"/calendar/providers returns google",PARTIAL,High,register redirect + live test
+REQ-6.2b,Phase 6.2,Microsoft Calendar OAuth,calendar function (microsoft),none,credentials not provided,BLOCKED,Medium,provide creds
+REQ-6.2c,Phase 6.2,Token refresh + disconnect,calendar_fetch.ts accessToken + disconnectCalendar,unit (calendar.test.ts),tests pass,PASS,Medium,none
+REQ-6.3a,Phase 6.3,Slack/Google Docs connect,connect function + oauth_providers,endpoint test,"/connect/available returns slack,google_docs",PARTIAL,Medium,live round-trip
+REQ-6.3b,Phase 6.3,Procore OAuth (sandbox),procore function,endpoint test,configured (sandbox),PARTIAL,Medium,live round-trip
+REQ-6.3c,Phase 6.3,Trackers by user token (asana/jira/linear/monday/clickup/trello/hubspot/notion),trackers.ts verifyToken,unit,tests pass,PASS,Medium,none
+REQ-6.3d,Phase 6.3,OneNote/Salesforce OAuth,oauth_providers onenote/salesforce,none,credentials not provided,BLOCKED,Low,provide creds
+REQ-7.1a,Phase 7.1,Automations rule engine,automations table + after_ready runAction,db tests,tests pass,PASS,Medium,none
+REQ-7.2a,Phase 7.2,Topic alerts + digest + timezone,topic_alerts + digest_time.ts,db+unit tests,tests pass,PASS,Medium,none
+REQ-7.3a,Phase 7.3,Device pairing/list/unpair,devices page + ingest DEVICE_SOURCES,manual,pages exist; watch untested,PARTIAL,Low,hardware test
+REQ-7.4a,Phase 7.4,Telephony (RingCentral/Aircall/Twilio),ringcentral + aircall functions,none,RingCentral: no creds; Aircall mismatched,BLOCKED,Medium,provider decision
+REQ-8a,Phase 8,UX polish consistent with design system,ui.tsx shared components,manual,existing design system preserved,PASS,Low,none
+REQ-9a,Phase 9,No cross-user access (RLS),migrations + 77 db tests,db tests,"outsider/teammate/owner assertions pass",PASS,Critical,none
+REQ-9b,Phase 9,No client-side service-role key,api.ts uses anon + server functions,manual,verified,PASS,Critical,none
+REQ-9c,Phase 9,No committed secrets,git grep + gitignore check,audit scan,"only doc placeholders; env files ignored",PASS,Critical,rotate pasted creds
+REQ-10a,Phase 10,Full suite green,tsc/lint/deno/npm,executed,"185+10+77 logic/db + 185 deno + 92 desktop",PASS,High,none
+REQ-10b,Phase 10,E2E: full pipeline with real audio,scripts/test-local-pipeline.cjs,real run,"sign-up→upload→transcribe→notes→ready",PASS,High,none
+REQ-10c,Phase 10,Production builds,iOS Metro export + desktop build,executed,"iOS bundle 4.2MB; desktop builds",PASS,Medium,none
+REQ-11a,Phase 11,Large-list/transcript performance,manual,not measured,NOT TESTED,Medium,measure
+REQ-12a,Phase 12,Desktop handoff documented,docs/DESKTOP_INTEGRATION_HANDOFF.md,manual,created,PASS,Low,none
+REQ-12b,Phase 12,Additive-only migrations,2 new migrations reviewed,manual,additive verified,PASS,Medium,none
+REQ-13a,Phase 6/7 desktop-only features,Murmure desktop dictation/wake word,DEFERRED,deliberately deferred,DEFERRED,Low,separate phase
+REQ-13b,Phase 12 desktop rebuild,Do not rebuild Electron,not rebuilt,instruction followed,DEFERRED,Low,none

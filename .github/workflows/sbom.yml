@@ -1,0 +1,32 @@
+name: sbom
+
+# Software bill of materials (SPDX) for the app + desktop surfaces, uploaded as
+# a build artifact on every main push.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: SBOM (app)
+        uses: anchore/sbom-action@f6c3d0fe42c3cf876e3462574e4c9416b5e0f07a # v0.9.0
+        with:
+          format: spdx-json
+          artifact-name: murmur-app-sbom.spdx.json
+          upload-artifact: true
+      - name: SBOM (desktop)
+        uses: anchore/sbom-action@f6c3d0fe42c3cf876e3462574e4c9416b5e0f07a # v0.9.0
+        with:
+          format: spdx-json
+          artifact-name: murmur-desktop-sbom.spdx.json
+          upload-artifact: true
+          directory: ./desktop

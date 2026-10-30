@@ -1,0 +1,26 @@
+name: zap
+
+# DAST: OWASP ZAP baseline scan of the live public origin. The app requires
+# sign-in, so this is a unauthenticated baseline (missed pages, headers, TLS,
+# cookie flags, obvious injection surfaces on the public pages). Findings are
+# informational; review them in the workflow log.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@41aee98ebc7cf2802c3beae4e7d4336413a21e43 # v0.9.0
+        with:
+          target: https://notes.giscop.com
+          fail_action: false
+          cmd_options: "-I"

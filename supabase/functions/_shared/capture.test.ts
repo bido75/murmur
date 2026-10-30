@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { aircallTitle, callAllowed, keypadToE164, parseAircall, spokenNumber, twilioSignature, twimlAskPin, twimlDial, verifyTwilio, xml } from './phone.ts';
-import { cleanLocalTranscript, segmentPath, uploadType, whisperToUtterances } from './ingest.ts';
+import { audioContentType, cleanLocalTranscript, segmentPath, uploadType, whisperToUtterances } from './ingest.ts';
 import { pythonCommand, pythonRun, pythonSkip } from './python.ts';
 
 test('Twilio signatures match an independent HMAC and reject tampering', async () => {
@@ -63,6 +63,20 @@ test('device uploads: accepted types and paths', () => {
   assert.deepEqual(uploadType('video/webm'), { type: 'video/webm', ext: 'webm', video: true });
   assert.equal(uploadType('application/pdf'), null);
   assert.equal(segmentPath('u', 'r', 3, 'm4a'), 'u/r/seg-0003.m4a');
+});
+
+test('the audio content type comes from the file name, so it is never a guess', () => {
+  // A phone records AAC in .m4a and a browser records WebM. Telling the speech
+  // service the file is WAV when it is not makes it refuse audio it could read.
+  assert.equal(audioContentType('u/r/seg-0001.m4a'), 'audio/mp4');
+  assert.equal(audioContentType('u/r/seg-0001.webm'), 'audio/webm');
+  assert.equal(audioContentType('u/r/seg-0001.wav'), 'audio/wav');
+  assert.equal(audioContentType('u/r/seg-0001.mp3'), 'audio/mpeg');
+  assert.equal(audioContentType('u/r/seg-0001.ogg'), 'audio/ogg');
+  assert.equal(audioContentType('u/r/seg-0001.aac'), 'audio/aac');
+  assert.equal(audioContentType('u/r/seg-0001.M4A'), 'audio/mp4');
+  assert.equal(audioContentType('u/r/seg-0001.bin'), 'application/octet-stream');
+  assert.equal(audioContentType('no-extension'), 'application/octet-stream');
 });
 
 test('on-device transcripts: whisper segments become paragraphs; bad input refused', () => {

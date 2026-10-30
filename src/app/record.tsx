@@ -1,41 +1,86 @@
-import * as Haptics from 'expo-haptics';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ActionMenu } from '@/components/ActionMenu';
-import { ProjectPicker } from '@/components/ProjectPicker';
-import { Banner, Button, Card, T } from '@/components/ui';
-import { attachConsentRequest, createConsentRequest, getSettings, listTemplates, newRecording, openProjectTasks, policyForProject } from '@/lib/api';
-import { APP_URL } from '@/lib/config';
-import { consentAdvice, STATES } from '@/lib/shared';
-import { confirm, isWeb, notify, shareOrCopy } from '@/lib/dialog';
-import { queuePhoto, takePhoto } from '@/lib/photos';
-import { enqueue } from '@/lib/sync';
-import { localSttSupported, modelReady } from '@/lib/localStt';
-import { startLive, type LiveLine } from '@/lib/live';
-import { clock } from '@/lib/format';
-import { useSegmentedRecorder } from '@/lib/recorder';
-import { radius, space, useTheme } from '@/lib/theme';
-import { CONSENT_LABELS, TEMPLATE_LABELS, type ConsentMethod, type SummaryTemplate, type Task, type Template } from '@/lib/types';
+import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { ActionMenu } from "@/components/ActionMenu";
+import { ProjectPicker } from "@/components/ProjectPicker";
+import { TourAnchor } from "@/components/tour/TourAnchor";
+import { Banner, Button, Card, T } from "@/components/ui";
+import {
+  attachConsentRequest,
+  createConsentRequest,
+  getSettings,
+  listTemplates,
+  newRecording,
+  openProjectTasks,
+  policyForProject,
+} from "@/lib/api";
+import { APP_URL } from "@/lib/config";
+import {
+  consentAdvice,
+  STATES,
+  canRecordNow,
+  chooseProvider,
+} from "@/lib/shared";
+import { confirm, isWeb, notify, shareOrCopy } from "@/lib/dialog";
+import { queuePhoto, takePhoto } from "@/lib/photos";
+import { enqueue } from "@/lib/sync";
+import { localSttSupported, modelReady } from "@/lib/localStt";
+import { startLive, type LiveLine } from "@/lib/live";
+import { clock } from "@/lib/format";
+import { useSegmentedRecorder } from "@/lib/recorder";
+import { radius, space, useTheme } from "@/lib/theme";
+import {
+  CONSENT_LABELS,
+  TEMPLATE_LABELS,
+  type ConsentMethod,
+  type SummaryTemplate,
+  type Task,
+  type Template,
+} from "@/lib/types";
 
 // White text stays readable on it in light and dark themes.
-const PAUSE_GRAY = '#3A3F3B';
+const PAUSE_GRAY = "#3A3F3B";
 
-const NOTICE = "Quick note: I'm recording this conversation so I can take accurate notes. Is everyone okay with that?";
+const NOTICE =
+  "Quick note: I'm recording this conversation so I can take accurate notes. Is everyone okay with that?";
 
 export default function Record() {
   const t = useTheme();
   const rec = useSegmentedRecorder();
-  const [template, setTemplate] = useState<Template>('meeting');
-  const params = useLocalSearchParams<{ projectId?: string; title?: string; eventKey?: string }>();
-  const [projectId, setProjectId] = useState<string | null>(params.projectId ?? null);
-  const [briefFor, setBriefFor] = useState<{ projectId: string; tasks: Task[] } | null>(null);
-  const brief = projectId && briefFor?.projectId === projectId ? briefFor.tasks : [];
+  const [template, setTemplate] = useState<Template>("meeting");
+  const params = useLocalSearchParams<{
+    projectId?: string;
+    title?: string;
+    eventKey?: string;
+  }>();
+  const [projectId, setProjectId] = useState<string | null>(
+    params.projectId ?? null,
+  );
+  const [briefFor, setBriefFor] = useState<{
+    projectId: string;
+    tasks: Task[];
+  } | null>(null);
+  const brief =
+    projectId && briefFor?.projectId === projectId ? briefFor.tasks : [];
   const [consentReminder, setNeedConsent] = useState(true);
   // A team can require the consent choice for recordings in its projects.
-  const [teamRequires, setTeamRequires] = useState<{ projectId: string; required: boolean } | null>(null);
-  const needConsent = consentReminder || (teamRequires?.projectId === projectId && teamRequires.required);
+  const [teamRequires, setTeamRequires] = useState<{
+    projectId: string;
+    required: boolean;
+  } | null>(null);
+  const needConsent =
+    consentReminder ||
+    (teamRequires?.projectId === projectId && teamRequires.required);
   const [consent, setConsent] = useState<ConsentMethod | null>(null);
   const consented = consent !== null;
   const [recordingId, setRecordingId] = useState<string | null>(null);
@@ -49,53 +94,94 @@ export default function Record() {
   const [customId, setCustomId] = useState<string | null>(null);
   const [myState, setMyState] = useState<string | null>(null);
   const [otherState, setOtherState] = useState<string | null>(null);
-  const [otherQuery, setOtherQuery] = useState('');
+  const [otherQuery, setOtherQuery] = useState("");
   const [consentToken, setConsentToken] = useState<string | null>(null);
-  const [typed, setTyped] = useState('');
+  const [typed, setTyped] = useState("");
   const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
   const [liveOn, setLiveOn] = useState(false);
   const stopLive = useRef<(() => void) | null>(null);
+  // Local-only privacy: nothing may be uploaded, whatever else is chosen.
+  const [localOnly, setLocalOnly] = useState(false);
+  // Whether the recording may be made at all. The device cannot be sent audio in its
+  // place, so when it was chosen and cannot run, the recording waits.
+  const [canRecord, setCanRecord] = useState(true);
 
   // Live transcript (browser only): starts with the recording, stops with it.
   async function toggleLive(on: boolean) {
     stopLive.current?.();
     stopLive.current = null;
     setLiveOn(on);
-    if (on) stopLive.current = await startLive(setLiveLines, (m) => { setLiveOn(false); notify('Live transcript', m); });
+    if (on)
+      stopLive.current = await startLive(setLiveLines, (m) => {
+        setLiveOn(false);
+        notify("Live transcript", m);
+      });
   }
   useEffect(() => () => stopLive.current?.(), []);
   const [showNotes, setShowNotes] = useState(false);
 
   useEffect(() => {
     getSettings().then((s) => {
-      setTemplate(s.defaultTemplate);
+      // Field mode overrides the effective default for a new recording, but never
+      // overwrites the user's chosen default type.
+      setTemplate(s.fieldMode ? "site_walk" : s.defaultTemplate);
       setNeedConsent(s.consentReminder);
       setField(s.fieldMode);
-      setOnDevice(s.onDevice && localSttSupported() && modelReady());
       setMyState(s.myState);
+      setLocalOnly(s.localOnly);
+      const ready = localSttSupported() && modelReady();
+      // The same rules the settings screen shows decide this, so the two never disagree.
+      const ctx = {
+        mode: s.transcriptionMode,
+        localReady: ready,
+        cloudReady: true,
+        localOnly: s.localOnly,
+        preferLocal: s.preferLocal,
+      };
+      setOnDevice(chooseProvider(ctx) === "local" && ready);
+      setCanRecord(canRecordNow(ctx));
     });
-    listTemplates().then(setCustom).catch(() => setCustom([]));
+    listTemplates()
+      .then(setCustom)
+      .catch(() => setCustom([]));
   }, []);
 
-  const isCall = template === 'phone_call';
-  const advice = consentAdvice(myState, isCall ? [otherState] : [], isCall ? 'phone' : 'in_person');
-  const otherMatches = otherQuery.trim() ? STATES.filter((x) => x.name.toLowerCase().startsWith(otherQuery.trim().toLowerCase())).slice(0, 5) : [];
+  const isCall = template === "phone_call";
+  const advice = consentAdvice(
+    myState,
+    isCall ? [otherState] : [],
+    isCall ? "phone" : "in_person",
+  );
+  const otherMatches = otherQuery.trim()
+    ? STATES.filter((x) =>
+        x.name.toLowerCase().startsWith(otherQuery.trim().toLowerCase()),
+      ).slice(0, 5)
+    : [];
 
   async function sendConsentLink() {
     try {
-      const base = APP_URL || (isWeb ? window.location.origin : '');
-      if (!base) throw new Error('Set EXPO_PUBLIC_APP_URL so the link has somewhere to open.');
+      const base = APP_URL || (isWeb ? window.location.origin : "");
+      if (!base)
+        throw new Error(
+          "Set EXPO_PUBLIC_APP_URL so the link has somewhere to open.",
+        );
       const name = params.title || TEMPLATE_LABELS[template];
       const token = consentToken ?? (await createConsentRequest(name));
       setConsentToken(token);
-      await shareOrCopy(`I'd like to record "${name}" for accurate notes. Please let me know if that's OK: ${base}/c/${token}`, 'Consent link copied');
+      await shareOrCopy(
+        `I'd like to record "${name}" for accurate notes. Please let me know if that's OK: ${base}/c/${token}`,
+        "Consent link copied",
+      );
     } catch (e) {
       notify("Couldn't make a consent link", (e as Error).message);
     }
   }
 
   const tap = () => {
-    if (!isWeb) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    if (!isWeb)
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+        () => {},
+      );
   };
 
   /** Take a photo; it's pinned to the moment the shutter closed and uploads with the recording. */
@@ -104,7 +190,7 @@ export default function Record() {
     tap();
     setShooting(true);
     try {
-      const shot = await takePhoto('camera');
+      const shot = await takePhoto("camera");
       if (!shot) return;
       const id = await queuePhoto(recordingId, shot, rec.elapsedMs);
       setPhotos((p) => [...p, { id, uri: shot.uri }]);
@@ -118,7 +204,9 @@ export default function Record() {
   useEffect(() => {
     if (!projectId) return;
     policyForProject(projectId)
-      .then((p) => setTeamRequires({ projectId, required: Boolean(p?.require_consent) }))
+      .then((p) =>
+        setTeamRequires({ projectId, required: Boolean(p?.require_consent) }),
+      )
       .catch(() => undefined);
   }, [projectId]);
 
@@ -133,11 +221,23 @@ export default function Record() {
   async function start() {
     setStarting(true);
     try {
+      // The rules chose the device, but it cannot run. Uploading the audio instead would
+      // go against what the user asked for — either "never upload audio" or "transcribe on
+      // this device" — so this is refused rather than quietly done.
+      if (!canRecord) {
+        notify(
+          "Can't record yet",
+          localOnly
+            ? "You asked for audio never to leave this device, but the speech model isn't installed. Download it in Settings → Privacy & data, or turn off “Never upload audio”."
+            : "You asked for recordings to be transcribed on this device, but the speech model isn't installed. Download it in Settings → Privacy & data, or choose Cloud in Settings.",
+        );
+        return;
+      }
       const id = await newRecording({
         template,
-        source: 'mic',
+        source: "mic",
         consentAt: consented ? new Date().toISOString() : null,
-        consentMethod: consent ?? 'not_confirmed',
+        consentMethod: consent ?? "not_confirmed",
         projectId,
         title: params.title || undefined,
         calendarEventKey: params.eventKey || null,
@@ -147,7 +247,11 @@ export default function Record() {
       await rec.start(id, { local: onDevice });
       // Responses to the consent link show on the recording. Needs a connection; retried by nothing,
       // so a failure here only means responses aren't linked (they're still saved).
-      if (consentToken) setTimeout(() => void attachConsentRequest(consentToken, id).catch(() => {}), 4000);
+      if (consentToken)
+        setTimeout(
+          () => void attachConsentRequest(consentToken, id).catch(() => {}),
+          4000,
+        );
     } catch (e) {
       notify("Couldn't start recording", (e as Error).message);
     } finally {
@@ -157,10 +261,16 @@ export default function Record() {
 
   async function confirmStop() {
     tap();
-    const ok = await confirm('Stop recording?', 'Your notes will be ready in a minute or two.', 'Stop', true);
+    const ok = await confirm(
+      "Stop recording?",
+      "Your notes will be ready in a minute or two.",
+      "Stop",
+      true,
+    );
     if (!ok) return;
     // Typed notes go before the recording is finalized, so the AI sees them.
-    if (recordingId && typed.trim()) await enqueue({ kind: 'notes', recordingId, text: typed.trim() });
+    if (recordingId && typed.trim())
+      await enqueue({ kind: "notes", recordingId, text: typed.trim() });
     stopLive.current?.();
     try {
       await rec.stop();
@@ -168,23 +278,34 @@ export default function Record() {
       // Say what happened: the audio that was captured is still on the device.
       notify("Couldn't finish the recording", (e as Error).message);
     }
-    if (recordingId) router.replace({ pathname: '/recording/[id]', params: { id: recordingId } });
+    if (recordingId)
+      router.replace({
+        pathname: "/recording/[id]",
+        params: { id: recordingId },
+      });
     else router.back();
   }
 
-  const live = rec.phase !== 'idle';
+  const live = rec.phase !== "idle";
 
   if (!live) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
-        <ScrollView contentContainerStyle={{ padding: space.xl, gap: space.xl }}>
+        <ScrollView
+          contentContainerStyle={{ padding: space.xl, gap: space.xl }}
+        >
           <View style={styles.headerRow}>
-            <T size={28} weight="700" numberOfLines={2} style={{ flex: 1 }}>{params.title || 'New recording'}</T>
+            <T size={28} weight="700" numberOfLines={2} style={{ flex: 1 }}>
+              {params.title || "New recording"}
+            </T>
             <Button label="Cancel" kind="ghost" onPress={() => router.back()} />
           </View>
 
+          <TourAnchor id="type-picker">
           <View style={{ gap: space.sm }}>
-            <T muted size={13} weight="600">WHAT IS IT?</T>
+            <T muted size={13} weight="600">
+              WHAT IS IT?
+            </T>
             <View style={styles.chips}>
               {(Object.keys(TEMPLATE_LABELS) as Template[]).map((k) => {
                 const on = k === template && !customId;
@@ -192,11 +313,26 @@ export default function Record() {
                   <Pressable
                     key={k}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    onPress={() => { setTemplate(k); setCustomId(null); }}
-                    style={[styles.chip, { borderColor: on ? t.accent : t.border, backgroundColor: on ? t.accentSoft : t.surface }]}
+                    accessibilityState={{ checked: on }}
+                    onPress={() => {
+                      setTemplate(k);
+                      setCustomId(null);
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        borderColor: on ? t.accent : t.border,
+                        backgroundColor: on ? t.accentSoft : t.surface,
+                      },
+                    ]}
                   >
-                    <T size={15} weight={on ? '600' : '400'} style={{ color: on ? t.accent : t.ink }}>{TEMPLATE_LABELS[k]}</T>
+                    <T
+                      size={15}
+                      weight={on ? "600" : "400"}
+                      style={{ color: on ? t.accent : t.ink }}
+                    >
+                      {TEMPLATE_LABELS[k]}
+                    </T>
                   </Pressable>
                 );
               })}
@@ -206,19 +342,38 @@ export default function Record() {
                   <Pressable
                     key={c.id}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    onPress={() => { setTemplate(c.base); setCustomId(c.id); }}
-                    style={[styles.chip, { borderColor: on ? t.accent : t.border, backgroundColor: on ? t.accentSoft : t.surface, borderStyle: 'dashed' }]}
+                    accessibilityState={{ checked: on }}
+                    onPress={() => {
+                      setTemplate(c.base);
+                      setCustomId(c.id);
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        borderColor: on ? t.accent : t.border,
+                        backgroundColor: on ? t.accentSoft : t.surface,
+                        borderStyle: "dashed",
+                      },
+                    ]}
                   >
-                    <T size={15} weight={on ? '600' : '400'} style={{ color: on ? t.accent : t.ink }}>{c.name}</T>
+                    <T
+                      size={15}
+                      weight={on ? "600" : "400"}
+                      style={{ color: on ? t.accent : t.ink }}
+                    >
+                      {c.name}
+                    </T>
                   </Pressable>
                 );
               })}
             </View>
           </View>
+          </TourAnchor>
 
           <View style={{ gap: space.sm }}>
-            <T muted size={13} weight="600">PROJECT</T>
+            <T muted size={13} weight="600">
+              PROJECT
+            </T>
             <ProjectPicker value={projectId} onChange={setProjectId} />
           </View>
 
@@ -227,63 +382,181 @@ export default function Record() {
               <T weight="600">Still open in this project ({brief.length})</T>
               {brief.slice(0, 6).map((task) => (
                 <T key={task.id} size={14}>
-                  •  {task.text}{task.owner ? ` — ${task.owner}` : ''}
+                  • {task.text}
+                  {task.owner ? ` — ${task.owner}` : ""}
                 </T>
               ))}
-              {brief.length > 6 && <T muted size={13}>and {brief.length - 6} more</T>}
-              <T muted size={13}>If these come up, your notes will mark them done or updated, with the quote as proof.</T>
+              {brief.length > 6 && (
+                <T muted size={13}>
+                  and {brief.length - 6} more
+                </T>
+              )}
+              <T muted size={13}>
+                If these come up, your notes will mark them done or updated,
+                with the quote as proof.
+              </T>
             </Card>
           )}
 
           {needConsent && (
-            <Card style={{ gap: space.md, borderColor: advice.level === 'everyone' ? t.danger : t.border }}>
+            <TourAnchor id="consent-section">
+            <Card
+              style={{
+                gap: space.md,
+                borderColor: advice.level === "everyone" ? t.danger : t.border,
+              }}
+            >
               <T weight="600">Let people know</T>
               {isCall && (
                 <View style={{ gap: space.xs }}>
                   <T size={14}>Where is the other person?</T>
                   <TextInput
-                    value={otherState ? STATES.find((x) => x.code === otherState)?.name ?? 'Outside the US' : otherQuery}
-                    onChangeText={(v) => { setOtherState(null); setOtherQuery(v); }}
+                    value={
+                      otherState
+                        ? (STATES.find((x) => x.code === otherState)?.name ??
+                          "Outside the US")
+                        : otherQuery
+                    }
+                    onChangeText={(v) => {
+                      setOtherState(null);
+                      setOtherQuery(v);
+                    }}
                     placeholder="Type a US state"
                     placeholderTextColor={t.muted}
-                    style={{ borderWidth: 1, borderColor: t.border, borderRadius: radius.md, padding: space.sm, color: t.ink, fontSize: 15 }}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: t.border,
+                      borderRadius: radius.md,
+                      padding: space.sm,
+                      color: t.ink,
+                      fontSize: 15,
+                    }}
                     accessibilityLabel="Other person's state"
                   />
                   {otherMatches.map((x) => (
-                    <Pressable key={x.code} onPress={() => { setOtherState(x.code); setOtherQuery(''); }}>
-                      <T size={14} style={{ color: t.accent }}>{x.name}</T>
+                    <Pressable
+                      key={x.code}
+                      onPress={() => {
+                        setOtherState(x.code);
+                        setOtherQuery("");
+                      }}
+                    >
+                      <T size={14} style={{ color: t.accent }}>
+                        {x.name}
+                      </T>
                     </Pressable>
                   ))}
-                  {!otherState && <Pressable onPress={() => setOtherState('OTHER')}><T size={14} style={{ color: t.accent }}>Outside the US / not sure</T></Pressable>}
+                  {!otherState && (
+                    <Pressable onPress={() => setOtherState("OTHER")}>
+                      <T size={14} style={{ color: t.accent }}>
+                        Outside the US / not sure
+                      </T>
+                    </Pressable>
+                  )}
                 </View>
               )}
               <View style={{ gap: 2 }}>
-                <T size={15} weight="600" style={{ color: advice.level === 'everyone' ? t.danger : t.ink }}>{advice.title}</T>
-                <T muted size={14}>{advice.body}</T>
-                {!myState && <T muted size={13}>Set where you usually record in Settings → Privacy & data for a precise warning.</T>}
+                <T
+                  size={15}
+                  weight="600"
+                  style={{
+                    color: advice.level === "everyone" ? t.danger : t.ink,
+                  }}
+                >
+                  {advice.title}
+                </T>
+                <T muted size={14}>
+                  {advice.body}
+                </T>
+                {!myState && (
+                  <T muted size={13}>
+                    Set where you usually record in Settings → Privacy & data
+                    for a precise warning.
+                  </T>
+                )}
               </View>
-              <T muted size={14}>You can say:</T>
-              <T size={15} style={{ fontStyle: 'italic' }}>“{NOTICE}”</T>
-              <Button label={consentToken ? 'Share the consent link again' : 'Send a consent link'} kind="ghost" onPress={sendConsentLink} />
-              {(['told_everyone', 'in_invite', ...(consentToken ? ['consent_link'] : []), 'solo'] as ConsentMethod[]).map((m) => {
+              <T muted size={14}>
+                You can say:
+              </T>
+              <T size={15} style={{ fontStyle: "italic" }}>
+                “{NOTICE}”
+              </T>
+              <Button
+                label={
+                  consentToken
+                    ? "Share the consent link again"
+                    : "Send a consent link"
+                }
+                kind="ghost"
+                onPress={sendConsentLink}
+              />
+              {(
+                [
+                  "told_everyone",
+                  "in_invite",
+                  ...(consentToken ? ["consent_link"] : []),
+                  "solo",
+                ] as ConsentMethod[]
+              ).map((m) => {
                 const on = consent === m;
                 return (
-                  <Pressable key={m} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setConsent(m)} style={styles.checkRow}>
-                    <View style={[styles.radio, { borderColor: on ? t.accent : t.muted }]}>
-                      {on && <View style={[styles.radioDot, { backgroundColor: t.accent }]} />}
+                  <Pressable
+                    key={m}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: on }}
+                    onPress={() => setConsent(m)}
+                    style={styles.checkRow}
+                  >
+                    <View
+                      style={[
+                        styles.radio,
+                        { borderColor: on ? t.accent : t.muted },
+                      ]}
+                    >
+                      {on && (
+                        <View
+                          style={[
+                            styles.radioDot,
+                            { backgroundColor: t.accent },
+                          ]}
+                        />
+                      )}
                     </View>
                     <T style={{ flex: 1 }}>{CONSENT_LABELS[m]}</T>
                   </Pressable>
                 );
               })}
             </Card>
+            </TourAnchor>
           )}
 
-          <Button label="Start recording" onPress={start} loading={starting} disabled={needConsent && !consented} />
-          <T muted size={13} style={{ textAlign: 'center' }}>
+          <Button
+            label="Start recording"
+            onPress={start}
+            loading={starting}
+            disabled={needConsent && !consented}
+          />
+          {!canRecord && (
+            <Card
+              style={{
+                gap: space.sm,
+                borderColor: t.danger,
+              }}
+            >
+              <T weight="600">
+                Audio can&apos;t leave this device yet
+              </T>
+              <T muted size={14}>
+                {localOnly
+                  ? "You asked for recordings never to be uploaded, so the speech model has to be on this device. Download it in Settings → Privacy & data, then come back."
+                  : "You asked for recordings to be transcribed on this device, so the speech model has to be installed. Download it in Settings → Privacy & data, then come back."}
+              </T>
+            </Card>
+          )}
+          <T muted size={13} style={{ textAlign: "center" }}>
             {isWeb
-              ? 'Keeps recording with the screen locked. Audio is saved in ~5-second slices on the web.'
-              : 'Keeps recording with the screen locked. Audio is saved in 5-minute parts on the phone; the part in progress may be lost if interrupted.'}
+              ? "Keeps recording with the screen locked. Audio is saved in ~5-second slices on the web."
+              : "Keeps recording with the screen locked. Audio is saved in 5-minute parts on the phone; the part in progress may be lost if interrupted."}
           </T>
         </ScrollView>
       </SafeAreaView>
@@ -291,62 +564,164 @@ export default function Record() {
   }
 
   // Level meter: map roughly -60..0 dBFS to 0..1
-  const level = rec.level == null ? 0 : Math.max(0, Math.min(1, (rec.level + 60) / 60));
+  const level =
+    rec.level == null ? 0 : Math.max(0, Math.min(1, (rec.level + 60) / 60));
   const mic = rec.inputs.find((i) => i.uid === rec.inputUid);
   const big = field; // field mode: glove-sized controls, bigger type
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
       <View style={[styles.live, big && { gap: space.lg }]}>
-        <View style={{ alignItems: 'center', gap: space.sm }}>
-          <View style={[styles.liveDot, { backgroundColor: rec.phase === 'recording' ? t.record : t.muted }]} />
-          <T muted size={big ? 18 : 15}>{rec.phase === 'paused' ? 'Paused' : rec.phase === 'stopping' ? 'Saving…' : `Recording · ${TEMPLATE_LABELS[template]}`}</T>
+        <View style={{ alignItems: "center", gap: space.sm }}>
+          <View
+            style={[
+              styles.liveDot,
+              {
+                backgroundColor: rec.phase === "recording" ? t.record : t.muted,
+              },
+            ]}
+          />
+          <T muted size={big ? 18 : 15}>
+            {rec.phase === "paused"
+              ? "Paused"
+              : rec.phase === "stopping"
+                ? "Saving…"
+                : `Recording · ${TEMPLATE_LABELS[template]}`}
+          </T>
         </View>
 
-        <T size={big ? 76 : 64} weight="300" style={{ fontVariant: ['tabular-nums'], textAlign: 'center' }}>{clock(rec.elapsedMs)}</T>
+        <T
+          size={big ? 76 : 64}
+          weight="300"
+          style={{ fontVariant: ["tabular-nums"], textAlign: "center" }}
+        >
+          {clock(rec.elapsedMs)}
+        </T>
 
-        <View style={[styles.meterTrack, { backgroundColor: t.border, height: big ? 12 : 6 }]} accessibilityLabel="Microphone level">
-          <View style={[styles.meterFill, { width: `${level * 100}%`, backgroundColor: t.accent, height: big ? 12 : 6 }]} />
+        <View
+          style={[
+            styles.meterTrack,
+            { backgroundColor: t.border, height: big ? 12 : 6 },
+          ]}
+          accessibilityLabel="Microphone level"
+        >
+          <View
+            style={[
+              styles.meterFill,
+              {
+                width: `${level * 100}%`,
+                backgroundColor: t.accent,
+                height: big ? 12 : 6,
+              },
+            ]}
+          />
         </View>
 
-        <T muted size={big ? 16 : 13} style={{ textAlign: 'center' }}>
-          {rec.segmentsSaved > 0 ? `${rec.segmentsSaved} part${rec.segmentsSaved > 1 ? 's' : ''} saved safely` : 'Saving as you go'}
-          {photos.length ? ` · ${photos.length} photo${photos.length > 1 ? 's' : ''}` : ''}
-          {onDevice ? ' · transcribed on this phone' : ''}
+        <T muted size={big ? 16 : 13} style={{ textAlign: "center" }}>
+          {rec.segmentsSaved > 0
+            ? `${rec.segmentsSaved} part${rec.segmentsSaved > 1 ? "s" : ""} saved safely`
+            : "Saving as you go"}
+          {photos.length
+            ? ` · ${photos.length} photo${photos.length > 1 ? "s" : ""}`
+            : ""}
+          {onDevice ? " · transcribed on this phone" : ""}
         </T>
 
         {photos.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: space.sm }}
+          >
             {photos.map((p) => (
-              <Image key={p.id} source={{ uri: p.uri }} style={[styles.thumb, big && styles.thumbBig, { borderColor: t.border }]} resizeMode="cover" accessibilityLabel="Photo taken during this recording" />
+              <Image
+                key={p.id}
+                source={{ uri: p.uri }}
+                style={[
+                  styles.thumb,
+                  big && styles.thumbBig,
+                  { borderColor: t.border },
+                ]}
+                resizeMode="cover"
+                accessibilityLabel="Photo taken during this recording"
+              />
             ))}
           </ScrollView>
         )}
 
         {rec.inputs.length > 1 && (
-          <Pressable onPress={() => setMicMenu(true)} accessibilityRole="button" accessibilityLabel="Choose microphone" style={[styles.micRow, { borderColor: t.border }]}>
-            <T size={big ? 17 : 14}>Mic: {mic?.name ?? 'Default'}</T>
-            <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>Change</T>
+          <Pressable
+            onPress={() => setMicMenu(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Choose microphone"
+            style={[styles.micRow, { borderColor: t.border }]}
+          >
+            <T size={big ? 17 : 14}>Mic: {mic?.name ?? "Default"}</T>
+            <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>
+              Change
+            </T>
           </Pressable>
         )}
 
-        {rec.warning && <Banner text={rec.warning} action={{ label: 'Restart mic', onPress: () => void rec.restartMic() }} />}
+        {rec.warning && (
+          <Banner
+            text={rec.warning}
+            action={{
+              label: "Restart mic",
+              onPress: () => void rec.restartMic(),
+            }}
+          />
+        )}
 
-        {isWeb && (
-          liveOn ? (
-            <View style={{ gap: 4, borderWidth: 1, borderColor: t.border, borderRadius: radius.md, padding: space.md, minHeight: 80 }}>
-              <T muted size={12} weight="600">LIVE TRANSCRIPT · draft</T>
-              {liveLines.length === 0 ? <T muted size={14}>Listening…</T> : liveLines.map((l, i) => <T key={i} size={15} muted={!l.final}>{l.text}</T>)}
-              <Pressable onPress={() => void toggleLive(false)}><T size={13} style={{ color: t.accent }}>Hide</T></Pressable>
+        {isWeb &&
+          (liveOn ? (
+            <View
+              style={{
+                gap: 4,
+                borderWidth: 1,
+                borderColor: t.border,
+                borderRadius: radius.md,
+                padding: space.md,
+                minHeight: 80,
+              }}
+            >
+              <T muted size={12} weight="600">
+                LIVE TRANSCRIPT · draft
+              </T>
+              {liveLines.length === 0 ? (
+                <T muted size={14}>
+                  Listening…
+                </T>
+              ) : (
+                liveLines.map((l, i) => (
+                  <T key={i} size={15} muted={!l.final}>
+                    {l.text}
+                  </T>
+                ))
+              )}
+              <Pressable onPress={() => void toggleLive(false)}>
+                <T size={13} style={{ color: t.accent }}>
+                  Hide
+                </T>
+              </Pressable>
             </View>
           ) : (
-            <Pressable onPress={() => void toggleLive(true)} accessibilityRole="button" style={[styles.micRow, { borderColor: t.border }]}>
+            <Pressable
+              onPress={() => void toggleLive(true)}
+              accessibilityRole="button"
+              style={[styles.micRow, { borderColor: t.border }]}
+            >
               <T size={big ? 17 : 14}>Show live transcript</T>
-              <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>On</T>
+              <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>
+                On
+              </T>
             </Pressable>
-          )
+          ))}
+        {!isWeb && (
+          <T muted size={13}>
+            Live transcript is available in the web app only.
+          </T>
         )}
-        {!isWeb && <T muted size={13}>Live transcript is available in the web app only.</T>}
 
         {showNotes ? (
           <TextInput
@@ -356,39 +731,110 @@ export default function Record() {
             placeholderTextColor={t.muted}
             multiline
             autoFocus
-            style={{ borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, color: t.ink, borderRadius: radius.md, padding: space.md, fontSize: big ? 18 : 16, minHeight: 120, maxHeight: 220, textAlignVertical: 'top' }}
+            style={{
+              borderWidth: 1,
+              borderColor: t.border,
+              backgroundColor: t.surface,
+              color: t.ink,
+              borderRadius: radius.md,
+              padding: space.md,
+              fontSize: big ? 18 : 16,
+              minHeight: 120,
+              maxHeight: 220,
+              textAlignVertical: "top",
+            }}
             accessibilityLabel="Your notes"
           />
         ) : (
-          <Pressable onPress={() => setShowNotes(true)} accessibilityRole="button" style={[styles.micRow, { borderColor: t.border }]}>
-            <T size={big ? 17 : 14}>{typed ? `Your notes (${typed.split('\n').filter(Boolean).length} lines)` : 'Type notes while you listen'}</T>
-            <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>Open</T>
+          <Pressable
+            onPress={() => setShowNotes(true)}
+            accessibilityRole="button"
+            style={[styles.micRow, { borderColor: t.border }]}
+          >
+            <T size={big ? 17 : 14}>
+              {typed
+                ? `Your notes (${typed.split("\n").filter(Boolean).length} lines)`
+                : "Type notes while you listen"}
+            </T>
+            <T size={big ? 17 : 14} weight="600" style={{ color: t.accent }}>
+              Open
+            </T>
           </Pressable>
         )}
       </View>
 
       {big ? (
         <View style={styles.fieldControls}>
-          <BigButton label={shooting ? 'Opening camera…' : 'Take photo'} color={t.accent} onPress={photo} disabled={rec.phase === 'stopping' || shooting} />
-          <View style={{ flexDirection: 'row', gap: space.md }}>
-            {rec.phase === 'paused' ? (
-              <BigButton label="Resume" color={PAUSE_GRAY} onPress={() => { tap(); rec.resume(); }} style={{ flex: 1 }} />
+          <BigButton
+            label={shooting ? "Opening camera…" : "Take photo"}
+            color={t.accent}
+            onPress={photo}
+            disabled={rec.phase === "stopping" || shooting}
+          />
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            {rec.phase === "paused" ? (
+              <BigButton
+                label="Resume"
+                color={PAUSE_GRAY}
+                onPress={() => {
+                  tap();
+                  rec.resume();
+                }}
+                style={{ flex: 1 }}
+              />
             ) : (
-              <BigButton label="Pause" color={PAUSE_GRAY} onPress={() => { tap(); rec.pause(); }} disabled={rec.phase !== 'recording'} style={{ flex: 1 }} />
+              <BigButton
+                label="Pause"
+                color={PAUSE_GRAY}
+                onPress={() => {
+                  tap();
+                  rec.pause();
+                }}
+                disabled={rec.phase !== "recording"}
+                style={{ flex: 1 }}
+              />
             )}
-            <BigButton label="Stop" color={t.danger} onPress={confirmStop} disabled={rec.phase === 'stopping'} style={{ flex: 1 }} />
+            <BigButton
+              label="Stop"
+              color={t.danger}
+              onPress={confirmStop}
+              disabled={rec.phase === "stopping"}
+              style={{ flex: 1 }}
+            />
           </View>
         </View>
       ) : (
         <View style={{ padding: space.xl, gap: space.md }}>
-          <Button label={shooting ? 'Opening camera…' : 'Take photo'} kind="secondary" onPress={photo} disabled={rec.phase === 'stopping' || shooting} />
+          <Button
+            label={shooting ? "Opening camera…" : "Take photo"}
+            kind="secondary"
+            onPress={photo}
+            disabled={rec.phase === "stopping" || shooting}
+          />
           <View style={styles.controls}>
-            {rec.phase === 'paused' ? (
-              <Button label="Resume" kind="secondary" onPress={rec.resume} style={{ flex: 1 }} />
+            {rec.phase === "paused" ? (
+              <Button
+                label="Resume"
+                kind="secondary"
+                onPress={rec.resume}
+                style={{ flex: 1 }}
+              />
             ) : (
-              <Button label="Pause" kind="secondary" onPress={rec.pause} disabled={rec.phase !== 'recording'} style={{ flex: 1 }} />
+              <Button
+                label="Pause"
+                kind="secondary"
+                onPress={rec.pause}
+                disabled={rec.phase !== "recording"}
+                style={{ flex: 1 }}
+              />
             )}
-            <Button label="Stop" kind="danger" onPress={confirmStop} disabled={rec.phase === 'stopping'} style={{ flex: 1 }} />
+            <Button
+              label="Stop"
+              kind="danger"
+              onPress={confirmStop}
+              disabled={rec.phase === "stopping"}
+              style={{ flex: 1 }}
+            />
           </View>
         </View>
       )}
@@ -397,21 +843,43 @@ export default function Record() {
         visible={micMenu}
         title="Record from"
         onClose={() => setMicMenu(false)}
-        actions={rec.inputs.map((i) => ({ label: i.uid === rec.inputUid ? `${i.name} ✓` : i.name, onPress: () => void rec.chooseInput(i.uid) }))}
+        actions={rec.inputs.map((i) => ({
+          label: i.uid === rec.inputUid ? `${i.name} ✓` : i.name,
+          onPress: () => void rec.chooseInput(i.uid),
+        }))}
       />
     </SafeAreaView>
   );
 }
 
 /** Glove-sized button for field mode: at least 88 pt tall, big label, haptic on press. */
-function BigButton({ label, color, onPress, disabled, style }: { label: string; color: string; onPress: () => void; disabled?: boolean; style?: object }) {
+function BigButton({
+  label,
+  color,
+  onPress,
+  disabled,
+  style,
+}: {
+  label: string;
+  color: string;
+  onPress: () => void;
+  disabled?: boolean;
+  style?: object;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [styles.bigButton, { backgroundColor: color, opacity: disabled ? 0.45 : pressed ? 0.8 : 1 }, style]}
+      style={({ pressed }) => [
+        styles.bigButton,
+        {
+          backgroundColor: color,
+          opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
+        },
+        style,
+      ]}
     >
       <Text style={styles.bigLabel}>{label}</Text>
     </Pressable>
@@ -419,21 +887,56 @@ function BigButton({ label, color, onPress, disabled, style }: { label: string; 
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1 },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   radioDot: { width: 10, height: 10, borderRadius: 5 },
-  live: { flex: 1, justifyContent: 'center', padding: space.xl, gap: space.xl },
+  live: { flex: 1, justifyContent: "center", padding: space.xl, gap: space.xl },
   liveDot: { width: 14, height: 14, borderRadius: 7 },
-  meterTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  meterTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
   meterFill: { height: 6, borderRadius: 3 },
-  controls: { flexDirection: 'row', gap: space.md },
+  controls: { flexDirection: "row", gap: space.md },
   fieldControls: { gap: space.md, padding: space.lg },
-  bigButton: { minHeight: 88, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
-  bigLabel: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
-  thumb: { width: 56, height: 56, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth },
+  bigButton: {
+    minHeight: 88,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space.lg,
+  },
+  bigLabel: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
+  thumb: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   thumbBig: { width: 72, height: 72 },
-  micRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: space.sm },
+  micRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
 });

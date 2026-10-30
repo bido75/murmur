@@ -1,0 +1,30 @@
+{
+  "executed": [
+    { "suite": "app typecheck", "command": "npx tsc --noEmit", "result": "clean", "exit": 0 },
+    { "suite": "app lint", "command": "npx expo lint", "result": "clean", "exit": 0 },
+    { "suite": "server typecheck", "command": "deno check .", "result": "clean", "exit": 0 },
+    { "suite": "app logic", "command": "npm test (test:logic)", "tests": 185, "pass": 185, "fail": 0 },
+    { "suite": "app units", "command": "npm test (test:app)", "tests": 10, "pass": 10, "fail": 0 },
+    { "suite": "db security", "command": "npm test (test:db)", "tests": 77, "pass": 77, "fail": 0 },
+    { "suite": "deno logic", "command": "deno test --allow-all _shared/", "tests": 185, "pass": 185, "fail": 0 },
+    { "suite": "desktop typecheck", "command": "desktop: npx tsc --noEmit", "result": "clean", "exit": 0 },
+    { "suite": "desktop logic", "command": "desktop: npm test", "tests": 94, "pass": 92, "fail": 0, "skipped": 2 }
+  ],
+  "end_to_end_verified_previously": [
+    { "scenario": "sign-up → upload → transcribe (Mistral) → notes (OpenRouter) → ready", "command": "node scripts/test-local-pipeline.cjs", "result": "ready; transcript and notes correct" },
+    { "scenario": "make-deck / share/docx / export-data URLs are reachable (not kong)", "command": "node scripts/test-features.cjs", "result": "all PASS; host 10.0.0.180:54325" },
+    { "scenario": "translate to French, Swahili, Yoruba", "command": "node scripts/test-features.cjs", "result": "all PASS (200)" },
+    { "scenario": "OAuth provider availability", "command": "curl /functions/v1/calendar/providers, /connect/available", "result": "[\"google\"] and [\"slack\",\"google_docs\"]" },
+    { "scenario": "webhook SSRF constraint", "command": "psql webhook_url_public(...) against local db", "result": "private/metadata/kong/http/.local blocked; public allowed" }
+  ],
+  "not_run": [
+    { "reason": "needs provider console", "item": "live OAuth round-trips (Google/Slack/Procore)" },
+    { "reason": "needs hardware", "item": "physical-device recording, screen-reader, watch pairing" },
+    { "reason": "needs platforms", "item": "macOS/Linux desktop paths" },
+    { "reason": "needs seeded data", "item": "performance measurements" },
+    { "reason": "no CI in repo", "item": "CI pipeline run" }
+  ],
+  "flaky_or_skipped": [
+    { "suite": "desktop", "detail": "2 skipped — require the downloaded speech model", "status": "pre-existing, documented" }
+  ]
+}

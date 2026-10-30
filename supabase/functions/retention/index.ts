@@ -11,6 +11,11 @@ Deno.serve(async (req) => {
   const { data: due, error } = await admin.rpc('retention_due', { max_rows: 500 });
   if (error) return json({ error: error.message }, 500);
 
+  // Fail recordings stuck in a transient state (a processing job that timed out
+  // or died with its worker), so clients never wait forever.
+  const { data: staleMoved, error: staleErr } = await admin.rpc('fail_stale_processing', { max_rows: 200 });
+  if (staleErr) console.error('stale-processing sweep failed', staleErr.message);
+
   let audio = 0;
   let recordings = 0;
   const failures: string[] = [];
@@ -38,5 +43,5 @@ Deno.serve(async (req) => {
     }
   }
   if (failures.length) console.error('retention failures', failures.slice(0, 20));
-  return json({ audio_removed: audio, recordings_removed: recordings, failed: failures.length, more: (due ?? []).length === 500 });
+  return json({ audio_removed: audio, recordings_removed: recordings, failed: failures.length, stale_failed: staleMoved ?? 0, more: (due ?? []).length === 500 });
 });

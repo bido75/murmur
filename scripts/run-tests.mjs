@@ -7,6 +7,10 @@ import { spawnSync } from 'node:child_process';
 
 const halves = [
   { name: 'logic tests', args: ['--experimental-strip-types', '--test', 'supabase/functions/_shared/*.test.ts'] },
+  // --experimental-test-module-mocks lets the recovery integration tests load
+  // the real recorder/sync modules with platform doubles (async storage, file
+  // system, Supabase client) behind fault injection.
+  { name: 'app tests', args: ['--experimental-strip-types', '--experimental-test-module-mocks', '--test', 'src/**/*.test.ts'] },
   { name: 'database security tests', args: ['--test', 'supabase/tests/*.test.mjs'] },
 ];
 

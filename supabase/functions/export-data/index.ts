@@ -1,6 +1,6 @@
 // "Export my data": a ZIP of everything you recorded — notes, transcripts, tasks — plus download
 // links for your audio. POST → { url } (a link valid for 24 hours).
-import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, clientUrl, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { publicNotes } from '../_shared/share.ts';
 import { EXPORT_README, folderNames, notesMarkdown, tasksCsv, transcriptText } from '../_shared/export_data.ts';
 import { zip } from '../_shared/zip.ts';
@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     const links: string[] = [];
     for (const s of segs.filter((s) => s.storage_path)) {
       const { data } = await db.storage.from('audio').createSignedUrl(s.storage_path!, 7 * 86400);
-      if (data?.signedUrl) links.push(`${names.get(s.recording_id)}/part-${s.idx}: ${data.signedUrl}`);
+          if (data?.signedUrl) links.push(`${names.get(s.recording_id)}/part-${s.idx}: ${clientUrl(data.signedUrl)}`);
     }
     files.push({ name: 'audio-links.txt', data: links.join('\n') + '\n' });
 
@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     if (error) throw new Error(error.message);
     const { data: signed } = await db.storage.from('exports').createSignedUrl(path, 86400, { download: true });
     await db.rpc('audit', { ws: null, act: 'data.exported', ttype: 'user', tid: userId, m: { recordings: list.length, truncated: list.length >= MAX }, who: userId });
-    return json({ url: signed?.signedUrl, recordings: list.length, truncated: list.length >= MAX });
+        return json({ url: clientUrl(signed?.signedUrl), recordings: list.length, truncated: list.length >= MAX });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     if (status === 500) console.error('export-data error', e);

@@ -1,0 +1,97 @@
+[
+  {
+    "id": "REM-001",
+    "requirement": "REQ-1.3b",
+    "title": "Interrupted-recording recovery",
+    "status": "PASS",
+    "files": ["src/lib/recoveryPlan.ts", "src/lib/recoveryPlan.test.ts", "src/lib/recorder.ts"],
+    "evidence": "5 Node tests; unreadable-part-still-finalizes case covered; recorder applies the tested plan",
+    "commit": "9540d62"
+  },
+  {
+    "id": "REM-002",
+    "requirement": "REQ-3.4a",
+    "title": "Settings save feedback and rollback",
+    "status": "PASS",
+    "files": ["src/lib/settingsSave.ts", "src/lib/settingsSave.test.ts", "src/app/(tabs)/settings.tsx"],
+    "evidence": "5 Node tests; rollback + no-leak-after-fail + field-mode override covered; component drives the reducer",
+    "commit": "72093f9"
+  },
+  {
+    "id": "REM-003",
+    "requirement": "REQ-9 / 5.1c (SSRF)",
+    "title": "Webhook destinations cannot reach private networks",
+    "status": "PASS",
+    "files": ["supabase/functions/_shared/ssrf.ts", "supabase/migrations/20261025020000_webhook_ssrf.sql", "supabase/functions/_shared/after_ready.ts", "supabase/tests/connections.test.mjs"],
+    "evidence": "7 host-classification tests + DB constraint (NOT VALID with cleanup path) + delivery-time DNS check + DB test blocking private hosts",
+    "commit": "be9dd68, aad9a61 (NOT VALID correction)"
+  },
+  {
+    "id": "REM-004",
+    "requirement": "REQ-10 (CI)",
+    "title": "CI quality gates (typecheck, lint, unit, DB security, server, desktop)",
+    "status": "PASS",
+    "files": [".github/workflows/ci.yml"],
+    "evidence": "3 jobs (app/functions/desktop) with least-privilege permissions, pinned actions, lockfile installs",
+    "commit": "9540d62"
+  },
+  {
+    "id": "REM-005",
+    "requirement": "REQ-11 (migrations)",
+    "title": "Migrations are additive and deploy-safe",
+    "status": "PASS",
+    "files": ["supabase/migrations/20261025010000_user_prefs.sql", "supabase/migrations/20261025020000_webhook_ssrf.sql"],
+    "evidence": "both additive; SSRF constraint corrected to NOT VALID after review found the deployment-abort risk; both applied to the local stack",
+    "commit": "f4e81c6, be9dd68, aad9a61"
+  },
+  {
+    "id": "REM-006",
+    "requirement": "REQ-6.2a / 6.3a / 6.3b",
+    "title": "OAuth credentials wired; callbacks use a public origin",
+    "status": "PARTIAL",
+    "files": ["supabase/functions/calendar/index.ts", "supabase/functions/connect/index.ts", "supabase/functions/procore/index.ts", "supabase/functions/_shared/services.ts"],
+    "evidence": "/calendar/providers returns [\"google\"]; /connect/available returns [\"slack\",\"google_docs\"]; redirects derive from publicApiBaseUrl()",
+    "blocker": "Redirect URIs must be registered in each provider console on a public HTTPS origin; live consent round-trip not yet run",
+    "commit": "47da0f4, de67429"
+  },
+  {
+    "id": "REM-007",
+    "requirement": "REQ-9c (secrets)",
+    "title": "Rotate credentials pasted into chat",
+    "status": "BLOCKED",
+    "files": ["docs/post-audit/05-CREDENTIAL-ROTATION-CHECKLIST.md"],
+    "evidence": "No real secret committed (git grep + gitignore verified); rotation is an operator action across 15 provider credential sets",
+    "blocker": "Operator must rotate each credential in its provider console; coding environment cannot access the consoles",
+    "commit": null
+  },
+  {
+    "id": "REM-008",
+    "requirement": "REQ-6.3d / 7.4a",
+    "title": "OneNote/Salesforce OAuth and telephony providers",
+    "status": "BLOCKED",
+    "files": ["supabase/functions/_shared/oauth_providers.ts", "supabase/functions/ringcentral/index.ts"],
+    "evidence": "MICROSOFT_* and SALESFORCE_* credentials not provided; repo targets RingCentral while provided telephony creds are Aircall/Twilio-shaped",
+    "blocker": "Operator must provide matching credentials or decide the telephony provider",
+    "commit": null
+  },
+  {
+    "id": "REM-009",
+    "requirement": "Phase 11 (device matrix)",
+    "title": "Physical-device testing",
+    "status": "BLOCKED",
+    "files": ["docs/post-audit/09-MOBILE-DEVICE-TESTING.md"],
+    "evidence": "No physical device attached to this environment",
+    "blocker": "Requires Android/iOS hardware; matrix prepared and reproducible",
+    "commit": null
+  },
+  {
+    "id": "REM-010",
+    "requirement": "Phase 11 (scale)",
+    "title": "Long-recording and scale performance measurements",
+    "status": "BLOCKED",
+    "files": ["docs/post-audit/10-LONG-RECORDING-PERFORMANCE.md"],
+    "evidence": "No seeded dataset or device available; test plan prepared and reproducible",
+    "blocker": "Requires representative fixtures and a device",
+    "commit": null
+  }
+]

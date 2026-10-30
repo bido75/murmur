@@ -9,6 +9,7 @@ import { loadNotes, recordingLink, type RecordingRow } from './notes_data.ts';
 import { notifyUser } from './push.ts';
 import { createIssue, describeTask, type Config, type Provider } from './trackers.ts';
 import { recapEmail, type PublicNotes } from './share.ts';
+import { isPrivateHost } from './ssrf.ts';
 
 export type Destination = 'slack' | 'notion' | 'google_docs' | 'onenote' | 'hubspot' | 'salesforce';
 
@@ -28,6 +29,23 @@ export async function sendTo(userId: string, d: Destination, loaded: { rec: Reco
 }
 
 async function deliver(url: string, secret: string, event: RecordingEvent): Promise<{ status: number; error: string | null }> {
+  // Defense in depth: even if a private host slipped past validation, do not fetch
+  // it — this stops a webhook url from making the server reach itself or the
+  // metadata service. Domain names are resolved first and the address is checked.
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return { status: 0, error: 'invalid destination' };
+  }
+  if (isPrivateHost(host)) return { status: 0, error: 'destination is not a public address' };
+  try {
+    const resolved = await Deno.resolveDns(host, 'A');
+    if (resolved.some((ip) => isPrivateHost(ip))) return { status: 0, error: 'destination resolves to a private address' };
+  } catch {
+    // Could not resolve; let the fetch fail or succeed on its own. The literal check
+    // above already covered the obvious cases.
+  }
   const body = JSON.stringify(event);
   try {
     const res = await fetch(url, {

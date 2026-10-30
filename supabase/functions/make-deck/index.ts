@@ -1,8 +1,9 @@
 // POST { kind, recording_id? | project_id?, audience? } → { url, filename }
 // Builds a .pptx from a recording's (or a whole project's) verified notes.
 import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, sanitizeSlides, type DeckData, type DeckKind } from '../_shared/deck.ts';
-import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
+import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
 
 type Rec = { id: string; title: string; created_at: string };
 type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
     const taskList = ((tasks ?? []) as TaskRow[]).map((t) => `- [${t.status}] ${t.text}${t.owner ? ` (${t.owner})` : ''}`).join('\n');
 
     const k = kind as DeckKind;
-    const written = await claudeStructured<{ title: string; subtitle: string; slides: unknown }>(
+    const written = await llmStructured<{ title: string; subtitle: string; slides: unknown }>(
       deckSystemPrompt(k, audience ? String(audience).slice(0, 300) : null),
       [{ role: 'user', content: `Material:\n\n${material}\n\nTasks (already shown on their own slide):\n${taskList || 'none'}` }],
       DECK_TOOL,
@@ -96,7 +97,7 @@ Deno.serve(async (req) => {
     });
     if (upErr) throw new Error(upErr.message);
     const { data: signed } = await admin.storage.from('exports').createSignedUrl(path, 60 * 60, { download: filename });
-    return json({ url: signed?.signedUrl, filename, slides: deck.slides.length + 1 });
+    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1 });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     return json({ error: (e as Error).message }, status);
@@ -117,8 +118,16 @@ async function deckPhotos(client: any, ids: string[], logs: { recording_id: stri
   for (const p of chosen) {
     const { data: blob } = await admin.storage.from('photos').download(p.storage_path);
     if (!blob) continue;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const check = classifyEmbeddedImage(bytes);
+    if (!check.ok) {
+      // image-size (via pptxgenjs) has unbounded parsers for non-JPEG/PNG
+      // formats; user photos are untrusted bytes, so they are never embedded.
+      console.log(JSON.stringify({ event: 'deck_photo_skipped', recording_id: p.recording_id, storage_path: p.storage_path, reason: check.reason }));
+      continue;
+    }
     out.push({
-      dataUri: `data:image/jpeg;base64,${encodeBase64(new Uint8Array(await blob.arrayBuffer()))}`,
+      dataUri: `data:image/${check.format};base64,${encodeBase64(bytes)}`,
       width: p.width,
       height: p.height,
       caption: p.title,

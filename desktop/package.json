@@ -9,7 +9,7 @@
     "build": "node build.mjs",
     "start": "node build.mjs && electron .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/shared/*.test.ts",
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "mac-helper": "bash native/macos/build.sh",
     "dist:mac": "npm run mac-helper && node build.mjs && electron-builder --mac",
     "dist:win": "node build.mjs && electron-builder --win"
@@ -22,6 +22,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.117.3"
+    "@supabase/supabase-js": "^2.117.3",
+    "onnxruntime-node": "^1.30.0"
   }
 }

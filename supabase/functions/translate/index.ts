@@ -1,14 +1,14 @@
 // POST { recording_id, lang, include_transcript? } → translated notes (and transcript), cached.
 // Anyone who can read the recording can translate it.
-import { adminClient, claudeStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
-import { chunkLines, LANGUAGES, TRANSLATE_TOOL, translateSystem } from '../_shared/translate.ts';
+import { adminClient, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { chunkLines, TRANSLATION_LANGUAGES, TRANSLATE_TOOL, translateSystem } from '../_shared/translate.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
     const { client } = await requireUser(req);
     const { recording_id, lang, include_transcript } = await req.json();
-    const target = LANGUAGES.find((l) => l.code === lang);
+    const target = TRANSLATION_LANGUAGES.find((l) => l.code === lang);
     if (!target) throw new HttpError(400, 'Choose a language from the list.');
 
     const { data: cached } = await client.from('translations').select('summary, tasks, utterances').eq('recording_id', recording_id).eq('lang', lang).maybeSingle();
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
 async function translateAll(lines: string[], language: string): Promise<string[]> {
   const out: string[] = [];
   for (const chunk of chunkLines(lines)) {
-    const r = await claudeStructured<{ lines: string[] }>(translateSystem(language), [{ role: 'user', content: JSON.stringify(chunk) }], TRANSLATE_TOOL);
+    const r = await llmStructured<{ lines: string[] }>(translateSystem(language), [{ role: 'user', content: JSON.stringify(chunk) }], TRANSLATE_TOOL);
     // Keep the original if the model returned the wrong count for a chunk.
     out.push(...(Array.isArray(r.lines) && r.lines.length === chunk.length ? r.lines.map(String) : chunk));
   }

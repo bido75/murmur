@@ -24,6 +24,38 @@ export function uploadType(contentType: string | null | undefined): { type: stri
   return hit ? { type: t, ...hit } : null;
 }
 
+/**
+ * The content type to send a stored audio file under, from its name.
+ *
+ * This is the other way round from `uploadType`. It matters when the audio is sent
+ * to the speech service as bytes rather than as a link: the service takes the
+ * header as the hint of what the file is, and a wrong hint makes it refuse audio it
+ * could otherwise read.
+ */
+export function audioContentType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  switch (ext) {
+    case 'webm':
+      return 'audio/webm';
+    case 'ogg':
+    case 'opus':
+      return 'audio/ogg';
+    case 'm4a':
+    case 'mp4':
+      return 'audio/mp4';
+    case 'aac':
+      return 'audio/aac';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'wav':
+      return 'audio/wav';
+    case 'flac':
+      return 'audio/flac';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
 export function segmentPath(userId: string, recordingId: string, idx: number, ext: string): string {
   return `${userId}/${recordingId}/seg-${String(idx).padStart(4, '0')}.${ext}`;
 }

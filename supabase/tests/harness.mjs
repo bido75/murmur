@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const STUBS = `
+export const STUBS = `
 create schema if not exists extensions;
 create extension if not exists pgcrypto schema extensions;
 create role anon nologin;

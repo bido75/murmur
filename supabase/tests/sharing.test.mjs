@@ -108,6 +108,16 @@ test('retention: settings are private; the cleanup list respects each setting', 
   assert.deepEqual(due2, [{ recording_id: REC_PRIVATE, action: 'delete_audio' }, { recording_id: REC_OLD, action: 'delete_recording' }]);
 });
 
+test('account preferences: the owner reads and writes their own, and only their own', async () => {
+  await rows(owner, `update user_settings set consent_reminder = false, field_mode = true, default_template = 'site_walk', my_state = 'CA'`);
+  const mine = (await rows(owner, 'select consent_reminder, field_mode, default_template, my_state from user_settings'))[0];
+  assert.deepEqual(mine, { consent_reminder: false, field_mode: true, default_template: 'site_walk', my_state: 'CA' });
+  assert.equal((await rows(mate, 'select * from user_settings')).length, 0, 'another user cannot read the prefs');
+  // RLS makes this a silent no-op rather than an error: the owner's value must not change.
+  await as(db, mate, (tx) => tx.query(`update user_settings set field_mode = false where user_id = $1`, [owner.id]));
+  assert.equal((await rows(owner, 'select field_mode from user_settings'))[0].field_mode, true, 'another user cannot write the prefs');
+});
+
 test('account deletion is blocked only for the last owner of a team with other members', async () => {
   const block = (uid) => asService(db, (tx) => tx.query('select name from teams_blocking_deletion($1)', [uid]));
   assert.deepEqual((await block(owner.id)).rows.map((r) => r.name), ['Acme Builders']);

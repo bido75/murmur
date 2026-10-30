@@ -3,12 +3,12 @@
 //   GET  /available            → which of them the server has app credentials for
 //   POST /start { provider, return_to } → { url }
 //   GET  /callback             → stores the connection, sends the user back to the app
-import { adminClient, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
+import { adminClient, corsHeaders, HttpError, json, publicApiBaseUrl, requireUser } from '../_shared/services.ts';
 import { isSafeReturn } from '../_shared/calendar.ts';
 import { randomToken } from '../_shared/oauth.ts';
 import { authorizeUrl, codeExchangeBody, OAUTH_PROVIDERS, providerConf, storedConnection, type OAuthProvider } from '../_shared/oauth_providers.ts';
 
-const callbackUrl = () => `${(Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '')}/functions/v1/connect/callback`;
+const callbackUrl = () => `${publicApiBaseUrl()}/functions/v1/connect/callback`;
 const creds = (p: OAuthProvider) => {
   const c = providerConf(p, (k) => Deno.env.get(k));
   return { conf: c, id: Deno.env.get(c.idEnv) ?? '', secret: Deno.env.get(c.secretEnv) ?? '' };
