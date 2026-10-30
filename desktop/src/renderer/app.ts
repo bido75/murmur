@@ -17,6 +17,7 @@ import {
   type ChecklistItem,
   type OnboardingRow,
 } from "./onboarding";
+import { PROVIDER_LABELS, type ConnKey } from "../../../src/lib/types";
 import { pendingSegments } from "../shared/queue";
 import { MEETING_LABELS, type MeetingApp } from "../shared/meetings";
 import { Capture } from "./capture";
@@ -94,6 +95,7 @@ type State = {
     total: number;
     hidden: boolean;
   } | null;
+  integrations: { label: string; account: string | null }[] | null;
 };
 
 const state: State = {
@@ -119,6 +121,7 @@ const state: State = {
   showHistory: false,
   showDictation: false,
   onboarding: null,
+  integrations: null,
 };
 let capture: Capture | null = null;
 let recordingId: string | null = null;
@@ -372,6 +375,24 @@ function signInView(): Child[] {
   ];
 }
 
+/** Real connection status only: what the integrations table says, nothing else. */
+async function loadIntegrations() {
+  const { data, error } = await supabase.from("integrations").select("provider,config");
+  if (error) {
+    state.integrations = null;
+    return;
+  }
+  const rows = (data ?? []) as {
+    provider: ConnKey;
+    config: { account?: string; email?: string; instance_url?: string };
+  }[];
+  state.integrations = rows.map((row) => ({
+    label: PROVIDER_LABELS[row.provider] ?? row.provider,
+    account:
+      row.config?.account ?? row.config?.email ?? row.config?.instance_url ?? null,
+  }));
+}
+
 /** The settings screen: account-wide fields write through to user_settings. */
 function settingsView(): Child[] {
   const s = appSettings;
@@ -468,6 +489,33 @@ function settingsView(): Child[] {
         "A small always-on-top stop button",
       ),
     ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "Integrations"),
+      ...(state.integrations === null
+        ? [h("p", { class: "muted" }, "Connections could not be read right now.")]
+        : state.integrations.length === 0
+          ? [h("p", { class: "muted" }, "No accounts connected yet.")]
+          : state.integrations.map((i) =>
+              h(
+                "div",
+                { class: "row" },
+                h("span", {}, i.label),
+                i.account ? h("span", { class: "muted" }, i.account) : null,
+              ),
+            )),
+      APP_URL
+        ? h(
+            "button",
+            {
+              class: "ghost",
+              onclick: () => void bridge().openExternal(`${APP_URL}/settings`),
+            },
+            "Manage connections in Murmur",
+          )
+        : null,
+    ),
     state.error && h("div", { class: "banner" }, state.error),
   ];
 }
@@ -504,12 +552,13 @@ function homeView(): Child[] {
           "button",
           {
             class: "ghost",
-            onclick: () => {
-              state.view = "settings";
-              render();
-            },
-          },
-          "Settings",
+        onclick: () => {
+          state.view = "settings";
+          void loadIntegrations().then(render);
+          render();
+        },
+      },
+      "Settings",
         ),
         h(
           "button",

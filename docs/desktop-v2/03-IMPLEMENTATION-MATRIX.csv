@@ -3,7 +3,7 @@ D-01,Typed IPC bridge surface intact,1,PASS,Preserve and extend,desktop/src/shar
 D-02,Shared contract alignment with src/lib (types/utterance/queue ops),1,PARTIAL,Aligned,desktop/src/renderer/onboarding.ts imports src/lib/onboarding.ts directly,Shared onboarding module reused verbatim; env defines added to build.mjs; queue/type convergence continues in Phase 5
 D-03,Real application id in electron-builder.yml,1,BLOCKED,Replaced placeholder,desktop/electron-builder.yml,com.example.murmur.desktop -> owner-confirmed id; ask operator
 D-04,Desktop CI lane (typecheck+tests+build),1,IMPLEMENTED BUT NOT TESTED,Added,.github/workflows/desktop.yml,Win+mac matrix; SHA-pinned actions; runs on push to feature/murmur-desktop-v2
-D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,138 pass / 0 fail (2026-10-29; +4 onboarding derivation tests this phase)
+D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,149 pass / 0 fail (2026-10-29; +11 this phase: queue-owner guard, logger rotation/line format)
 D-27,Durable typed settings store (atomic writes, validation, corrupt-file recovery),1,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/settings.ts + src/shared/settings.ts + 13 tests,IPC settings:get/set wired through preload bridge; server-backed prefs land in Phase 2
 D-06,OAuth provider sign-in (Google) with PKCE,2,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/main/auth.ts + renderer startOAuth,Loopback capture + murmur:// deep-link both wired; live provider completion blocked pending operator-registered redirect URIs (BL-4b)
 D-07,Session persistence + token refresh verified,2,PASS,Maintained,desktop/src/renderer/supabase.ts,persistSession/autoRefresh already on
@@ -28,7 +28,10 @@ D-17,Win code signing,5,BLOCKED,Plumbing only,electron-builder.yml,Requires cert
 D-18,macOS notarization,5,BLOCKED,Plumbing only,build/entitlements.mac.plist,Requires Apple ID creds
 D-19,Auto-update feed wiring (electron-updater),5,BLOCKED,Plumbed behind flag,main updater module,Enablement gated on signing creds
 D-20,Linux target,5,DEFERRED,Optional,electron-builder.yml,Only if operator wants linux distribution
-D-21,Crash capture + local rotating logs,6,MISSING,Added,main logger,Opt-in telemetry only; off by default
+D-21,Crash capture + local rotating logs,6,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/logger.ts + logWriter.ts + main.ts hooks,uncaughtException/unhandledRejection -> JSONL; 3x512KB rotation; no recording content; pure logic tested
+D-36,Upload queue account isolation (quarantine on user switch),6,IMPLEMENTED AND VERIFIED,Added,desktop/src/shared/queueOwner.ts + main queue:rotate IPC + sync ensureOwner,Prevents cross-account uploads on shared machines; quarantine kept for resume; 5 tests
+D-37,Integrations status screen (real connection state),6,IMPLEMENTED BUT NOT TESTED,Added,renderer settingsView integrations card + PROVIDER_LABELS from shared web types,RLS-scoped integrations table; manage links to web app; no fake disconnect
+D-38,Dictation documentation,6,IMPLEMENTED AND VERIFIED,Documented,docs/desktop-v2/09-DICTATION-AND-SHORTCUTS.md,Baseline features verified in Phase 0; behavior + safety recorded
 D-22,Selftest/smoke harness extension,6,PASS,Extended,MURMUR_SELFTEST / MURMUR_SMOKE_SHOT hooks,Good existing bones in main.ts:519-544
 D-23,Desktop release-verification pack,6,MISSING,Produced,docs/desktop-v2/release-verification/,Mirrors docs/release-verification discipline
 D-24,Security review (CSP in renderer, permission surface audit),7,PARTIAL,Hardened,renderer CSP meta + main permission handler,CSP meta already present in both HTML files (Phase 0 finding); contextIsolation/sandbox already correct

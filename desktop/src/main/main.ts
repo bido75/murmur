@@ -59,11 +59,26 @@ import {
   updateFloating,
 } from "./floating";
 import { loadSettings, saveSettings } from "./settings";
+import { writeLogEvent } from "./logWriter";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
 import { Dictation, type OverlayRect } from "./dictation";
 
 const APP_NAME = "Murmur";
+
+/** Where the local crash log lives, next to the recordings. */
+const logDir = () => join(app.getPath("userData"), "logs");
+
+process.on("uncaughtException", (e) => {
+  writeLogEvent(logDir(), "uncaughtException", e?.message ?? String(e));
+});
+process.on("unhandledRejection", (e) => {
+  writeLogEvent(
+    logDir(),
+    "unhandledRejection",
+    e instanceof Error ? e.message : String(e),
+  );
+});
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let recording = false;
@@ -248,6 +263,18 @@ function registerIpc() {
   ipcMain.handle("queue:set", (_e, ops: unknown[]) =>
     writeJson(queueFile(), ops),
   );
+  // One queue per account: a queued recording must never upload under another
+  // account's session. The old queue is quarantined, never deleted.
+  ipcMain.handle("queue:owner", () => readJson<string | null>(join(app.getPath("userData"), "queue-owner.json"), null));
+  ipcMain.handle("queue:rotate", (_e, current: string) => {
+    const last = readJson<string | null>(join(app.getPath("userData"), "queue-owner.json"), null);
+    if (last && last !== current) {
+      const qf = queueFile();
+      if (existsSync(qf)) renameSync(qf, join(app.getPath("userData"), `queue-${last}.json`));
+    }
+    writeJson(join(app.getPath("userData"), "queue-owner.json"), current);
+    return true;
+  });
   ipcMain.handle("active:get", () => readJson(activeFile(), null));
   ipcMain.handle("active:set", (_e, value: unknown) => {
     if (value === null) {

@@ -64,6 +64,10 @@ export type Bridge = {
   fileDelete(recordingId: string, idx: number, ext: string): Promise<void>;
   queueGet(): Promise<unknown[]>;
   queueSet(ops: unknown[]): Promise<void>;
+  /** Which account the upload queue belongs to, if any. */
+  queueOwner(): Promise<string | null>;
+  /** Quarantine the previous account's queue and adopt this one. */
+  queueRotate(userId: string): Promise<boolean>;
   /** A small store for the words made from each part, until the whole recording is sent. */
   textGet(key: string): Promise<string | null>;
   textSet(key: string, value: string): Promise<void>;
