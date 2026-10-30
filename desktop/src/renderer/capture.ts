@@ -3,6 +3,7 @@
 // words are yours and only has to tell the remote people apart. Audio is appended to disk every few seconds and split into 5-minute files,
 // so a crash or power cut loses at most a few seconds.
 import type { Bridge } from "../shared/bridge";
+import { SilenceGuard, dbfs, keepSegment } from "../shared/level";
 import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config";
 
 declare const window: Window & { murmur: Bridge };
@@ -39,7 +40,7 @@ export class Capture {
   private writes: Promise<void> = Promise.resolve();
   private timers: number[] = [];
   private offMac: (() => void) | null = null;
-  private silenceSince: number | null = null;
+  private silence: SilenceGuard = new SilenceGuard(SILENCE_DB, SILENCE_WARN_MS);
   private rotating = false;
   private video: MediaStreamTrack | null = null; // screen recording
   doneMs = 0;
@@ -256,7 +257,7 @@ export class Capture {
     // Where this part starts on the recording's own timeline, before the total moves on.
     const offsetMs = this.doneMs;
     this.doneMs += durationMs;
-    if (durationMs > 500)
+    if (keepSegment(durationMs))
       await this.events.onSegment({
         idx: this.segIdx,
         ext: EXT,
@@ -279,21 +280,14 @@ export class Capture {
     // Input level (dBFS) for the meter and the silence warning.
     const data = new Float32Array(this.analyser!.fftSize);
     this.analyser!.getFloatTimeDomainData(data);
-    let sum = 0;
-    for (const v of data) sum += v * v;
-    const db = 20 * Math.log10(Math.sqrt(sum / data.length) || 1e-8);
+    const db = dbfs(data);
     this.events.onLevel(db);
-    const now = Date.now();
-    if (db < SILENCE_DB) {
-      this.silenceSince ??= now;
-      if (now - this.silenceSince > SILENCE_WARN_MS)
-        this.events.onWarning(
-          "Not hearing your mic for a while. Check it isn't muted.",
-        );
-    } else if (this.silenceSince !== null) {
-      this.silenceSince = null;
-      this.events.onWarning(null);
-    }
+    const event = this.silence.update(db, Date.now());
+    if (event === "warn")
+      this.events.onWarning(
+        "Not hearing your mic for a while. Check it isn't muted.",
+      );
+    else if (event === "clear") this.events.onWarning(null);
   }
 
   /** The mixed mic + computer audio (mono), e.g. for the live transcript. */
