@@ -148,6 +148,12 @@ function uuid(): string {
 
 // ---------- account-wide settings ----------
 
+/** The signed-in user's id, when there is one. */
+async function currentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
+
 /** Pull user_settings from the account, merge into the local store and adopt them. */
 async function loadServerPrefs() {
   const { data } = await supabase
@@ -169,8 +175,11 @@ async function changeSettings(patch: Record<string, unknown>) {
   await bridge().settingsSet(patch);
   if (needsServerPush(appSettings, lastSyncedRow)) {
     const serverPatch = serverPatchFrom(patch);
-    if (Object.keys(serverPatch).length) {
-      const { error } = await supabase.from("user_settings").upsert(serverPatch);
+    const userId = await currentUserId();
+    if (Object.keys(serverPatch).length && userId) {
+      const { error } = await supabase
+        .from("user_settings")
+        .upsert({ user_id: userId, ...serverPatch }, { onConflict: "user_id" });
       if (!error) lastSyncedRow = { ...lastSyncedRow, ...serverPatch };
     }
   }
@@ -201,14 +210,29 @@ async function loadOnboarding() {
   };
 }
 
+/** The open_notes stamp belongs to the signed-in user, like every onboarding write. */
+async function stampOpenNotes() {
+  const stamp = stampFor("open_notes");
+  const userId = await currentUserId();
+  if (!stamp || !userId) return;
+  await supabase
+    .from("user_onboarding")
+    .upsert({ user_id: userId, ...stamp }, { onConflict: "user_id" });
+  void loadOnboarding().catch(() => {});
+}
+
 async function hideOnboarding() {
   state.onboarding = state.onboarding
     ? { ...state.onboarding, hidden: true }
     : state.onboarding;
-  await supabase.from("user_onboarding").upsert({ checklist_hidden: true });
+  const userId = await currentUserId();
+  if (!userId) return;
+  await supabase
+    .from("user_onboarding")
+    .upsert({ user_id: userId, checklist_hidden: true }, { onConflict: "user_id" });
   await supabase
     .from("onboarding_events")
-    .insert({ event: "checklist_hidden" });
+    .insert({ user_id: userId, event: "checklist_hidden" });
 }
 
 /** Google sign-in through the system browser; the code comes back over "auth:code". */
@@ -753,12 +777,7 @@ function homeView(): Child[] {
                     onclick: () => {
                       // Opening a recording counts as "open your notes" on the
                       // shared checklist, on every app at once.
-                      const stamp = stampFor("open_notes");
-                      if (stamp)
-                        void supabase
-                          .from("user_onboarding")
-                          .upsert(stamp)
-                          .then(() => void loadOnboarding().catch(() => {}));
+                      void stampOpenNotes();
                       void bridge().openExternal(
                         `${APP_URL}/recording/${r.id}`,
                       );

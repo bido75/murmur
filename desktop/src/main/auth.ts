@@ -90,11 +90,11 @@ export class LoopbackCapture {
     return new Promise((resolve, reject) => {
       this.expectedState = expectedState;
       this.server = createServer((req, res) => {
+        // Plain text only: the redirect URL is partly attacker-controlled, and text
+        // cannot carry script the way an HTML body can.
         const respond = (body: string) => {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end(
-            `<!doctype html><meta charset="utf-8"><title>Murmur</title><p>${body}</p>`,
-          );
+          res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+          res.end(body);
         };
         try {
           const raw = `http://127.0.0.1${req.url ?? "/"}`;

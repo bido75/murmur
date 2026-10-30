@@ -274,8 +274,11 @@ function registerIpc() {
   // account's session. The old queue is quarantined, never deleted.
   ipcMain.handle("queue:owner", () => readJson<string | null>(join(app.getPath("userData"), "queue-owner.json"), null));
   ipcMain.handle("queue:rotate", (_e, current: string) => {
+    // Both ids end up in file names and comparisons, so they must be what they claim.
+    const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+    if (!uuid(current)) return false;
     const last = readJson<string | null>(join(app.getPath("userData"), "queue-owner.json"), null);
-    if (last && last !== current) {
+    if (last && last !== current && uuid(last)) {
       const qf = queueFile();
       if (existsSync(qf)) renameSync(qf, join(app.getPath("userData"), `queue-${last}.json`));
     }
