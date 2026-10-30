@@ -24,7 +24,7 @@ const CP1252_REVERSIBLE = [
 
 /** Targeted repairs for CP1252-mangled sequences, highest-confidence first.
  *  Keys are the corrupted ASCII-safe sequences; values the intended characters. */
-export const MOJIBAKE_MAP: Array<[string, string]> = [
+export const MOJIBAKE_MAP: [string, string][] = [
   ["â€”", "—"],
   ["â€“", "–"],
   ["â€˜", "‘"],
