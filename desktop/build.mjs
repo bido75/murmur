@@ -12,6 +12,12 @@ const define = {
   __SUPABASE_URL__: JSON.stringify(env.EXPO_PUBLIC_SUPABASE_URL ?? ''),
   __SUPABASE_ANON_KEY__: JSON.stringify(env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''),
   __APP_URL__: JSON.stringify((env.EXPO_PUBLIC_APP_URL ?? '').replace(/\/$/, '')),
+  // Shared modules under src/lib read the same EXPO_PUBLIC_* names the phone and web
+  // builds inline. Define them for the browser bundle so importing shared code does
+  // not crash on a missing `process`.
+  'process.env.EXPO_PUBLIC_SUPABASE_URL': JSON.stringify(env.EXPO_PUBLIC_SUPABASE_URL ?? ''),
+  'process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''),
+  'process.env.EXPO_PUBLIC_APP_URL': JSON.stringify((env.EXPO_PUBLIC_APP_URL ?? '').replace(/\/$/, '')),
 };
 
 mkdirSync('dist/renderer', { recursive: true });

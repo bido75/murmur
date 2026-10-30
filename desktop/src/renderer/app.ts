@@ -8,6 +8,15 @@ import {
   serverPatchFrom,
   type ServerPrefs,
 } from "../shared/settingsSync";
+import {
+  CHECKLIST_TOTAL,
+  checklistProgress,
+  desktopChecklist,
+  rowToChecklistData,
+  stampFor,
+  type ChecklistItem,
+  type OnboardingRow,
+} from "./onboarding";
 import { pendingSegments } from "../shared/queue";
 import { MEETING_LABELS, type MeetingApp } from "../shared/meetings";
 import { Capture } from "./capture";
@@ -51,7 +60,7 @@ const NOTICE =
   "I'm recording this call so I can take accurate notes — is everyone okay with that?";
 
 type State = {
-  view: "loading" | "signin" | "home" | "recording";
+  view: "loading" | "signin" | "home" | "recording" | "settings";
   email: string;
   codeSent: boolean;
   error: string | null;
@@ -74,6 +83,12 @@ type State = {
   showHistory: boolean;
   /** The dictation settings are open. */
   showDictation: boolean;
+  onboarding: {
+    items: ChecklistItem[];
+    done: number;
+    total: number;
+    hidden: boolean;
+  } | null;
 };
 
 const state: State = {
@@ -98,6 +113,7 @@ const state: State = {
   busy: false,
   showHistory: false,
   showDictation: false,
+  onboarding: null,
 };
 let capture: Capture | null = null;
 let recordingId: string | null = null;
@@ -152,6 +168,41 @@ async function changeSettings(patch: Record<string, unknown>) {
   }
 }
 
+/** Load what the getting-started checklist still needs, from real data. */
+async function loadOnboarding() {
+  const [recordings, projects, onboarding] = await Promise.all([
+    supabase.from("recordings").select("id", { count: "exact", head: true }),
+    supabase.from("projects").select("id", { count: "exact", head: true }),
+    supabase
+      .from("user_onboarding")
+      .select(
+        "checklist_hidden,first_ready_opened_at,first_task_action_at,first_search_at,tour_version_seen",
+      )
+      .maybeSingle(),
+  ]);
+  const data = rowToChecklistData(
+    (onboarding.data ?? null) as OnboardingRow,
+    { recordings: recordings.count ?? 0, projects: projects.count ?? 0 },
+  );
+  const items = desktopChecklist(data);
+  state.onboarding = {
+    items,
+    done: checklistProgress(items).done,
+    total: checklistProgress(items).total,
+    hidden: Boolean((onboarding.data as OnboardingRow)?.checklist_hidden),
+  };
+}
+
+async function hideOnboarding() {
+  state.onboarding = state.onboarding
+    ? { ...state.onboarding, hidden: true }
+    : state.onboarding;
+  await supabase.from("user_onboarding").upsert({ checklist_hidden: true });
+  await supabase
+    .from("onboarding_events")
+    .insert({ event: "checklist_hidden" });
+}
+
 /** Google sign-in through the system browser; the code comes back over "auth:code". */
 async function startOAuth() {
   state.busy = true;
@@ -201,9 +252,11 @@ function render() {
       ? signInView()
       : state.view === "home"
         ? homeView()
-        : state.view === "recording"
-          ? recordingView()
-          : [];
+        : state.view === "settings"
+          ? settingsView()
+          : state.view === "recording"
+            ? recordingView()
+            : [];
   for (const c of parts) if (c) r.append(c);
 }
 
@@ -309,6 +362,95 @@ function signInView(): Child[] {
   ];
 }
 
+/** The settings screen: account-wide fields write through to user_settings. */
+function settingsView(): Child[] {
+  const s = appSettings;
+  const checkbox = (
+    label: string,
+    checked: boolean,
+    onToggle: (v: boolean) => void,
+    hint?: string,
+  ) =>
+    h(
+      "label",
+      { class: "row" },
+      h("input", {
+        type: "checkbox",
+        checked,
+        onchange: (e: Event) =>
+          onToggle((e.target as HTMLInputElement).checked),
+      }),
+      h("span", {}, label),
+      hint ? h("span", { class: "muted" }, hint) : null,
+    );
+  const typeSelect = h(
+    "select",
+    {
+      "aria-label": "Default recording type",
+      onchange: (e: Event) => {
+        const v = (e.target as HTMLSelectElement).value;
+        state.form.template = v;
+        void changeSettings({ defaultRecordingType: v }).then(render);
+      },
+    },
+    ...TEMPLATES.map(([v, l]) =>
+      h("option", { value: v, selected: v === s.defaultRecordingType }, l),
+    ),
+  );
+  return [
+    h(
+      "div",
+      { class: "item" },
+      h("h1", {}, "Settings"),
+      h(
+        "button",
+        {
+          class: "ghost",
+          onclick: () => {
+            state.view = "home";
+            render();
+          },
+        },
+        "Back",
+      ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "Recording"),
+      h("div", { class: "row" }, h("label", {}, "Default type"), typeSelect),
+      checkbox(
+        "Remind me to ask before recording",
+        s.consentReminder,
+        (v) => void changeSettings({ consentReminder: v }).then(render),
+        "Follows you on every device",
+      ),
+      checkbox(
+        "Field mode",
+        s.fieldMode,
+        (v) => void changeSettings({ fieldMode: v }).then(render),
+        `Gloves-friendly; new recordings start as ${
+          TEMPLATES.find(
+            ([id]) => id === effectiveDefaultType({ ...s, fieldMode: true }),
+          )?.[1] ?? "site walk"
+        }`,
+      ),
+      h("input", {
+        type: "text",
+        placeholder: "My state or consent code",
+        value: s.myState,
+        "aria-label": "My state or consent code",
+        maxlength: 64,
+        onchange: (e: Event) =>
+          void changeSettings({
+            myState: (e.target as HTMLInputElement).value.trim(),
+          }).then(render),
+      }),
+    ),
+    state.error && h("div", { class: "banner" }, state.error),
+  ];
+}
+
 function homeView(): Child[] {
   const f = state.form;
   const select = (
@@ -335,18 +477,56 @@ function homeView(): Child[] {
       { class: "item" },
       h("h1", {}, APP_NAME),
       h(
-        "button",
-        {
-          class: "ghost",
-          onclick: () =>
-            void supabase.auth.signOut().then(() => {
-              state.view = "signin";
+        "div",
+        {},
+        h(
+          "button",
+          {
+            class: "ghost",
+            onclick: () => {
+              state.view = "settings";
               render();
-            }),
-        },
-        "Sign out",
+            },
+          },
+          "Settings",
+        ),
+        h(
+          "button",
+          {
+            class: "ghost",
+            onclick: () =>
+              void supabase.auth.signOut().then(() => {
+                state.view = "signin";
+                render();
+              }),
+          },
+          "Sign out",
+        ),
       ),
     ),
+    state.onboarding &&
+      !state.onboarding.hidden &&
+      state.onboarding.done < state.onboarding.total &&
+      h(
+        "div",
+        { class: "card" },
+        h(
+          "strong",
+          {},
+          `Getting started (${state.onboarding.done}/${state.onboarding.total})`,
+        ),
+        ...state.onboarding.items
+          .filter((i) => !i.done)
+          .map((i) => h("p", { class: "muted" }, i.title)),
+        h(
+          "button",
+          {
+            class: "ghost",
+            onclick: () => void hideOnboarding().then(render),
+          },
+          "Hide this list",
+        ),
+      ),
     state.meeting &&
       h(
         "div",
@@ -500,10 +680,19 @@ function homeView(): Child[] {
                   "button",
                   {
                     class: "ghost",
-                    onclick: () =>
+                    onclick: () => {
+                      // Opening a recording counts as "open your notes" on the
+                      // shared checklist, on every app at once.
+                      const stamp = stampFor("open_notes");
+                      if (stamp)
+                        void supabase
+                          .from("user_onboarding")
+                          .upsert(stamp)
+                          .then(() => void loadOnboarding().catch(() => {}));
                       void bridge().openExternal(
                         `${APP_URL}/recording/${r.id}`,
-                      ),
+                      );
+                    },
                   },
                   r.status === "ready" ? "Open" : r.status,
                 )
@@ -874,6 +1063,9 @@ async function goHome() {
   // The account's preferences win over whatever this device had cached.
   void loadServerPrefs().catch(() => {
     /* Offline: the cached settings stay in force and sync resumes later. */
+  });
+  void loadOnboarding().catch(() => {
+    /* Offline or the tables are not migrated yet: the card simply stays away. */
   });
   if (await recoverInterrupted()) {
     state.error = null;

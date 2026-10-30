@@ -1,13 +1,13 @@
 id,feature,phase,baseline_status,target,evidence_or_artifacts,notes
 D-01,Typed IPC bridge surface intact,1,PASS,Preserve and extend,desktop/src/shared/bridge.ts,All existing 92 tests must stay green after changes
-D-02,Shared contract alignment with src/lib (types/utterance/queue ops),1,PARTIAL,Aligned,desktop/src/shared + src/lib/types.ts,Targeted convergence; no big-bang dedupe
+D-02,Shared contract alignment with src/lib (types/utterance/queue ops),1,PARTIAL,Aligned,desktop/src/renderer/onboarding.ts imports src/lib/onboarding.ts directly,Shared onboarding module reused verbatim; env defines added to build.mjs; queue/type convergence continues in Phase 5
 D-03,Real application id in electron-builder.yml,1,BLOCKED,Replaced placeholder,desktop/electron-builder.yml,com.example.murmur.desktop -> owner-confirmed id; ask operator
 D-04,Desktop CI lane (typecheck+tests+build),1,IMPLEMENTED BUT NOT TESTED,Added,.github/workflows/desktop.yml,Win+mac matrix; SHA-pinned actions; runs on push to feature/murmur-desktop-v2
-D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,134 pass / 0 fail (2026-10-29; 92 baseline + 13 settings + 6 auth + 7 sync-rule + 10 capture-logic + 7 provider-selection tests)
+D-05,Unit tests green after Phase 1,1,PASS,Extended,desktop npm test,138 pass / 0 fail (2026-10-29; +4 onboarding derivation tests this phase)
 D-27,Durable typed settings store (atomic writes, validation, corrupt-file recovery),1,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/settings.ts + src/shared/settings.ts + 13 tests,IPC settings:get/set wired through preload bridge; server-backed prefs land in Phase 2
 D-06,OAuth provider sign-in (Google) with PKCE,2,IMPLEMENTED BUT NOT TESTED,Added,desktop/src/main/auth.ts + renderer startOAuth,Loopback capture + murmur:// deep-link both wired; live provider completion blocked pending operator-registered redirect URIs (BL-4b)
 D-07,Session persistence + token refresh verified,2,PASS,Maintained,desktop/src/renderer/supabase.ts,persistSession/autoRefresh already on
-D-08,Server-backed user_settings (consent_reminder/field_mode/default_template/my_state),2,PARTIAL,Migrated,renderer loadServerPrefs + changeSettings,Server-to-local reconciliation at sign-in + write-through helper implemented and unit-tested; settings UI screen arrives with Phase 4
+D-08,Server-backed user_settings (consent_reminder/field_mode/default_template/my_state),2,IMPLEMENTED BUT NOT TESTED,Complete,renderer settingsView + changeSettings,Settings screen live with write-through; logic unit-tested; signed-in E2E not yet exercised
 D-09,Field-mode override semantics (never write default_template on toggle),2,IMPLEMENTED AND VERIFIED,Implemented + tested,desktop/src/shared/settingsSync.ts,Matches web src/lib/settingsSave.ts semantics exactly; server ids aligned (site_walk etc.)
 D-10,Webhook editor SSRF copy (public https URL),3,UNSUPPORTED,Deferred,renderer settings,No webhook editor exists in desktop; guard lands with the Integrations screen (Phase 6)
 D-28,Provider selection enforces Local-Only at selection level,3,IMPLEMENTED AND VERIFIED,Added,desktop/src/shared/transcription/select.ts + 7 tests,Cloud refused under local-only even if sole provider; typed refusal not silent fallback
@@ -15,8 +15,10 @@ D-29,System audio capability matrix documented,3,IMPLEMENTED AND VERIFIED,Docume
 D-11,Capture robustness (segment rotation/silence/crash-safety) regression tests,3,PARTIAL,Extended,desktop/src/shared/level.ts + capture.ts refactor,Level math/silence guard/short-segment rule extracted and tested (10 tests); MediaRecorder DOM path still untested
 D-12,Local Parakeet transcription path (install/inference),3,BLOCKED,Preserved + unit-tested,transcriber/engine + speechModelManager,Runtime soak needs audio hardware; NOT TESTED rows recorded; provider selection Local-Only enforcement now test-enforced (select.ts)
 D-13,Meeting detection regression tests,3,PASS,Maintained,desktop/src/shared/meetings.ts,parseTasklist/parsePs covered
-D-14,Onboarding tour port (7-stop checklist),4,MISSING,Ported,renderer onboarding module,Reuse web tour structure + onboarding_events analytics
-D-15,Tour analytics events match web schema,4,MISSING,Added,onboarding_events rows,Same event names as web implementation (88b3d8c)
+D-14,Onboarding checklist port (real-data derived),4,IMPLEMENTED AND VERIFIED,Ported,desktop/src/renderer/onboarding.ts + homeView card,Reuses web src/lib/onboarding.ts directly; 4 tests; dismiss + open_notes stamp sync via user_onboarding/onboarding_events
+D-15,Tour analytics events match web schema,4,PARTIAL,Started,onboarding_events inserts,checklist_hidden + stamps written; full 7-stop spotlight tour deferred to Phase 5
+D-30,Model install disk-space pre-check,3,IMPLEMENTED AND VERIFIED,Added,desktop/src/main/speechModelManager.ts,fs.statfs free-space + 512MB unpack margin; refuse with real numbers; statfs failure non-blocking
+D-31,Settings screen (account-wide fields),4,IMPLEMENTED BUT NOT E2E-TESTED,Added,desktop/src/renderer/app.ts settingsView,Default type/consent reminder/field mode/my_state with write-through; device-only localOnly stays in speech panel
 D-16,Packaging hygiene (asar integrity, mac hardened runtime, nsis config),5,PARTIAL,Hardened,electron-builder.yml + build.mjs,appId/signing pending D-03
 D-17,Win code signing,5,BLOCKED,Plumbing only,electron-builder.yml,Requires cert; environment cannot sign
 D-18,macOS notarization,5,BLOCKED,Plumbing only,build/entitlements.mac.plist,Requires Apple ID creds
