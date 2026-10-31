@@ -1,4 +1,7 @@
 // The only API the web page can use (exposed by preload.ts through contextBridge).
+import type { Settings } from "./settings";
+
+export type { Settings };
 export type SpeechModelStatus = {
   id: string;
   label: string;
@@ -61,6 +64,10 @@ export type Bridge = {
   fileDelete(recordingId: string, idx: number, ext: string): Promise<void>;
   queueGet(): Promise<unknown[]>;
   queueSet(ops: unknown[]): Promise<void>;
+  /** Which account the upload queue belongs to, if any. */
+  queueOwner(): Promise<string | null>;
+  /** Quarantine the previous account's queue and adopt this one. */
+  queueRotate(userId: string): Promise<boolean>;
   /** A small store for the words made from each part, until the whole recording is sent. */
   textGet(key: string): Promise<string | null>;
   textSet(key: string, value: string): Promise<void>;
@@ -104,6 +111,33 @@ export type Bridge = {
   }>;
   /** What this app and this computer are using. */
   resources(): Promise<ResourceStats>;
+  /** Durable application settings; patches are validated in the main process. */
+  settingsGet(): Promise<Settings>;
+  settingsSet(patch: Record<string, unknown>): Promise<Settings>;
+  /**
+   * Start OAuth sign-in: reserves the loopback redirect URI the provider will call.
+   * The renderer builds the authorize URL with Supabase and passes it to authOpen.
+   */
+  authBegin(): Promise<{ redirectUri: string }>;
+  /** Open the authorize URL in the user's browser. */
+  authOpen(url: string): Promise<void>;
+  /** The optional always-on-top controller shown while recording. */
+  floatingShow(): Promise<void>;
+  floatingHide(): Promise<void>;
+  floatingUpdate(elapsedMs: number, level: number): Promise<void>;
+  /** The OS-protected store for session tokens (DPAPI/Keychain/libsecret). */
+  secureGet(key: string): Promise<string | null>;
+  secureSet(key: string, value: string): Promise<boolean>;
+  secureRemove(key: string): Promise<boolean>;
+  /** Update-check status; the gate stays shut until signed installers are verified. */
+  updatesStatus(): Promise<{
+    enabled: boolean;
+    reason: string;
+    channel: string;
+    currentVersion: string;
+    latestVersion: string | null;
+    error: string | null;
+  }>;
   /** Dictation: the settings, the history and the state. */
   dictationSettings(): Promise<unknown>;
   dictationHistory(): Promise<unknown[]>;
@@ -138,7 +172,8 @@ export type Bridge = {
       | "dictation:error"
       | "dictation:history"
       | "tray:start"
-      | "tray:stop",
+      | "tray:stop"
+      | "auth:code",
     fn: (payload: unknown) => void,
   ): () => void;
 };

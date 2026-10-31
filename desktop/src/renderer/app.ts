@@ -1,5 +1,23 @@
 // Desktop UI: sign in → set up a recording → record → upload. Plain DOM, no framework.
 import type { Bridge } from "../shared/bridge";
+import { DEFAULT_SETTINGS, type Settings } from "../shared/settings";
+import {
+  applyServerPrefs,
+  effectiveDefaultType,
+  needsServerPush,
+  serverPatchFrom,
+  type ServerPrefs,
+} from "../shared/settingsSync";
+import {
+  CHECKLIST_TOTAL,
+  checklistProgress,
+  desktopChecklist,
+  rowToChecklistData,
+  stampFor,
+  type ChecklistItem,
+  type OnboardingRow,
+} from "./onboarding";
+import { PROVIDER_LABELS, type ConnKey } from "../../../src/lib/types";
 import { pendingSegments } from "../shared/queue";
 import { MEETING_LABELS, type MeetingApp } from "../shared/meetings";
 import { Capture } from "./capture";
@@ -13,6 +31,11 @@ import { dictationPanel, dictationSettings } from "./dictationView";
 import { useHistory } from "./historyPanel";
 import { historyPanel, historyState, setHistoryActions } from "./historyView";
 import { initSpeech, speechPanel } from "./speechPanel";
+import {
+  loadTranscript,
+  transcriptPanel,
+  transcriptState,
+} from "./transcriptView";
 import type { Shortcut } from "../shared/shortcuts";
 import {
   enqueue,
@@ -30,6 +53,8 @@ const TEMPLATES: [string, string][] = [
   ["sales_call", "Sales call"],
   ["interview", "Interview"],
   ["lecture", "Lecture"],
+  ["phone_call", "Phone call"],
+  ["site_walk", "Site walk"],
   ["general", "General"],
 ];
 const CONSENT: [string, string][] = [
@@ -41,7 +66,7 @@ const NOTICE =
   "I'm recording this call so I can take accurate notes — is everyone okay with that?";
 
 type State = {
-  view: "loading" | "signin" | "home" | "recording";
+  view: "loading" | "signin" | "home" | "recording" | "settings" | "transcript";
   email: string;
   codeSent: boolean;
   error: string | null;
@@ -64,6 +89,13 @@ type State = {
   showHistory: boolean;
   /** The dictation settings are open. */
   showDictation: boolean;
+  onboarding: {
+    items: ChecklistItem[];
+    done: number;
+    total: number;
+    hidden: boolean;
+  } | null;
+  integrations: { label: string; account: string | null }[] | null;
 };
 
 const state: State = {
@@ -88,9 +120,16 @@ const state: State = {
   busy: false,
   showHistory: false,
   showDictation: false,
+  onboarding: null,
+  integrations: null,
 };
 let capture: Capture | null = null;
 let recordingId: string | null = null;
+
+// The account-wide settings, cached locally and reconciled with user_settings.
+let appSettings: Settings = { ...DEFAULT_SETTINGS };
+/** What the server last had, so we only push real changes. */
+let lastSyncedRow: Partial<ServerPrefs> | null = null;
 
 // ---------- tiny DOM helpers ----------
 
@@ -105,6 +144,121 @@ const clock = (ms: number) => {
 
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+// ---------- account-wide settings ----------
+
+/** The signed-in user's id, when there is one. */
+async function currentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
+
+/** Pull user_settings from the account, merge into the local store and adopt them. */
+async function loadServerPrefs() {
+  const { data } = await supabase
+    .from("user_settings")
+    .select("consent_reminder,field_mode,default_template,my_state")
+    .maybeSingle();
+  const row = (data ?? null) as Partial<ServerPrefs> | null;
+  const local = await bridge().settingsGet();
+  appSettings = applyServerPrefs(local, row);
+  await bridge().settingsSet({ ...appSettings });
+  lastSyncedRow = row;
+  state.form.template = effectiveDefaultType(appSettings);
+  render();
+}
+
+/** Apply a settings change locally; account-wide fields are pushed when signed in. */
+async function changeSettings(patch: Record<string, unknown>) {
+  appSettings = { ...appSettings, ...patch } as Settings;
+  await bridge().settingsSet(patch);
+  if (needsServerPush(appSettings, lastSyncedRow)) {
+    const serverPatch = serverPatchFrom(patch);
+    const userId = await currentUserId();
+    if (Object.keys(serverPatch).length && userId) {
+      const { error } = await supabase
+        .from("user_settings")
+        .upsert({ user_id: userId, ...serverPatch }, { onConflict: "user_id" });
+      if (!error) lastSyncedRow = { ...lastSyncedRow, ...serverPatch };
+    }
+  }
+}
+
+/** Load what the getting-started checklist still needs, from real data. */
+async function loadOnboarding() {
+  const [recordings, projects, onboarding] = await Promise.all([
+    supabase.from("recordings").select("id", { count: "exact", head: true }),
+    supabase.from("projects").select("id", { count: "exact", head: true }),
+    supabase
+      .from("user_onboarding")
+      .select(
+        "checklist_hidden,first_ready_opened_at,first_task_action_at,first_search_at,tour_version_seen",
+      )
+      .maybeSingle(),
+  ]);
+  const data = rowToChecklistData(
+    (onboarding.data ?? null) as OnboardingRow,
+    { recordings: recordings.count ?? 0, projects: projects.count ?? 0 },
+  );
+  const items = desktopChecklist(data);
+  state.onboarding = {
+    items,
+    done: checklistProgress(items).done,
+    total: checklistProgress(items).total,
+    hidden: Boolean((onboarding.data as OnboardingRow)?.checklist_hidden),
+  };
+}
+
+/** The open_notes stamp belongs to the signed-in user, like every onboarding write. */
+async function stampOpenNotes() {
+  const stamp = stampFor("open_notes");
+  const userId = await currentUserId();
+  if (!stamp || !userId) return;
+  await supabase
+    .from("user_onboarding")
+    .upsert({ user_id: userId, ...stamp }, { onConflict: "user_id" });
+  void loadOnboarding().catch(() => {});
+}
+
+async function hideOnboarding() {
+  state.onboarding = state.onboarding
+    ? { ...state.onboarding, hidden: true }
+    : state.onboarding;
+  const userId = await currentUserId();
+  if (!userId) return;
+  await supabase
+    .from("user_onboarding")
+    .upsert({ user_id: userId, checklist_hidden: true }, { onConflict: "user_id" });
+  await supabase
+    .from("onboarding_events")
+    .insert({ user_id: userId, event: "checklist_hidden" });
+}
+
+/** Google sign-in through the system browser; the code comes back over "auth:code". */
+async function startOAuth() {
+  state.busy = true;
+  state.error = null;
+  render();
+  try {
+    const { redirectUri } = await bridge().authBegin();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { skipBrowserRedirect: true, redirectTo: redirectUri },
+    });
+    if (error || !data?.url) {
+      state.error = error?.message ?? "Sign-in could not start.";
+      state.busy = false;
+      render();
+      return;
+    }
+    state.busy = false;
+    await bridge().authOpen(data.url);
+  } catch (e) {
+    state.error = (e as Error).message;
+    state.busy = false;
+  }
+  render();
 }
 
 // ---------- views ----------
@@ -130,9 +284,16 @@ function render() {
       ? signInView()
       : state.view === "home"
         ? homeView()
-        : state.view === "recording"
-          ? recordingView()
-          : [];
+        : state.view === "settings"
+          ? settingsView()
+          : state.view === "transcript"
+            ? transcriptPanel(() => {
+                state.view = "home";
+                render();
+              })
+            : state.view === "recording"
+              ? recordingView()
+              : [];
   for (const c of parts) if (c) r.append(c);
 }
 
@@ -224,7 +385,161 @@ function signInView(): Child[] {
             },
             "Email me a sign-in code",
           ),
+          h(
+            "button",
+            {
+              class: "ghost",
+              disabled: state.busy,
+              onclick: () => void startOAuth(),
+            },
+            "Continue with Google",
+          ),
         ),
+    state.error && h("div", { class: "banner" }, state.error),
+  ];
+}
+
+/** Real connection status only: what the integrations table says, nothing else. */
+async function loadIntegrations() {
+  const { data, error } = await supabase.from("integrations").select("provider,config");
+  if (error) {
+    state.integrations = null;
+    return;
+  }
+  const rows = (data ?? []) as {
+    provider: ConnKey;
+    config: { account?: string; email?: string; instance_url?: string };
+  }[];
+  state.integrations = rows.map((row) => ({
+    label: PROVIDER_LABELS[row.provider] ?? row.provider,
+    account:
+      row.config?.account ?? row.config?.email ?? row.config?.instance_url ?? null,
+  }));
+}
+
+/** The settings screen: account-wide fields write through to user_settings. */
+function settingsView(): Child[] {
+  const s = appSettings;
+  const checkbox = (
+    label: string,
+    checked: boolean,
+    onToggle: (v: boolean) => void,
+    hint?: string,
+  ) =>
+    h(
+      "label",
+      { class: "row" },
+      h("input", {
+        type: "checkbox",
+        checked,
+        onchange: (e: Event) =>
+          onToggle((e.target as HTMLInputElement).checked),
+      }),
+      h("span", {}, label),
+      hint ? h("span", { class: "muted" }, hint) : null,
+    );
+  const typeSelect = h(
+    "select",
+    {
+      "aria-label": "Default recording type",
+      onchange: (e: Event) => {
+        const v = (e.target as HTMLSelectElement).value;
+        state.form.template = v;
+        void changeSettings({ defaultRecordingType: v }).then(render);
+      },
+    },
+    ...TEMPLATES.map(([v, l]) =>
+      h("option", { value: v, selected: v === s.defaultRecordingType }, l),
+    ),
+  );
+  return [
+    h(
+      "div",
+      { class: "item" },
+      h("h1", {}, "Settings"),
+      h(
+        "button",
+        {
+          class: "ghost",
+          onclick: () => {
+            state.view = "home";
+            render();
+          },
+        },
+        "Back",
+      ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "Recording"),
+      h("div", { class: "row" }, h("label", {}, "Default type"), typeSelect),
+      checkbox(
+        "Remind me to ask before recording",
+        s.consentReminder,
+        (v) => void changeSettings({ consentReminder: v }).then(render),
+        "Follows you on every device",
+      ),
+      checkbox(
+        "Field mode",
+        s.fieldMode,
+        (v) => void changeSettings({ fieldMode: v }).then(render),
+        `Gloves-friendly; new recordings start as ${
+          TEMPLATES.find(
+            ([id]) => id === effectiveDefaultType({ ...s, fieldMode: true }),
+          )?.[1] ?? "site walk"
+        }`,
+      ),
+      h("input", {
+        type: "text",
+        placeholder: "My state or consent code",
+        value: s.myState,
+        "aria-label": "My state or consent code",
+        maxlength: 64,
+        onchange: (e: Event) =>
+          void changeSettings({
+            myState: (e.target as HTMLInputElement).value.trim(),
+          }).then(render),
+      }),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "This device"),
+      checkbox(
+        "Show floating controls while recording",
+        s.floatingControls,
+        (v) => void changeSettings({ floatingControls: v }).then(render),
+        "A small always-on-top stop button",
+      ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "Integrations"),
+      ...(state.integrations === null
+        ? [h("p", { class: "muted" }, "Connections could not be read right now.")]
+        : state.integrations.length === 0
+          ? [h("p", { class: "muted" }, "No accounts connected yet.")]
+          : state.integrations.map((i) =>
+              h(
+                "div",
+                { class: "row" },
+                h("span", {}, i.label),
+                i.account ? h("span", { class: "muted" }, i.account) : null,
+              ),
+            )),
+      APP_URL
+        ? h(
+            "button",
+            {
+              class: "ghost",
+              onclick: () => void bridge().openExternal(`${APP_URL}/settings`),
+            },
+            "Manage connections in Murmur",
+          )
+        : null,
+    ),
     state.error && h("div", { class: "banner" }, state.error),
   ];
 }
@@ -255,18 +570,57 @@ function homeView(): Child[] {
       { class: "item" },
       h("h1", {}, APP_NAME),
       h(
-        "button",
-        {
-          class: "ghost",
-          onclick: () =>
-            void supabase.auth.signOut().then(() => {
-              state.view = "signin";
-              render();
-            }),
+        "div",
+        {},
+        h(
+          "button",
+          {
+            class: "ghost",
+        onclick: () => {
+          state.view = "settings";
+          void loadIntegrations().then(render);
+          render();
         },
-        "Sign out",
+      },
+      "Settings",
+        ),
+        h(
+          "button",
+          {
+            class: "ghost",
+            onclick: () =>
+              void supabase.auth.signOut().then(() => {
+                state.view = "signin";
+                render();
+              }),
+          },
+          "Sign out",
+        ),
       ),
     ),
+    state.onboarding &&
+      !state.onboarding.hidden &&
+      state.onboarding.done < state.onboarding.total &&
+      h(
+        "div",
+        { class: "card" },
+        h(
+          "strong",
+          {},
+          `Getting started (${state.onboarding.done}/${state.onboarding.total})`,
+        ),
+        ...state.onboarding.items
+          .filter((i) => !i.done)
+          .map((i) => h("p", { class: "muted" }, i.title)),
+        h(
+          "button",
+          {
+            class: "ghost",
+            onclick: () => void hideOnboarding().then(render),
+          },
+          "Hide this list",
+        ),
+      ),
     state.meeting &&
       h(
         "div",
@@ -329,11 +683,12 @@ function homeView(): Child[] {
       "div",
       { class: "card" },
       h("strong", {}, "Let people know"),
-      h(
-        "p",
-        { class: "muted" },
-        `Many places require everyone's permission to record. You can say: “${NOTICE}”`,
-      ),
+      appSettings.consentReminder &&
+        h(
+          "p",
+          { class: "muted" },
+          `Many places require everyone's permission to record. You can say: “${NOTICE}”`,
+        ),
       ...CONSENT.map(([v, l]) =>
         h(
           "label",
@@ -419,18 +774,31 @@ function homeView(): Child[] {
                   "button",
                   {
                     class: "ghost",
-                    onclick: () =>
+                    onclick: () => {
+                      // Opening a recording counts as "open your notes" on the
+                      // shared checklist, on every app at once.
+                      void stampOpenNotes();
                       void bridge().openExternal(
                         `${APP_URL}/recording/${r.id}`,
-                      ),
+                      );
+                    },
                   },
                   r.status === "ready" ? "Open" : r.status,
                 )
-              : h(
-                  "span",
-                  { class: r.status === "ready" ? "pill ok" : "pill" },
-                  r.status,
-                ),
+              : h("span", {}, ""),
+            h(
+              "button",
+              {
+                class: "ghost",
+                "aria-label": `Read the transcript of ${r.title}`,
+                onclick: () => {
+                  state.view = "transcript";
+                  void loadTranscript(r.id, r.title).then(render);
+                  render();
+                },
+              },
+              "Notes",
+            ),
           ),
         ),
       ),
@@ -563,6 +931,7 @@ async function startRecording() {
     state.view = "recording";
     state.warning = state.warning ?? null;
     await bridge().setRecording(true);
+    if (appSettings.floatingControls) await bridge().floatingShow();
   } catch (e) {
     state.error = (e as Error).message;
     capture = null;
@@ -622,6 +991,7 @@ async function stopRecording() {
   state.form.title = "";
   state.form.consent = "";
   await bridge().setRecording(false);
+  await bridge().floatingHide();
   render();
   void refresh();
 }
@@ -790,6 +1160,13 @@ async function refresh() {
 async function goHome() {
   state.view = "home";
   render();
+  // The account's preferences win over whatever this device had cached.
+  void loadServerPrefs().catch(() => {
+    /* Offline: the cached settings stay in force and sync resumes later. */
+  });
+  void loadOnboarding().catch(() => {
+    /* Offline or the tables are not migrated yet: the card simply stays away. */
+  });
   if (await recoverInterrupted()) {
     state.error = null;
     state.warning = null;
@@ -857,6 +1234,9 @@ async function boot() {
     const l = document.getElementById("level");
     if (l)
       l.style.width = `${Math.max(0, Math.min(100, ((state.level + 60) / 60) * 100))}%`;
+    // The floating controller reads the same numbers, only when it is enabled.
+    if (appSettings.floatingControls)
+      void bridge().floatingUpdate(capture.elapsedMs, state.level);
   }, 250);
   setInterval(() => void flush(), 30_000);
   onQueueChange(
@@ -879,6 +1259,21 @@ async function boot() {
     if (state.view === "home" && state.form.consent) void startRecording();
   });
   bridge().on("tray:stop", () => void stopRecording());
+
+  // OAuth sign-in: the main process caught the browser's redirect and hands us the
+  // code; Supabase's stored PKCE verifier is what makes it worth anything.
+  bridge().on("auth:code", (code) => {
+    void supabase.auth
+      .exchangeCodeForSession(String(code))
+      .then(async ({ error }) => {
+        if (error) {
+          state.error = error.message;
+          if (state.view !== "home") render();
+          return;
+        }
+        await goHome();
+      });
+  });
 
   // The speech model, and whether new recordings are made on this computer.
   await initSpeech();

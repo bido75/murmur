@@ -1,0 +1,840 @@
+{
+  "date_updated": "2026-10-30",
+  "capability_dashboard": {
+    "cataloged_languages": 171,
+    "production_translation": 162,
+    "experimental_translation": 9,
+    "transcription_ready": 31,
+    "translation_verified": 153,
+    "translation_failed": 9,
+    "translation_pending": 0,
+    "stt_verified": 0,
+    "stt_pending": 31
+  },
+  "notes": [
+    "Registry: 171 entries covering all world regions (BCP-47/ISO-639 + native names + script/direction/regions)",
+    "Translation tier: production (162) + experimental (9 Ghanaian low-resource)",
+    "Transcription: only the 31 STT-list languages; per-language STT verification not yet run against provider docs",
+    "Capability script: scripts/language-capability.mjs (subset by default; --all for all production-tier)",
+    "Echo guard: translate/index.ts logs untranslated echoes server-side; the capability script flags them as failed",
+    "English echo is expected (target=source); not a gap",
+    "Persistent echo failures need alternate providers or models — tracked in 10-REMAINING-LANGUAGE-GAPS.md"
+  ],
+  "provider": "openrouter",
+  "model": "anthropic/claude-sonnet-4.5",
+  "capability_script": "scripts/language-capability.mjs",
+  "verified_languages": [
+    {
+      "code": "af",
+      "name": "Afrikaans",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ak",
+      "name": "Twi (Akan)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ar",
+      "name": "Arabic",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ar-DZ",
+      "name": "Algerian Arabic",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ar-EG",
+      "name": "Egyptian Arabic",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ar-MA",
+      "name": "Moroccan Arabic (Darija)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ar-TN",
+      "name": "Tunisian Arabic",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ay",
+      "name": "Aymara",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "az",
+      "name": "Azerbaijani",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bal",
+      "name": "Balochi",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bem",
+      "name": "Bemba",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ber",
+      "name": "Tamazight (Berber)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bg",
+      "name": "Bulgarian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bi",
+      "name": "Bislama",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bm",
+      "name": "Bambara",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bn",
+      "name": "Bengali",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bo",
+      "name": "Tibetan",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "bs",
+      "name": "Bosnian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ca",
+      "name": "Catalan",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ceb",
+      "name": "Cebuano",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "chr",
+      "name": "Cherokee",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ckb",
+      "name": "Sorani",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "cs",
+      "name": "Czech",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "cy",
+      "name": "Welsh",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "da",
+      "name": "Danish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "de",
+      "name": "German",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "dua",
+      "name": "Duala",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ee",
+      "name": "Ewe",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "el",
+      "name": "Greek",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "es",
+      "name": "Spanish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "et",
+      "name": "Estonian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "eu",
+      "name": "Basque",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ewo",
+      "name": "Ewondo",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "fan",
+      "name": "Fang",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ff",
+      "name": "Fula (Fulfulde)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "fi",
+      "name": "Finnish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "fj",
+      "name": "Fijian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "fon",
+      "name": "Fon",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "fr",
+      "name": "French",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ga",
+      "name": "Irish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "gaa",
+      "name": "Ga",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "gl",
+      "name": "Galician",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "gn",
+      "name": "Guarani",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "gu",
+      "name": "Gujarati",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ha",
+      "name": "Hausa",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "haw",
+      "name": "Hawaiian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "he",
+      "name": "Hebrew",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "hi",
+      "name": "Hindi",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "hr",
+      "name": "Croatian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ht",
+      "name": "Haitian Creole",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "hu",
+      "name": "Hungarian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "hy",
+      "name": "Armenian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "id",
+      "name": "Indonesian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ig",
+      "name": "Igbo",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "is",
+      "name": "Icelandic",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "it",
+      "name": "Italian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "iu",
+      "name": "Inuktitut",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "jam",
+      "name": "Jamaican Patois",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "jv",
+      "name": "Javanese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ka",
+      "name": "Georgian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kab",
+      "name": "Kabyle",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kg",
+      "name": "Kikongo",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ki",
+      "name": "Kikuyu",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kk",
+      "name": "Kazakh",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "km",
+      "name": "Khmer",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kmr",
+      "name": "Kurmanji",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kn",
+      "name": "Kannada",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ko",
+      "name": "Korean",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kr",
+      "name": "Kanuri",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "kri",
+      "name": "Krio",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ktu",
+      "name": "Kituba",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ku",
+      "name": "Kurdish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ky",
+      "name": "Kyrgyz",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "lg",
+      "name": "Luganda",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ln",
+      "name": "Lingala",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "lo",
+      "name": "Lao",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "lol",
+      "name": "Mongo (Lomongo)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "loz",
+      "name": "Lozi",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "lt",
+      "name": "Lithuanian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "lua",
+      "name": "Tshiluba",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "luo",
+      "name": "Dholuo",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "lv",
+      "name": "Latvian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mas",
+      "name": "Maasai (Maa)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "men",
+      "name": "Mende",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mey",
+      "name": "Hassaniya Arabic",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mg",
+      "name": "Malagasy",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mi",
+      "name": "Māori",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mk",
+      "name": "Macedonian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ml",
+      "name": "Malayalam",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mn",
+      "name": "Mongolian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mnk",
+      "name": "Mandinka",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mos",
+      "name": "Moore",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mr",
+      "name": "Marathi",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ms",
+      "name": "Malay",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "mt",
+      "name": "Maltese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "my",
+      "name": "Burmese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "nah",
+      "name": "Nahuatl",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "nd",
+      "name": "Ndebele",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ne",
+      "name": "Nepali",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "nl",
+      "name": "Dutch",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "no",
+      "name": "Norwegian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "nso",
+      "name": "Sepedi (Northern Sotho)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "nv",
+      "name": "Navajo",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ny",
+      "name": "Chichewa",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "om",
+      "name": "Oromo",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "pa",
+      "name": "Punjabi",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "pl",
+      "name": "Polish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "prs",
+      "name": "Dari",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ps",
+      "name": "Pashto",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "pt",
+      "name": "Portuguese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "qu",
+      "name": "Quechua",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "rif",
+      "name": "Tarifit",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "rn",
+      "name": "Kirundi",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ro",
+      "name": "Romanian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "rom",
+      "name": "Romani",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "rw",
+      "name": "Kinyarwanda",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sg",
+      "name": "Sango",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "shi",
+      "name": "Tachelhit",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "si",
+      "name": "Sinhala",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sk",
+      "name": "Slovak",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sl",
+      "name": "Slovenian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sm",
+      "name": "Samoan",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sn",
+      "name": "Shona",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "so",
+      "name": "Somali",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sq",
+      "name": "Albanian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sr",
+      "name": "Serbian",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ss",
+      "name": "Swati",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "st",
+      "name": "Sesotho",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sun",
+      "name": "Sundanese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sv",
+      "name": "Swedish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "sw",
+      "name": "Swahili",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "syc",
+      "name": "Syriac (Aramaic)",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ta",
+      "name": "Tamil",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "te",
+      "name": "Telugu",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "tg",
+      "name": "Tajik",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "th",
+      "name": "Thai",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ti",
+      "name": "Tigrinya",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "tk",
+      "name": "Turkmen",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "tl",
+      "name": "Tagalog",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "to",
+      "name": "Tongan",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "tpi",
+      "name": "Tok Pisin",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "tr",
+      "name": "Turkish",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ts",
+      "name": "Tsonga",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ug",
+      "name": "Uyghur",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ur",
+      "name": "Urdu",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "uz",
+      "name": "Uzbek",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "ve",
+      "name": "Venda",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "vi",
+      "name": "Vietnamese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "wo",
+      "name": "Wolof",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "xh",
+      "name": "Xhosa",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "yo",
+      "name": "Yoruba",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "yue",
+      "name": "Cantonese",
+      "date": "2026-10-31"
+    },
+    {
+      "code": "zu",
+      "name": "Zulu",
+      "date": "2026-10-31"
+    }
+  ],
+  "failed_languages": [
+    {
+      "code": "am",
+      "name": "Amharic",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "en",
+      "name": "English",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "fa",
+      "name": "Persian",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "ja",
+      "name": "Japanese",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "ru",
+      "name": "Russian",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "tn",
+      "name": "Setswana",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "uk",
+      "name": "Ukrainian",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "zh",
+      "name": "Chinese (Simplified)",
+      "error": "untranslated echo (output identical to input)"
+    },
+    {
+      "code": "zh-TW",
+      "name": "Chinese (Traditional)",
+      "error": "untranslated echo (output identical to input)"
+    }
+  ]
+}

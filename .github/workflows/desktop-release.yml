@@ -1,0 +1,212 @@
+name: desktop-release
+
+# Packaging pipeline for real installers. It never runs on pull requests: untrusted
+# code must never reach the signing/publishing jobs. Builds are per-platform and a
+# release is only assembled when every platform artifact exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp (e.g. 0.2.0). Must be plain semver."
+        required: true
+        type: string
+      channel:
+        description: "Release channel"
+        required: true
+        default: prerelease
+        type: choice
+        options:
+          - prerelease
+          - production
+      publish:
+        description: "Create a GitHub pre-release from the built installers"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.0.0-tag' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: win-x64
+            builder: npx electron-builder --win --x64 --publish never
+          - os: macos-latest
+            name: mac-arm64
+            builder: npx electron-builder --mac --arm64 --publish never
+          - os: macos-13
+            name: mac-x64
+            builder: npx electron-builder --mac --x64 --publish never
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Guard the version input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          case "$APP_VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::version must be plain semver (e.g. 0.2.0), got: $APP_VERSION"; exit 1 ;;
+          esac
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Typecheck
+        working-directory: desktop
+        run: npm run typecheck
+      - name: Unit tests
+        working-directory: desktop
+        run: npm test
+      - name: Build bundles
+        working-directory: desktop
+        run: node build.mjs
+      # macOS only: the system-audio helper is a Swift binary; the extraResources
+      # mapping fails the packaging step if it is missing, which is the check.
+      - name: Compile the macOS system-audio helper
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: npm run mac-helper
+      # onnxruntime-node ships both macOS architectures; the per-arch build only
+      # needs its own, so the other folder is removed before packaging.
+      - name: Prune the other macOS architecture's onnxruntime binaries
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: |
+          if [ "${{ matrix.name }}" = "mac-arm64" ]; then
+            rm -rf node_modules/onnxruntime-node/bin/napi-v6/darwin/x64
+          else
+            rm -rf node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64
+          fi
+      - name: Stamp the version
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: desktop
+        run: npm version "$APP_VERSION" --no-git-tag-version --allow-same-version
+      # Signing stays honest: with no credentials the build says so; if credentials
+      # appear before the signing step is implemented, refuse rather than half-sign.
+      - name: Windows signing gate
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        env:
+          CERT_CONFIGURED: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+        run: |
+          if [ "$CERT_CONFIGURED" != "true" ]; then
+            echo "::notice::No Windows signing certificate configured - building UNSIGNED (test/pre-release only)."
+          else
+            echo "::error::Windows signing secrets exist but the signing step is not implemented yet. Refusing to publish a half-signed installer."
+            exit 1
+          fi
+      - name: macOS signing gate
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        env:
+          CERT_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        run: |
+          if [ "$CERT_CONFIGURED" != "true" ]; then
+            echo "::notice::No Apple Developer ID certificate configured - building UNSIGNED (test/pre-release only)."
+          else
+            echo "::error::macOS signing secrets exist but the signing/notarization step is not implemented yet. Refusing to publish a half-signed installer."
+            exit 1
+          fi
+      - name: Build the installer
+        working-directory: desktop
+        run: ${{ matrix.builder }}
+      - name: Verify the installer exists and is not trivially small
+        working-directory: desktop
+        run: |
+          case "${{ matrix.name }}" in
+            win-x64) f=$(ls release/*.exe | head -1) ;;
+            *) f=$(ls release/*.dmg | head -1) ;;
+          esac
+          test -n "$f" || { echo "::error::no installer produced"; exit 1; }
+          size=$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f")
+          test "$size" -gt 10000000 || { echo "::error::installer suspiciously small ($size bytes)"; exit 1; }
+          echo "Found $f ($size bytes)"
+      - name: Verify the macOS bundle contents
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: |
+          appzip=$(ls release/*.zip | head -1)
+          unzip -l "$appzip" | grep -q "\.app/Contents/MacOS/Murmur" || { echo "::error::app binary missing from zip"; exit 1; }
+          unzip -l "$appzip" | grep -q "SystemAudioCapture" || { echo "::error::system-audio helper missing from zip"; exit 1; }
+      - name: Checksums
+        working-directory: desktop/release
+        run: |
+          # Top-level files only: the unpacked app directories are build inputs,
+          # not artifacts, and a directory argument would fail the hash run.
+          if command -v sha256sum >/dev/null; then
+            find . -maxdepth 1 -type f -exec sha256sum {} + > SHA256SUMS.txt
+          else
+            find . -maxdepth 1 -type f -exec shasum -a 256 {} + > SHA256SUMS.txt
+          fi
+          cat SHA256SUMS.txt
+      - name: Upload the installer artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-${{ matrix.name }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  # Publishing is a separate, privileged job: it runs only on an explicit dispatch
+  # with publish=true, only after every platform artifact exists. A failed or skipped
+  # build leg makes this job skip, so an incomplete release cannot be published.
+  publish-prerelease:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.channel == 'prerelease'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download every platform artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" \
+            --pattern "installer-*" --dir artifacts
+          test -d artifacts/installer-win-x64 || { echo "::error::missing Windows installer"; exit 1; }
+          test -d artifacts/installer-mac-arm64 || { echo "::error::missing macOS arm64 installer"; exit 1; }
+          test -d artifacts/installer-mac-x64 || { echo "::error::missing macOS x64 installer"; exit 1; }
+      - name: Create the draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          files=$(find artifacts -type f ! -name "*.blockmap" | tr '\n' ' ')
+          gh release create "desktop-v$VERSION" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --draft --prerelease \
+            --title "Murmur Desktop $VERSION (test build, unsigned)" \
+            --notes "Test installers for evaluation. These builds are UNSIGNED: Windows SmartScreen and macOS Gatekeeper will warn or block. Not for public distribution. SHA-256 checksums are in SHA256SUMS.txt." \
+            $files

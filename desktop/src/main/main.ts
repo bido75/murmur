@@ -16,7 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -25,6 +25,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  safeStorage,
   session,
   shell,
   systemPreferences,
@@ -50,11 +51,42 @@ import {
   removeModel,
 } from "./speechModelManager";
 import { resourceStats } from "./resources";
+import { LoopbackCapture, parseCallbackUrl } from "./auth";
+import {
+  floatingStop,
+  hideFloating,
+  onFloatingStop,
+  showFloating,
+  updateFloating,
+} from "./floating";
+import {
+  secureGet,
+  secureRemove,
+  secureSet,
+} from "./secureStore";
+import { storeMode } from "../shared/secureStoreCore";
+import { loadSettings, saveSettings } from "./settings";
+import { writeLogEvent } from "./logWriter";
+import { checkForUpdates } from "./updaterRuntime";
 import { runtimeMissingReason, transcribeSamples } from "./transcriber";
 import { modelDir } from "./speechModelManager";
 import { Dictation, type OverlayRect } from "./dictation";
 
 const APP_NAME = "Murmur";
+
+/** Where the local crash log lives, next to the recordings. */
+const logDir = () => join(app.getPath("userData"), "logs");
+
+process.on("uncaughtException", (e) => {
+  writeLogEvent(logDir(), "uncaughtException", e?.message ?? String(e));
+});
+process.on("unhandledRejection", (e) => {
+  writeLogEvent(
+    logDir(),
+    "unhandledRejection",
+    e instanceof Error ? e.message : String(e),
+  );
+});
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let recording = false;
@@ -62,6 +94,14 @@ let lastMeeting: MeetingApp | null = null;
 let macCapture: ChildProcessWithoutNullStreams | null = null;
 /** The download that is running, so it can be stopped. */
 let installAbort: AbortController | null = null;
+
+/** The loopback listener that catches the browser's OAuth redirect. */
+let authCapture: LoopbackCapture | null = null;
+
+/** Hand a sign-in code to the renderer once, through one channel. */
+function deliverAuthCode(code: string) {
+  win?.webContents.send("auth:code", code);
+}
 
 // ---------- Local store (everything under userData/pending) ----------
 
@@ -231,6 +271,21 @@ function registerIpc() {
   ipcMain.handle("queue:set", (_e, ops: unknown[]) =>
     writeJson(queueFile(), ops),
   );
+  // One queue per account: a queued recording must never upload under another
+  // account's session. The old queue is quarantined, never deleted.
+  ipcMain.handle("queue:owner", () => readJson<string | null>(join(app.getPath("userData"), "queue-owner.json"), null));
+  ipcMain.handle("queue:rotate", (_e, current: string) => {
+    // Both ids end up in file names and comparisons, so they must be what they claim.
+    const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+    if (!uuid(current)) return false;
+    const last = readJson<string | null>(join(app.getPath("userData"), "queue-owner.json"), null);
+    if (last && last !== current && uuid(last)) {
+      const qf = queueFile();
+      if (existsSync(qf)) renameSync(qf, join(app.getPath("userData"), `queue-${last}.json`));
+    }
+    writeJson(join(app.getPath("userData"), "queue-owner.json"), current);
+    return true;
+  });
   ipcMain.handle("active:get", () => readJson(activeFile(), null));
   ipcMain.handle("active:set", (_e, value: unknown) => {
     if (value === null) {
@@ -357,6 +412,65 @@ function registerIpc() {
   });
 
   ipcMain.handle("app:resources", () => resourceStats());
+
+  // Update checks: the gate stays shut until signed installers are verified.
+  ipcMain.handle("updates:status", async () => {
+    // Signed production installers do not exist yet, so the signing fact is false
+    // by construction; the module refuses to check anything in this state.
+    return checkForUpdates(false);
+  });
+
+  // The OS-protected store for session tokens (safeStorage: DPAPI/Keychain/libsecret).
+  const secureDir = () => app.getPath("userData");
+  ipcMain.handle("secure:mode", () => storeMode(safeStorage.isEncryptionAvailable()));
+  ipcMain.handle("secure:get", (_e, key: string) => {
+    if (typeof key !== "string" || !key || key.length > 256) return null;
+    return secureGet(secureDir(), key);
+  });
+  ipcMain.handle("secure:set", (_e, key: string, value: string) => {
+    if (typeof key !== "string" || !key || key.length > 256) return false;
+    if (typeof value !== "string" || value.length > 64_000) return false;
+    secureSet(secureDir(), key, value);
+    return true;
+  });
+  ipcMain.handle("secure:remove", (_e, key: string) => {
+    if (typeof key === "string") secureRemove(secureDir(), key);
+    return true;
+  });
+
+  // Application settings: validated in the main process, stored atomically.
+  ipcMain.handle("settings:get", () => loadSettings(userDataDir()));
+  ipcMain.handle("settings:set", (_e, patch: unknown) =>
+    saveSettings(
+      userDataDir(),
+      (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>,
+    ),
+  );
+
+  // OAuth: the renderer drives Supabase's PKCE flow; the main process only catches
+  // the browser's redirect (loopback listener first, murmur:// deep link as backup).
+  ipcMain.handle("auth:begin", async () => {
+    authCapture?.stop();
+    const capture = new LoopbackCapture();
+    await capture.start(null);
+    capture.onNextCode(deliverAuthCode);
+    authCapture = capture;
+    return { redirectUri: capture.redirectUri };
+  });
+  ipcMain.handle("auth:open", (_e, url: string) => {
+    if (/^https:\/\//.test(url)) void shell.openExternal(url);
+  });
+
+  // The floating controller: a small always-on-top window while recording.
+  ipcMain.handle("floating:show", () => {
+    if (win) showFloating(win);
+  });
+  ipcMain.handle("floating:hide", () => hideFloating());
+  ipcMain.handle("floating:update", (_e, elapsedMs: number, level: number) =>
+    updateFloating({ elapsedMs: Number(elapsedMs) || 0, level: Number(level) || 0 }),
+  );
+  ipcMain.on("floating:stop", () => floatingStop());
+  ipcMain.on("floating:open", () => showWindow());
 }
 
 // ---------- System audio ----------
@@ -599,8 +713,29 @@ function updateTray() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", showWindow);
+  app.on("second-instance", (_e, argv) => {
+    showWindow();
+    // Windows delivers deep links through the second instance's argv.
+    const link = argv.find((a) => a.startsWith("murmur://"));
+    if (link) {
+      const parsed = parseCallbackUrl(link);
+      if (parsed.ok) deliverAuthCode(parsed.code);
+    }
+  });
+  app.on("open-url", (e, url) => {
+    e.preventDefault();
+    const parsed = parseCallbackUrl(url);
+    if (parsed.ok) deliverAuthCode(parsed.code);
+  });
   app.whenReady().then(() => {
+    // The deep-link channel for OAuth callbacks (no effect in dev until registered).
+    if (process.defaultApp) {
+      app.setAsDefaultProtocolClient("murmur", process.execPath, [
+        resolve(process.argv[1] ?? "."),
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient("murmur");
+    }
     // Microphone (and screen capture for system audio) only for our own pages.
     session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => {
       cb(
@@ -611,6 +746,8 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     registerDisplayMedia();
     createWindow();
+    // The floating controller's stop button means the same as the tray's.
+    onFloatingStop(() => win?.webContents.send("tray:stop"));
     // The shortcuts are claimed once the window is there, so the first one works.
     win?.webContents.once("did-finish-load", () => {
       const result = dictation?.registerShortcuts();
@@ -629,6 +766,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     (app as unknown as { quitting?: boolean }).quitting = true;
     stopMacCapture();
+    authCapture?.stop();
+    authCapture = null;
+    hideFloating();
     // The shortcuts belong to the app, so they are given back when it closes.
     dictation?.unregisterShortcuts();
   });
