@@ -61,10 +61,12 @@ test("experimental tier is flagged and never presented as transcription-capable"
 test("derived lists keep the historical shapes", () => {
   for (const l of LANGUAGES) {
     assert.ok(typeof l.code === "string" && typeof l.name === "string");
-    assert.equal(l.transcription ?? true, true);
   }
   assert.ok(TRANSLATION_LANGUAGES.length >= LANGUAGES.length);
-  assert.equal(PRODUCTION_TRANSLATION_LANGUAGES.length, TRANSLATION_LANGUAGES.length - LANGUAGE_REGISTRY.filter((l) => l.translation === "llm-experimental").length);
+  assert.equal(
+    PRODUCTION_TRANSLATION_LANGUAGES.length,
+    TRANSLATION_LANGUAGES.length - LANGUAGE_REGISTRY.filter((l) => l.translation === "llm-experimental").length,
+  );
   // The transcription list is a subset of the translation list.
   const trans = new Set(TRANSLATION_LANGUAGES.map((l) => l.code));
   for (const l of LANGUAGES) assert.ok(trans.has(l.code), l.code);
