@@ -70,6 +70,7 @@ import {
 import { confirm, isWeb, notify, shareOrCopy } from "@/lib/dialog";
 import { APP_URL } from "@/lib/config";
 import { findLanguage, TRANSLATION_LANGUAGES, photoMoment } from "@/lib/shared";
+import { LanguagePickerSheet } from "@/components/LanguagePickerSheet";
 import { queuePhoto, takePhoto } from "@/lib/photos";
 import { clock, minutes, shortDate, speakerLabel } from "@/lib/format";
 import { useRecordingPlayer } from "@/lib/player";
@@ -102,6 +103,7 @@ export default function RecordingDetail() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [translation, setTranslation] = useState<Translation | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [langPicker, setLangPicker] = useState(false);
   const [title, setTitle] = useState("");
   const [menu, setMenu] = useState<{
     title?: string;
@@ -509,24 +511,7 @@ export default function RecordingDetail() {
         section: "AI tools",
         onPress: () => {
           if (translation) return setTranslation(null);
-          setMenu({
-            title: "Translate notes and transcript into",
-            actions: TRANSLATION_LANGUAGES.map((l) => ({
-              // Experimental languages are labeled honestly in the menu.
-              ...(findLanguage(l.code)?.translation === "llm-experimental" ? { label: l.name + " (experimental)" } : {}),
-              label: l.name,
-              onPress: guard(async () => {
-                setTranslating(true);
-                try {
-                  setTranslation(
-                    await translateRecording(rec.id, l.code, true),
-                  );
-                } finally {
-                  setTranslating(false);
-                }
-              }),
-            })),
-          });
+          setLangPicker(true);
         },
       },
       {
@@ -949,6 +934,23 @@ export default function RecordingDetail() {
             onClose={() => setMenu(null)}
           />
           <PromptModal prompt={prompt} onClose={() => setPrompt(null)} />
+          <LanguagePickerSheet
+            visible={langPicker}
+            title="Translate notes and transcript into"
+            onClose={() => setLangPicker(false)}
+            onPick={(code) => {
+              const recId = data?.recording?.id;
+              if (!recId) return;
+              guard(async () => {
+                setTranslating(true);
+                try {
+                  setTranslation(await translateRecording(recId, code, true));
+                } finally {
+                  setTranslating(false);
+                }
+              })();
+            }}
+          />
           {data.segments.length > 0 && !rec.audio_deleted_at && (
             <PlayerBar
               playing={player.playing}
