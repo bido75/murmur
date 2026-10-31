@@ -69,7 +69,7 @@ import {
 } from "@/lib/api";
 import { confirm, isWeb, notify, shareOrCopy } from "@/lib/dialog";
 import { APP_URL } from "@/lib/config";
-import { TRANSLATION_LANGUAGES, photoMoment } from "@/lib/shared";
+import { findLanguage, TRANSLATION_LANGUAGES, photoMoment } from "@/lib/shared";
 import { queuePhoto, takePhoto } from "@/lib/photos";
 import { clock, minutes, shortDate, speakerLabel } from "@/lib/format";
 import { useRecordingPlayer } from "@/lib/player";
@@ -512,6 +512,8 @@ export default function RecordingDetail() {
           setMenu({
             title: "Translate notes and transcript into",
             actions: TRANSLATION_LANGUAGES.map((l) => ({
+              // Experimental languages are labeled honestly in the menu.
+              ...(findLanguage(l.code)?.translation === "llm-experimental" ? { label: l.name + " (experimental)" } : {}),
               label: l.name,
               onPress: guard(async () => {
                 setTranslating(true);
