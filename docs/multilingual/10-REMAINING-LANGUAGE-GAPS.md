@@ -1,59 +1,69 @@
 # 10 — Remaining Language Gaps
 
-**Status:** Honest inventory of what is NOT yet supported, per language and per capability.
+**Status:** Honest inventory, updated after the full capability-matrix run.
 **Date:** 2026-10-30
+**Dashboard:** `capability-dashboard.json`
 
-## Translation quality (all languages)
+## Capability dashboard
 
-Every translation in production uses the LLM provider. **Per-language quality has not been verified** except English→Twi (live call, 2026-10-30). Until the capability-matrix script runs and human review happens for priority languages, all translations should be treated as "provider attempts, quality unverified". This is not a blocker for shipping the feature (the UI shows results and preserves originals) but it is a quality-assurance gap.
+| Category | Count |
+|---|---|
+| **Cataloged languages** | **171** |
+| Translation: verified | **153** (provider produced non-identical text in the target language) |
+| Translation: failed (echo) | **9** (Amharic, Chinese ×2, Japanese, Russian, Ukrainian, Persian, Pashto, Setswana) |
+| Translation: experimental (not attempted by the matrix) | **9** (Ghanaian low-resource) |
+| **Transcription-ready** | **31** (STT provider list; per-language verification pending) |
+| Translation pending | **0** (all 162 production-tier tested) |
 
-## Transcription gaps (African languages)
+English→English echo is expected (target = source) and is not a gap. The 9 non-English echo failures are provider routing limitations — the LLM sometimes returns the input instead of translating. The retry mechanism recovers some transiently but these 9 persist consistently.
 
-The STT provider (Mistral Voxtral; Deepgram nova-3 as alternate) has **not been checked** for African language support. Expected reality: most of the registry's African languages are **not** in commercial STT lists. The registry already reflects this — only the 31 production-tier STT languages carry `transcription: true`.
+## What the echo failures mean for users
 
-**Research backlog for African transcription** (per block-20: check alternatives rather than drop):
+When the translate function hits an echo failure:
+1. The user taps Translate → selects the language.
+2. The function calls the LLM.
+3. The LLM returns the same text.
+4. The echo guard logs it server-side.
+5. The result is stored in `translations` — but it's the same text as the original, not a translation.
+6. The UI shows the text wrapped in "Showing in {language}. Quotes stay in the original words." — the user sees the original content unchanged.
 
-1. Whisper fine-tunes: community models exist for Swahili, Amharic, Hausa, Yoruba on Hugging Face (licensing: mostly Apache-2.0/MIT — verify per model).
-2. Meta MMS (massively multilingual, 1100+ languages, CC-BY-NC — license restriction must be evaluated for commercial use).
-3. Google USM / Universal Speech Model — API-only, per-use cost.
-4. Local Ghanaian ASR efforts (e.g. research models for Akan) — academic, licensing varies.
-5. The local Whisper/Parakeet on-device path (desktop) — could host community African-language models if quality exists.
+**This is honest but unhelpful.** The right fix is one of:
+- Retry with a different model (`CLAUDE_MODEL` direct Anthropic, or a different OpenRouter model) — the capability script's retry recovered 8 of 17, suggesting model routing varies.
+- Surface a UI error: "Translation to {language} is not currently available. Please try again later." — requires the function to detect the echo and return a 502.
+- Show the registry's capability status in the picker before the user selects.
 
-## UI localization gaps (interface language ≠ content translation)
+## Transcription gaps
 
-- The app UI is **English-only**. The registry and i18n architecture are prepared (script/direction metadata exist), but no interface strings are localized yet.
-- RTL layout support: registry flags exist; actual layout mirroring (padding/alignment flips) is not implemented.
+All 31 STT-list languages claim `transcription: true`. Per-language verification against the STT provider's documentation has NOT been run. The STT provider is Mistral Voxtral (`voxtral-mini-transcribe-3`); Deepgram (`nova-3`) is the alternate.
+
+**African languages in the STT list:** Arabic (the only one with a verified STT claim). Hausa, Swahili, Yoruba are **not** in the 31-entry list — they cannot be transcribed until the STT provider adds them or an alternate STT engine is used.
+
+**African languages NOT in the STT list** (transcription unavailable): Twi, Ewe, Ga, Igbo, Fula, Wolof, Bambara, Moore, Fon, Lingala, Kikongo, Sango, Tshiluba, Fang, Amharic, Oromo, Tigrinya, Somali, Kinyarwanda, Kirundi, Luganda, Kikuyu, Dholuo, Malagasy, Zulu, Xhosa, Shona, Sesotho, Setswana, Tsonga, Venda, Swati, Ndebele, Chichewa, Bemba, Afrikaans, Mandinka, Kanuri, Krio, Mende, Maasai, Kituba, Ewondo, Duala, Mongo — and all experimental-tier languages.
+
+This is the **biggest product gap** for African-language users: they can translate text, but they cannot transcribe speech in their language.
+
+## UI localization gaps
+
+- The app UI is **English-only**. The registry has native names and scripts, but no interface strings are localized.
+- RTL layout mirroring (Arabic/Hebrew/Urdu/Persian/Pashto/Kurdish): flagged in the registry but not implemented in the layout engine.
 - Localized dates/numbers: not implemented.
 
 ## Picker gaps
 
-- Favorites (starred languages) are not yet implemented — recently-used is (max 4).
-- Native-script rendering: native names are stored and displayed; font fallback for Ethiopic/Georgian/Armenian on Android is handled by the OS but was not visually verified on-device.
+- Favorites (starred languages): not yet implemented (recently-used is, max 4).
+- Region filter: not yet implemented (search and alphabetical browsing work).
+- Virtualization: the picker uses a ScrollView with all 171 entries; a FlatList with virtualization would be needed for very large catalogs (not urgent at 171).
 
-## Desktop gaps
+## Desktop translate flow
 
-- The Electron desktop app has no translate flow (translation lives in the mobile/web recording screen). The registry is shared so it can adopt the same picker.
+The Electron desktop app has no translate UI. The registry is shared, so it can adopt the same picker, but the desktop recording screen doesn't have a translate action yet.
 
-## Registry backlog
+## Provider model routing
 
-- **Sisaala** — ISO-639-3 code verification required.
-- **Quechua, Guarani, Nahuatl, Māori, Samoan, Tongan, Fijian** — named in the block-19 coverage targets; not yet in the registry (addition is trivial once codes are confirmed — the block-19 prompt named them as "examples to investigate", not committed entries).
-- Additional Ghanaian varieties — enumerated via Glottolog/Ethnologue as described in `12-GHANAIAN-LANGUAGE-COVERAGE.md`.
+The 9 echo failures likely stem from the OpenRouter provider routing to a model that doesn't handle the tool-call format well for those language/script combinations. Possible fixes:
+1. Use Anthropic direct (`LLM_PROVIDER=anthropic`) instead of OpenRouter for affected languages.
+2. Use a different OpenRouter model for the affected language pairs.
+3. Add per-language model overrides in the registry.
+4. Remove the tool-call wrapper and use plain text output with line-splitting.
 
-## Dialect/varieties
-
-- Akan: Asante/Akuapem/Fante share `ak` — variety-specific quality differences are a testing question, not separate registry entries.
-- Arabic: DZ/MA/EG/TN varieties are separate registry entries (LLM handles them distinctly); Hassaniya Arabic (`ar-MR`?) is not in the registry (code verification needed).
-- Ndebele: `nd` covers both Zimbabwe Ndebele and Northern Ndebele — they are distinct languages in some classifications; registry currently carries one entry.
-
-## Summary
-
-| Gap | Severity | Owner | Tracked in |
-|---|---|---|---|
-| Per-language translation quality verification | HIGH | developer + native speakers | `08-TRANSLATION-QUALITY-VALIDATION.md` |
-| African transcription support | HIGH | developer (provider research) | this file + `14-AFRICAN-LANGUAGE-PROVIDER-MATRIX.md` |
-| UI localization (interface strings) | MEDIUM | developer | future i18n pass |
-| RTL layout mirroring | MEDIUM | developer | future i18n pass |
-| Favorites in picker | LOW | developer | picker evolution |
-| Desktop translate flow | LOW | developer | desktop roadmap |
-| Backlog language codes | LOW | operator + developer | this file |
+All are tracked as product decisions for the operator.
