@@ -62,6 +62,7 @@ The Electron desktop app has no translate UI. The registry is shared, so it can 
 
 The 9 echo failures likely stem from the OpenRouter provider routing to a model that doesn't handle the tool-call format well for those language/script combinations. Possible fixes:
 1. Use Anthropic direct (`LLM_PROVIDER=anthropic`) instead of OpenRouter for affected languages.
+   **Operator action required:** the current `ANTHROPIC_API_KEY` is not scoped to a workspace — the API returns 400. Fix: either add `ANTHROPIC_WORKSPACE_ID` to `supabase/functions/.env` or generate a workspace-scoped key. Once configured, Anthropic direct can serve as a fallback for the 9 echo-failure languages.
 2. Use a different OpenRouter model for the affected language pairs.
 3. Add per-language model overrides in the registry.
 4. Remove the tool-call wrapper and use plain text output with line-splitting.
