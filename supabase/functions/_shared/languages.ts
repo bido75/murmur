@@ -184,6 +184,64 @@ export const LANGUAGE_REGISTRY: LanguageEntry[] = [
   L("az", "Azerbaijani", "Latn", { native: "Azərbaycan" }),
   L("ht", "Haitian Creole", "Latn", { native: "Kreyòl Ayisyen", regions: ["HT"] }),
 
+  // --- Africa — additions from the worldwide coverage mandate ----------------
+  L("mnk", "Mandinka", "Latn", { regions: ["GM", "SN", "GN"] }),
+  L("kr", "Kanuri", "Arab", { regions: ["NG", "NE", "TD"] }),
+  L("kri", "Krio", "Latn", { regions: ["SL"] }),
+  L("men", "Mende", "Latn", { regions: ["SL"] }),
+  L("mas", "Maasai (Maa)", "Latn", { regions: ["KE", "TZ"] }),
+  L("ktu", "Kituba", "Latn", { regions: ["CD", "CG"] }),
+  L("ewo", "Ewondo", "Latn", { regions: ["CM"] }),
+  L("dua", "Duala", "Latn", { regions: ["CM"] }),
+  L("lol", "Mongo (Lomongo)", "Latn", { regions: ["CD"] }),
+  L("rif", "Tarifit", "Tfng", { regions: ["MA", "NL"] }),
+  L("mey", "Hassaniya Arabic", "Arab", { dir: "rtl", regions: ["MR", "EH"] }),
+  L("nso", "Sepedi (Northern Sotho)", "Latn", { regions: ["ZA"] }),
+  L("loz", "Lozi", "Latn", { regions: ["ZM", "NA"] }),
+
+  // --- Europe — additions -----------------------------------------------------
+  L("ga", "Irish", "Latn", { native: "Gaeilge", regions: ["IE"] }),
+  L("cy", "Welsh", "Latn", { native: "Cymraeg", regions: ["GB"] }),
+  L("eu", "Basque", "Latn", { native: "Euskara", regions: ["ES", "FR"] }),
+  L("ca", "Catalan", "Latn", { native: "Català", regions: ["ES", "AD", "FR"] }),
+  L("gl", "Galician", "Latn", { native: "Galego", regions: ["ES"] }),
+  L("mt", "Maltese", "Latn", { native: "Malti", regions: ["MT"] }),
+  L("rom", "Romani", "Latn", { regions: ["RO", "HU", "RS"] }),
+
+  // --- Asia — additions --------------------------------------------------------
+  L("yue", "Cantonese", "Hant", { native: "粵語", regions: ["HK", "MO", "CN"] }),
+  L("bo", "Tibetan", "Tibt", { native: "བོད་སྐད", regions: ["CN", "IN"] }),
+  L("sun", "Sundanese", "Latn", { native: "Basa Sunda" }),
+  L("ceb", "Cebuano", "Latn", { native: "Binisayâ", regions: ["PH"] }),
+  L("ky", "Kyrgyz", "Cyrl", { native: "Кыргыз" }),
+  L("tg", "Tajik", "Cyrl", { native: "Тоҷикӣ" }),
+  L("tk", "Turkmen", "Latn", { native: "Türkmen" }),
+  L("ug", "Uyghur", "Arab", { native: "ئۇيغۇر", dir: "rtl" }),
+
+  // --- Middle East — additions -------------------------------------------------
+  L("prs", "Dari", "Arab", { native: "دری", dir: "rtl", regions: ["AF"] }),
+  L("kmr", "Kurmanji", "Latn", { regions: ["TR", "SY", "IQ"] }),
+  L("ckb", "Sorani", "Arab", { native: "کوردی", dir: "rtl", regions: ["IQ", "IR"] }),
+  L("syc", "Syriac (Aramaic)", "Syrc", { dir: "rtl" }),
+  L("bal", "Balochi", "Arab", { dir: "rtl", regions: ["PK", "IR", "AF"] }),
+
+  // --- Americas, Caribbean and Oceania — additions ------------------------------
+  L("jam", "Jamaican Patois", "Latn", { regions: ["JM"] }),
+  L("qu", "Quechua", "Latn", { native: "Runa Simi", regions: ["PE", "BO", "EC"] }),
+  L("ay", "Aymara", "Latn", { regions: ["BO", "PE"] }),
+  L("gn", "Guarani", "Latn", { native: "Avañeʼẽ", regions: ["PY"] }),
+  L("nah", "Nahuatl", "Latn", { regions: ["MX"] }),
+  L("nv", "Navajo", "Latn", { regions: ["US"] }),
+  L("chr", "Cherokee", "Cher", { dir: "rtl", regions: ["US"] }),
+  L("iu", "Inuktitut", "Cans", { regions: ["CA"] }),
+  L("mi", "Māori", "Latn", { native: "te reo Māori", regions: ["NZ"] }),
+  L("sm", "Samoan", "Latn", { native: "Gagana Samoa", regions: ["WS"] }),
+  L("to", "Tongan", "Latn", { native: "lea fakatonga", regions: ["TO"] }),
+  L("fj", "Fijian", "Latn", { native: "Na Vosa Vakaviti", regions: ["FJ"] }),
+  L("haw", "Hawaiian", "Latn", { native: "ʻŌlelo Hawaiʻi", regions: ["US"] }),
+  L("tpi", "Tok Pisin", "Latn", { regions: ["PG"] }),
+  L("bi", "Bislama", "Latn", { regions: ["VU"] }),
+
   // --- Experimental tier: low-resource languages where an LLM can attempt
   // --- translation but quality is NOT established. UI must label these.
   L("dag", "Dagbani", "Latn", { translation: "llm-experimental", regions: ["GH"] }),
