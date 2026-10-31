@@ -102,7 +102,13 @@ for (const code of codes) {
   if (entry.translation === "llm-experimental") { console.log(`SKIP ${code}: experimental tier`); continue; }
   process.stdout.write(`${code} (${entry.name}) ... `);
   try {
-    const r = await translate(entry.name, SAMPLES);
+    let r = await translate(entry.name, SAMPLES);
+    // One retry: the provider occasionally echoes for no clear reason
+    // (proven transient — zh/hi/ja passed a subset run then echoed in the full run).
+    if (!r.ok && r.error === "untranslated echo (output identical to input)") {
+      console.log("echo, retrying...");
+      r = await translate(entry.name, SAMPLES);
+    }
     if (r.ok) {
       prev.results[code] = {
         name: entry.name, status: "verified", provider, model,
