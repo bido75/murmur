@@ -1531,6 +1531,678 @@
         "Tanpri voye rapò a anvan Friday.",
         "Nou te dakò pou revize bidjè a semenn pwochèn."
       ]
+    },
+    "mnk": {
+      "name": "Mandinka",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Lajiroo be daminandi suba karanta Friday.",
+      "all_lines": [
+        "Lajiroo be daminandi suba karanta Friday.",
+        "I ye rapoori kii Friday la a sani.",
+        "Ǹ bata ka bujee lajiri karanta ninsaata."
+      ]
+    },
+    "kr": {
+      "name": "Kanuri",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Taru kəmayé nine ǝshi lámana.",
+      "all_lines": [
+        "Taru kəmayé nine ǝshi lámana.",
+        "Don kato report nin Friday kamuwa.",
+        "Mu shiduwu don korto budget kəma bedi cindi."
+      ]
+    },
+    "kri": {
+      "name": "Krio",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Di miting de stat at nayn tumara mɔnin.",
+      "all_lines": [
+        "Di miting de stat at nayn tumara mɔnin.",
+        "Duya sɛn di ripɔt bay Friday.",
+        "Wi agri fɔ rivyu di bɔjɛt nɛks wik."
+      ]
+    },
+    "men": {
+      "name": "Mende",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Pọtọhun bi toya tọndọpọle kekeni nga nɔ yɛlɛma kɔnɔ.",
+      "all_lines": [
+        "Pọtọhun bi toya tọndọpọle kekeni nga nɔ yɛlɛma kɔnɔ.",
+        "Tao lɛpɔti bi kɛ i wulo Friday ma.",
+        "Mu nuwɛni bi mu yɛ badɛti yɛ gbi leeke ma jimaa gbi."
+      ]
+    },
+    "mas": {
+      "name": "Maasai (Maa)",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Enkutuk etii nabo isiet enkakinyai ataata.",
+      "all_lines": [
+        "Enkutuk etii nabo isiet enkakinyai ataata.",
+        "Intasuj enkarna takwenya Friday.",
+        "Etasat atamunou enkarna e budyet enkop enyena."
+      ]
+    },
+    "ktu": {
+      "name": "Kituba",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Lukutukanu kutalangwaka na 9 nsuka ya loba.",
+      "all_lines": [
+        "Lukutukanu kutalangwaka na 9 nsuka ya loba.",
+        "Tinda rappolo ya sika vendredi.",
+        "Tuvanana mpo na talisa budget na semeni wiza."
+      ]
+    },
+    "ewo": {
+      "name": "Ewondo",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Nkobô aza tê na Friday awôbô.",
+      "all_lines": [
+        "Nkobô aza tê na Friday awôbô.",
+        "Tóma ntôman na Friday.",
+        "Bísɔ́ngan bía bot-nkúkúma awu, be kébe yé mínsángá míngá mínkúkúma ya éwiri."
+      ]
+    },
+    "dua": {
+      "name": "Duala",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Lukumu lwa ndele dibɔ́ na dibua o suba.",
+      "all_lines": [
+        "Lukumu lwa ndele dibɔ́ na dibua o suba.",
+        "Toba toma lapɔtɛ mbele o Friday.",
+        "To sungwani to tala budyɛti o ndɔndɔ ya na kíní."
+      ]
+    },
+    "lol": {
+      "name": "Mongo (Lomongo)",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Likita ekobanda na libongá liyama ntɔ́ngɔ́.",
+      "all_lines": [
+        "Likita ekobanda na libongá liyama ntɔ́ngɔ́.",
+        "Tinda rapport liboso ya mokolo ya Friday.",
+        "Tondimaki kotala budget na pɔ́sɔ ekoya."
+      ]
+    },
+    "rif": {
+      "name": "Tarifit",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ujmaɛ ad ibdu deg tẓa n ṣṣbaḥ azekka.",
+      "all_lines": [
+        "Ujmaɛ ad ibdu deg tẓa n ṣṣbaḥ azekka.",
+        "Ttxil-k azen-d uneqqis qbel n Friday.",
+        "Nmyafaq ad nɛawed asenqed n uɣawas aseggas d-iteddun."
+      ]
+    },
+    "mey": {
+      "name": "Hassaniya Arabic",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "الاجتماع يبدا فـ تسعة الصبح غدوة.",
+      "all_lines": [
+        "الاجتماع يبدا فـ تسعة الصبح غدوة.",
+        "من فضلك ابعث التقرير قبل Friday.",
+        "اتفقنا نراجعو الميزانية الجمعة الجايّة."
+      ]
+    },
+    "nso": {
+      "name": "Sepedi (Northern Sotho)",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Kopano e thoma ka iri ya ye sobego gosasa mosong.",
+      "all_lines": [
+        "Kopano e thoma ka iri ya ye sobego gosasa mosong.",
+        "Hle romela pego ka Friday.",
+        "Re dumelelane go hlahloba tekanyetšo bekeng ye e latelago."
+      ]
+    },
+    "loz": {
+      "name": "Lozi",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Kopano i taha ka 9 kusisa ni mañoli.",
+      "all_lines": [
+        "Kopano i taha ka 9 kusisa ni mañoli.",
+        "Ka kupa u lumela lipego ka Friday.",
+        "Tu lumelelani ku tukuluxa budget ka wiki ye e taha."
+      ]
+    },
+    "ga": {
+      "name": "Irish",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Tosaíonn an cruinniú ar a naoi maidin amárach.",
+      "all_lines": [
+        "Tosaíonn an cruinniú ar a naoi maidin amárach.",
+        "Seol an tuairisc faoi Friday le do thoil.",
+        "D'aontaíomar an buiséad a athbhreithniú an tseachtain seo chugainn."
+      ]
+    },
+    "cy": {
+      "name": "Welsh",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Mae'r cyfarfod yn dechrau am naw fore yfory.",
+      "all_lines": [
+        "Mae'r cyfarfod yn dechrau am naw fore yfory.",
+        "Anfonwch yr adroddiad erbyn dydd Gwener os gwelwch yn dda.",
+        "Cytunasom i adolygu'r gyllideb yr wythnos nesaf."
+      ]
+    },
+    "eu": {
+      "name": "Basque",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Bilera bihar goizeko bederatziak hasiko da.",
+      "all_lines": [
+        "Bilera bihar goizeko bederatziak hasiko da.",
+        "Mesedez, bidali txostena ostiralera arte.",
+        "Aurrekontua datorren astean berrikustea adostu genuen."
+      ]
+    },
+    "ca": {
+      "name": "Catalan",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "La reunió comença demà a les nou del matí.",
+      "all_lines": [
+        "La reunió comença demà a les nou del matí.",
+        "Si us plau, envia l'informe abans de divendres.",
+        "Vam acordar revisar el pressupost la setmana vinent."
+      ]
+    },
+    "gl": {
+      "name": "Galician",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "A reunión comeza ás nove mañá pola mañá.",
+      "all_lines": [
+        "A reunión comeza ás nove mañá pola mañá.",
+        "Por favor, envía o informe antes do venres.",
+        "Acordamos revisar o orzamento a próxima semana."
+      ]
+    },
+    "mt": {
+      "name": "Maltese",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Il-laqgħa tibda fid-disgħa għada filgħodu.",
+      "all_lines": [
+        "Il-laqgħa tibda fid-disgħa għada filgħodu.",
+        "Jekk jogħġbok ibgħat ir-rapport sa Friday.",
+        "Qbilna li nirrevedu l-baġit il-ġimgħa d-dieħla."
+      ]
+    },
+    "rom": {
+      "name": "Romani",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "O miting kezdol ko enja tumencar de dumineata.",
+      "all_lines": [
+        "O miting kezdol ko enja tumencar de dumineata.",
+        "Te bisterel o raport kaj o Friday.",
+        "Ame sovagljam te dikhasa o budget o aver kurko."
+      ]
+    },
+    "yue": {
+      "name": "Cantonese",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "會議聽日朝早九點開始。",
+      "all_lines": [
+        "會議聽日朝早九點開始。",
+        "請喺Friday之前發送份報告。",
+        "我哋同意下星期檢討個預算。"
+      ]
+    },
+    "bo": {
+      "name": "Tibetan",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "འཚོགས་འདུ་སང་ཉིན་ཞོགས་པ་དགུ་ཐོག་འགོ་འཛུགས་རྒྱུ་ཡིན།",
+      "all_lines": [
+        "འཚོགས་འདུ་སང་ཉིན་ཞོགས་པ་དགུ་ཐོག་འགོ་འཛུགས་རྒྱུ་ཡིན།",
+        "གཟའ་པ་སངས་ཀྱི་ཡོད་རིང་རིལ་སྙན་ཐོང་གཏོང་རོགས།",
+        "ང་ཚོས་གཟའ་འཕྲོད་མ་གཡོག་ལས་དངུལ་འབབ་ཕྱོགས་ལ་བསྐྱར་ཞིབ་བྱེད་རྒྱུར་མོས་མཐུན་བྱུང་སོང་།"
+      ]
+    },
+    "sun": {
+      "name": "Sundanese",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Rapat dimimitian jam salapan isukan isuk.",
+      "all_lines": [
+        "Rapat dimimitian jam salapan isukan isuk.",
+        "Punten kirimkeun laporanna sateuacan Jumaah.",
+        "Urang sapuk pikeun marios anggaran minggu hareup."
+      ]
+    },
+    "ceb": {
+      "name": "Cebuano",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ang miting magsugod sa alas nuwebe ugma sa buntag.",
+      "all_lines": [
+        "Ang miting magsugod sa alas nuwebe ugma sa buntag.",
+        "Palihug ipadala ang report sa Friday.",
+        "Nag-uyon kami nga susihon ang budget sa sunod semana."
+      ]
+    },
+    "ky": {
+      "name": "Kyrgyz",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Жолугушуу эртең мененки саат тогузда башталат.",
+      "all_lines": [
+        "Жолугушуу эртең мененки саат тогузда башталат.",
+        "Отчетту Friday күнүнө чейин жөнөтүңүз.",
+        "Биз бюджетти келерки жумада карап чыгууга макулдук бердик."
+      ]
+    },
+    "tg": {
+      "name": "Tajik",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ҷаласа фардо соати нуҳи субҳ оғоз мешавад.",
+      "all_lines": [
+        "Ҷаласа фардо соати нуҳи субҳ оғоз мешавад.",
+        "Лутфан гузоришро то рӯзи ҷумъа фиристед.",
+        "Мо розӣ шудем, ки буҷаро ҳафтаи оянда баррасӣ кунем."
+      ]
+    },
+    "tk": {
+      "name": "Turkmen",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ertir irden sagat dokuzda ýygnanak başlaýar.",
+      "all_lines": [
+        "Ertir irden sagat dokuzda ýygnanak başlaýar.",
+        "Friday güni hasabaty iberiň.",
+        "Indiki hepde býudžeti gözden geçirmäge razy bolduk."
+      ]
+    },
+    "ug": {
+      "name": "Uyghur",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "يىغىن ئەتە ئەتىگەن سائەت توققۇزدا باشلىنىدۇ.",
+      "all_lines": [
+        "يىغىن ئەتە ئەتىگەن سائەت توققۇزدا باشلىنىدۇ.",
+        "جۈمە كۈنىگىچە دوكلاتنى ئەۋەتىڭ.",
+        "بىز كېيىنكى ھەپتە بيۇجېتنى تەكشۈرۈشكە كېلىشتۇق."
+      ]
+    },
+    "prs": {
+      "name": "Dari",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "جلسه فردا ساعت نه صبح شروع می‌شود.",
+      "all_lines": [
+        "جلسه فردا ساعت نه صبح شروع می‌شود.",
+        "لطفاً گزارش را تا روز جمعه ارسال کنید.",
+        "ما توافق کردیم که بودجه را هفته آینده بررسی کنیم."
+      ]
+    },
+    "kmr": {
+      "name": "Kurmanji",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Civîn sibê sibehê di neh de dest pê dike.",
+      "all_lines": [
+        "Civîn sibê sibehê di neh de dest pê dike.",
+        "Ji kerema xwe rapor heta Friday bişîne.",
+        "Em lihev kirin ku hefteya din buçeyê binirxînin."
+      ]
+    },
+    "ckb": {
+      "name": "Sorani",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "کۆبوونەوەکە لە کاتژمێر ۹ ی بەیانی سبەینێ دەست پێدەکات.",
+      "all_lines": [
+        "کۆبوونەوەکە لە کاتژمێر ۹ ی بەیانی سبەینێ دەست پێدەکات.",
+        "تکایە ڕاپۆرتەکە لە پێش Friday بنێرە.",
+        "ئێمە ڕێککەوتین کە بودجەکە لە هەفتەی داهاتوو پێداچوونەوە بکەین."
+      ]
+    },
+    "syc": {
+      "name": "Syriac (Aramaic)",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "ܟܢܘܫܝܐ ܡܫܪܐ ܒܬܫܥ ܨܦܪܐ ܡܚܪ.",
+      "all_lines": [
+        "ܟܢܘܫܝܐ ܡܫܪܐ ܒܬܫܥ ܨܦܪܐ ܡܚܪ.",
+        "ܒܒܥܘ ܫܕܪ ܬܚܘܝܬܐ ܥܕܡܐ ܠܥܪܘܒܬܐ.",
+        "ܐܬܚܣܝܢܢ ܕܢܚܘܪ ܡܨܥܬܐ ܒܫܒܬܐ ܕܐܬܝܐ."
+      ]
+    },
+    "bal": {
+      "name": "Balochi",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "جلسه سبا صبح نه وختا شروع بیت۔",
+      "all_lines": [
+        "جلسه سبا صبح نه وختا شروع بیت۔",
+        "مہربانی کرت گزارش Friday تا بجوڑ کنیت۔",
+        "ما اگلا ہفتہ بجٹ آں بازبینی کنگ اے اتفاق کرتگ۔"
+      ]
+    },
+    "jam": {
+      "name": "Jamaican Patois",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Di meeting start at nine tomorrow mawning.",
+      "all_lines": [
+        "Di meeting start at nine tomorrow mawning.",
+        "Please sen di report by Friday.",
+        "Wi agree fi review di budget next week."
+      ]
+    },
+    "qu": {
+      "name": "Quechua",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Huñunakuyqa qallarinqa isqun horaspi paqarin tutamanta.",
+      "all_lines": [
+        "Huñunakuyqa qallarinqa isqun horaspi paqarin tutamanta.",
+        "Ama hina kaspa reporteta kachamuychik viernes p'unchawkama.",
+        "Yuyarisqanchikmi qaraykunata qhawarinapaq hamuq semanapi."
+      ]
+    },
+    "ay": {
+      "name": "Aymara",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Tantachawix Friday uru qallarnaqani alwamant suxta t'unk'apan.",
+      "all_lines": [
+        "Tantachawix Friday uru qallarnaqani alwamant suxta t'unk'apan.",
+        "Friday uru yatiyawinaka apayañama.",
+        "Jutir simanan qullqi uñjasiñatakix amtasiñäni."
+      ]
+    },
+    "gn": {
+      "name": "Guarani",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Pe ñembyaty oñepyrũ nueve aja ko'ẽrõ pyhareve.",
+      "all_lines": [
+        "Pe ñembyaty oñepyrũ nueve aja ko'ẽrõ pyhareve.",
+        "Emond pe informe viernes peve.",
+        "Ñañemoinge jajehecha jey pe presupuesto uperire semana-pe."
+      ]
+    },
+    "nah": {
+      "name": "Nahuatl",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "In centlaliliztli pehua ica chicnahui moztla tlanextli.",
+      "all_lines": [
+        "In centlaliliztli pehua ica chicnahui moztla tlanextli.",
+        "Ximotlatlauhtili ma tihualtitlani in amoxtli ipan Friday.",
+        "Tictlalihqueh ma tiquittazqueh in tomin ica huiptla tonaltzintli."
+      ]
+    },
+    "nv": {
+      "name": "Navajo",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ałníígóó yiskąągo náhookǫsígíí góne' ahá'ní'ą́ą́' yidloh.",
+      "all_lines": [
+        "Ałníígóó yiskąągo náhookǫsígíí góne' ahá'ní'ą́ą́' yidloh.",
+        "Friday jį́į́dą́ą́' naaltsoos éí yích'į' ninádahólne'.",
+        "Damíigo yá'át'ééhígíí góne' béeso naalkaah nídaniidzá doo ndi t'áá anííhii'ní."
+      ]
+    },
+    "chr": {
+      "name": "Cherokee",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "ᎠᏓᏁᏟᎢ ᎠᏟᎶᏍᏗ ᏌᏉ ᏧᏒᎯᏌᏅᎯ ᏦᎾᏉᎶᏗᏍᎬ.",
+      "all_lines": [
+        "ᎠᏓᏁᏟᎢ ᎠᏟᎶᏍᏗ ᏌᏉ ᏧᏒᎯᏌᏅᎯ ᏦᎾᏉᎶᏗᏍᎬ.",
+        "ᎾᏍᎩ ᎠᎴᏂᏙᎲᏍᎩ ᎠᏓᏅᏖᏗ ᎤᎾᏓᏅᏛ Friday.",
+        "ᎢᏯᏛᏁᏗ ᎠᏂᏔᎴᏅᎩ ᏗᏓᎴᏂᏙᎲᏍᏙᏗ ᏀᎾᎢ ᎢᏳᏍᏗ ᏒᎾᏙᏓᏆᏍᎬᎢ."
+      ]
+    },
+    "iu": {
+      "name": "Inuktitut",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Katititsijunik ukiuqtaqtut 9-mi uvlaup kitani.",
+      "all_lines": [
+        "Katititsijunik ukiuqtaqtut 9-mi uvlaup kitani.",
+        "Kangirsimavit tusaalautiup Friday-mi sitiviannut.",
+        "Ilittuqsimaarluta qiirunut qaujivaksat naalagaavut naataqmi."
+      ]
+    },
+    "mi": {
+      "name": "Māori",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ka tīmata te hui i te iwa i te ata āpōpō.",
+      "all_lines": [
+        "Ka tīmata te hui i te iwa i te ata āpōpō.",
+        "Tēnā tukuna te pūrongo i mua i te Friday.",
+        "I whakaae mātou ki te arotake i te pūtea i te wiki e tū mai nei."
+      ]
+    },
+    "sm": {
+      "name": "Samoan",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "O le a amata le fonotaga i le iva i taeao i le taeao.",
+      "all_lines": [
+        "O le a amata le fonotaga i le iva i taeao i le taeao.",
+        "Fa'amolemole auina atu le lipoti i le Friday.",
+        "Sa ma malie e toe iloilo le paketi i le vaiaso fou."
+      ]
+    },
+    "to": {
+      "name": "Tongan",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Ko e feilaulau 'oku kamata 'i he hiva 'o e pongipongi 'apongipongi.",
+      "all_lines": [
+        "Ko e feilaulau 'oku kamata 'i he hiva 'o e pongipongi 'apongipongi.",
+        "Kataki 'o fekau'i 'ae lipoti 'i he Friday.",
+        "Na'a mau fakakaukau ke toe vakaia 'a e paketi 'i he uike ka hoko mai."
+      ]
+    },
+    "fj": {
+      "name": "Fijian",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "E qase na veimataleti e ciwa e na mataka ni bogi.",
+      "all_lines": [
+        "E qase na veimataleti e ciwa e na mataka ni bogi.",
+        "Yalovinaka vakamocea na ripooti e na Friday.",
+        "Keirau a sema mo vakadewataka na badijeti na macawa mai muri."
+      ]
+    },
+    "haw": {
+      "name": "Hawaiian",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Hoʻomaka ka hālāwai i ka hora ʻeiwa i kakahiaka ʻapōpō.",
+      "all_lines": [
+        "Hoʻomaka ka hālāwai i ka hora ʻeiwa i kakahiaka ʻapōpō.",
+        "E ʻoluʻolu e hoʻouna i ka hōʻike ma mua o Friday.",
+        "Ua ʻae mākou e nānā hou i ka pukulapā i ka pule aʻe."
+      ]
+    },
+    "tpi": {
+      "name": "Tok Pisin",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Bung i stat long nain tomora long moningtaim.",
+      "all_lines": [
+        "Bung i stat long nain tomora long moningtaim.",
+        "Plis salim ripot inap long Friday.",
+        "Yumi bin agri long luklukim baset long neks wik."
+      ]
+    },
+    "bi": {
+      "name": "Bislama",
+      "status": "verified",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-4.5",
+      "date": "2026-10-31",
+      "sample_in": "The meeting starts at nine tomorrow morning.",
+      "sample_out": "Miting bae i stat long naen long tomoro long moning.",
+      "all_lines": [
+        "Miting bae i stat long naen long tomoro long moning.",
+        "Plis yu sendem ripot bifo Friday.",
+        "Yumi bin agri blong riviu bajet long neks wik."
+      ]
     }
   }
 }
