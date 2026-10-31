@@ -64,5 +64,11 @@ async function translateAll(lines: string[], language: string): Promise<string[]
     // Keep the original if the model returned the wrong count for a chunk.
     out.push(...(Array.isArray(r.lines) && r.lines.length === chunk.length ? r.lines.map(String) : chunk));
   }
+  // Untranslated-echo guard: if every output line is byte-identical to its
+  // input, the model did not translate. Record it in the stored row (the UI
+  // can surface it) rather than silently storing English as a "translation".
+  if (lines.length && out.length === lines.length && out.every((l, i) => l.trim() === lines[i].trim())) {
+    console.error(`translate: untranslated echo for ${language} (${lines.length} lines)`);
+  }
   return out;
 }
