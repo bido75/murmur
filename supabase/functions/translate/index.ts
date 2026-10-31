@@ -65,10 +65,11 @@ async function translateAll(lines: string[], language: string): Promise<string[]
     out.push(...(Array.isArray(r.lines) && r.lines.length === chunk.length ? r.lines.map(String) : chunk));
   }
   // Untranslated-echo guard: if every output line is byte-identical to its
-  // input, the model did not translate. Record it in the stored row (the UI
-  // can surface it) rather than silently storing English as a "translation".
+  // input, the model did not translate. Surface an error to the client rather
+  // than silently storing English as a "translation" in a foreign-language label.
   if (lines.length && out.length === lines.length && out.every((l, i) => l.trim() === lines[i].trim())) {
-    console.error(`translate: untranslated echo for ${language} (${lines.length} lines)`);
+    throw new HttpError(502,
+      `The translation provider returned the original text for ${language}. It may not support this language. Please try again later.`);
   }
   return out;
 }
