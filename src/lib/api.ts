@@ -1075,8 +1075,22 @@ async function callFn<T>(
         const j = await ctx.json();
         if (j?.error) throw new Error(j.error);
       } catch (inner) {
+        // A JSON parse error here means the server returned non-JSON (timeout,
+        // crash, gateway error). Give the user something useful instead of the
+        // raw parser message.
+        if (inner instanceof Error && /JSON Parse error|Unexpected/i.test(inner.message)) {
+          throw new Error(
+            `The ${name} service returned an unexpected response. Please try again.`,
+          );
+        }
         if (inner instanceof Error && inner.message) throw inner;
       }
+    }
+    // The supabase-js error message may also carry a raw parse error.
+    if (/JSON Parse error|Unexpected/i.test(error.message)) {
+      throw new Error(
+        `The ${name} service returned an unexpected response. Please try again.`,
+      );
     }
     throw new Error(error.message);
   }
@@ -1517,11 +1531,13 @@ export function exportNotes(
   recordingId: string,
   destination: Destination,
   emails: string[] = [],
+  lang?: string,
 ) {
   return callFn<ExportResult>("export", {
     recording_id: recordingId,
     destination,
     emails,
+    ...(lang ? { lang } : {}),
   });
 }
 

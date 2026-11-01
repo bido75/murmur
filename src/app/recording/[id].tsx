@@ -453,7 +453,9 @@ export default function RecordingDetail() {
   async function sendNotes(recId: string, d: Destination) {
     const run = async (emails: string[] = []) => {
       try {
-        const r = await exportNotes(recId, d, emails);
+        // Pass the translation language so the export contains the translated
+        // content when one is active; the original English is used otherwise.
+        const r = await exportNotes(recId, d, emails, translation?.lang);
         const where = PROVIDER_LABELS[d];
         const extra =
           d === "slack" && r.channel
