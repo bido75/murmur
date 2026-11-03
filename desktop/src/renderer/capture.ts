@@ -69,6 +69,25 @@ export class Capture {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
 
+    // Probe what the browser can see before asking for permission.
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const inputs = list.filter((d) => d.kind === "audioinput");
+      if (inputs.length === 0) {
+        const ua = navigator.userAgent;
+        const os = ua.includes("Windows")
+          ? "Check Windows Settings → Privacy → Microphone → allow desktop apps to access your microphone."
+          : ua.includes("Mac")
+            ? "Check System Settings → Privacy & Security → Microphone."
+            : "Check your operating system's microphone settings.";
+        throw new Error(
+          "No microphone was found. " + os,
+        );
+      }
+    } catch (e) {
+      // Re-throw our own error; let other errors fall through to getUserMedia.
+      if ((e as Error).message?.includes("No microphone")) throw e;
+    }
     const mic = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
