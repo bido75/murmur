@@ -22,6 +22,31 @@
 | `ffmpeg.dll` present | ✅ PASS | Chromium media codec support |
 | No dev server dependency | ✅ PASS | standalone install, no Metro connection needed |
 
+## P0 crash fix verification (2026-11-03)
+
+The first installer crashed on launch:
+
+```
+TypeError: Cannot destructure property 'autoUpdater'
+of 'import_electron_updater.default' as it is undefined.
+```
+
+Root cause: `electron-updater` v6.8.11 has NO default export — the default import resolved to `undefined` in the esbuild-bundled CJS output.
+
+Fix (commit `d84aa79`): named import `{ autoUpdater }` from `electron-updater` + added to esbuild externals.
+
+| Test | Status |
+|---|---|
+| Fixed installer built | ✅ 127.3 MB |
+| Fixed installer SHA-256 | ✅ `D2A008A88D8C0F303AD309336518ACD8D6F4AA87336C2A8116B7E6D899654B14` |
+| Old version uninstalled | ✅ |
+| Fixed version installed (silent /S) | ✅ |
+| App launched (smoke test) | ✅ **exit code 0, no crash** |
+| Screenshot captured | ✅ 639×915 |
+| Process exited cleanly | ✅ exit 0 |
+
+The P0 startup crash is **FIXED**. The installed application launches without a main-process JavaScript exception.
+
 ## NOT TESTED on this machine
 
 | Test | Reason |
