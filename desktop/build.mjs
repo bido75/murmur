@@ -23,7 +23,7 @@ const define = {
 mkdirSync('dist/renderer', { recursive: true });
 // The ONNX runtime is a native module: it is loaded at run time from node_modules, not
 // bundled, so its binaries are packaged as they are.
-const external = ['electron', 'onnxruntime-node'];
+const external = ['electron', 'onnxruntime-node', 'electron-updater'];
 await build({ entryPoints: ['src/main/main.ts'], outfile: 'dist/main.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external });
 await build({ entryPoints: ['src/main/preload.ts'], outfile: 'dist/preload.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external });
 await build({ entryPoints: ['src/main/overlayPreload.ts'], outfile: 'dist/overlayPreload.js', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external });

@@ -1,10 +1,12 @@
 // The file side of update checking, wired but dormant by default (see the pure
 // logic in updater.ts and the conditions in docs/desktop-v2/distribution/06).
 import { app } from "electron";
-import electronUpdater from "electron-updater";
+// electron-updater v6.x has NO default export — autoUpdater is a named export.
+// A default import (`import electronUpdater from "electron-updater"`) resolves to
+// undefined in the esbuild-bundled CJS output, crashing the main process on
+// startup (P0: the installed Windows app could not launch).
+import { autoUpdater } from "electron-updater";
 import { channelOf, isNewerVersion, updatesEnabled, type UpdateChannel } from "./updater";
-
-const { autoUpdater } = electronUpdater;
 
 export type UpdateStatus = {
   enabled: boolean;
