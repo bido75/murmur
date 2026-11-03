@@ -565,6 +565,7 @@ function homeView(): Child[] {
   const canRecord = Boolean(f.consent);
 
   return [
+    state.error && h("div", { class: "banner" }, state.error),
     h(
       "div",
       { class: "item" },
@@ -712,9 +713,16 @@ function homeView(): Child[] {
         class: "record",
         disabled: !canRecord || state.busy,
         onclick: () => void startRecording(),
+        "aria-describedby": canRecord ? undefined : "record-disabled-reason",
       },
-      "● Record",
+      state.busy ? "Starting…" : "● Record",
     ),
+    !canRecord &&
+      h(
+        "p",
+        { class: "muted", id: "record-disabled-reason" },
+        "Select how you told people you're recording (above), then press Record.",
+      ),
     ...speechPanel(render),
     h(
       "button",
