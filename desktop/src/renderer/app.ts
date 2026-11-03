@@ -163,7 +163,9 @@ async function loadServerPrefs() {
   const row = (data ?? null) as Partial<ServerPrefs> | null;
   const local = await bridge().settingsGet();
   appSettings = applyServerPrefs(local, row);
-  await bridge().settingsSet({ ...appSettings });
+  // validatePatch rejects unknown keys; version is bookkeeping, not a patch field.
+  const { version: _version, ...patchable } = appSettings;
+  await bridge().settingsSet(patchable);
   lastSyncedRow = row;
   state.form.template = effectiveDefaultType(appSettings);
   render();
@@ -942,7 +944,11 @@ async function startRecording() {
     if (appSettings.floatingControls) await bridge().floatingShow();
   } catch (e) {
     state.error = (e as Error).message;
+    // The mic may already be live; releasing it here keeps a failed start from
+    // holding the device (and the red "in use" state) hostage.
+    const dead = capture;
     capture = null;
+    if (dead) void dead.stop().catch(() => {});
   } finally {
     state.busy = false;
     render();
@@ -1196,6 +1202,8 @@ async function goHome() {
 async function selfTest() {
   const id = uuid();
   const segments: { idx: number; ext: string; durationMs: number }[] = [];
+  const say = (stage: string) => console.error(`selftest stage ${stage}`);
+  say(`begin ${id}`);
   const cap = new Capture(id, {
     onSegment: async (s) => {
       segments.push(s);
@@ -1203,8 +1211,11 @@ async function selfTest() {
     onWarning: () => {},
     onLevel: () => {},
   });
+  say("start");
   await cap.start(false);
+  say("started");
   await new Promise((r) => setTimeout(r, 6000));
+  say("recorded-6s");
   const active = (await bridge().activeGet()) as {
     recordingId: string;
     idx: number;
@@ -1213,7 +1224,9 @@ async function selfTest() {
   const midSize = active
     ? await bridge().fileSize(active.recordingId, active.idx, active.ext)
     : -1;
+  say("stopping");
   const total = await cap.stop();
+  say("stopped");
   const size = segments[0]
     ? await bridge().fileSize(id, segments[0].idx, segments[0].ext)
     : -1;

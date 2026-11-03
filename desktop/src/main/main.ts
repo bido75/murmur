@@ -631,19 +631,24 @@ function createWindow() {
   if (win) dictation = new Dictation(win);
   registerDictationIpc();
   if (process.env.MURMUR_SELFTEST) {
-    win.webContents.on("console-message", (_e, _level, message) => {
-      if (message.startsWith("SELFTEST")) {
-        console.log(message);
-        app.exit(0);
-      }
-    });
+    win.webContents.on(
+      "console-message",
+      (_e: unknown, level: unknown, message: unknown) => {
+        console.log(`[renderer:${level}] ${message}`);
+        if (typeof message === "string" && message.startsWith("SELFTEST"))
+          app.exit(0);
+      },
+    );
   }
   // Test hook (CI smoke test): screenshot the first screen, report page errors, then quit.
   const shot = process.env.MURMUR_SMOKE_SHOT;
   if (shot) {
-    win.webContents.on("console-message", (_e, level, message) => {
-      if (level >= 2) console.log("[renderer]", message);
-    });
+    win.webContents.on(
+      "console-message",
+      (_e: unknown, level: unknown, message: unknown) => {
+        if (typeof level === "number" && level >= 2) console.log("[renderer]", message);
+      },
+    );
     win.webContents.once("did-finish-load", () => {
       setTimeout(async () => {
         const img = await win!.webContents.capturePage();

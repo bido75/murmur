@@ -53,13 +53,42 @@ export class Capture {
     private local = false,
   ) {}
 
+  /** Reject instead of hanging forever when the OS audio stack never answers
+   *  (broken/disabled sound devices leave getUserMedia unresolved). */
+  private async bounded<T>(stage: string, ms: number, p: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${stage} did not respond within ${Math.round(ms / 1000)} s. ` +
+                "Check your microphone in Windows Settings → Sound, then try again.",
+            ),
+          ),
+        ms,
+      );
+    });
+    try {
+      return await Promise.race([p, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** withScreen: also record the screen (video kept for playback; audio is transcribed as usual). */
   async start(withSystemAudio: boolean, withScreen = false) {
-    if (!(await bridge().micPermission()))
+    // One sanitized diagnostic identifier per attempt; each stage logs next to it.
+    const trace = (stage: string) =>
+      console.debug("murmur-capture", this.recordingId, stage);
+    trace("start");
+    if (!(await this.bounded("Microphone permission check", 5_000, bridge().micPermission())))
       throw new Error(
         "Microphone access is off. Allow it in your system settings.",
       );
+    trace("permission-ok");
     this.ctx = new AudioContext({ sampleRate: 48000 });
+    trace("context-created");
     this.dest = this.ctx.createMediaStreamDestination();
     this.dest.channelCount = 2;
     this.merger = this.ctx.createChannelMerger(2);
@@ -71,7 +100,12 @@ export class Capture {
 
     // Probe what the browser can see before asking for permission.
     try {
-      const list = await navigator.mediaDevices.enumerateDevices();
+      const list = await this.bounded(
+        "Listing audio devices",
+        10_000,
+        navigator.mediaDevices.enumerateDevices(),
+      );
+      trace("devices-probed");
       const inputs = list.filter((d) => d.kind === "audioinput");
       if (inputs.length === 0) {
         const ua = navigator.userAgent;
@@ -88,13 +122,18 @@ export class Capture {
       // Re-throw our own error; let other errors fall through to getUserMedia.
       if ((e as Error).message?.includes("No microphone")) throw e;
     }
-    const mic = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    const mic = await this.bounded(
+      "Opening the microphone",
+      20_000,
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      }),
+    );
+    trace("mic-open");
     this.inputs.push(mic);
     const micSrc = this.ctx.createMediaStreamSource(mic);
     this.route(micSrc, 0);
@@ -105,16 +144,21 @@ export class Capture {
       await this.addSystemAudio();
 
     await this.openSegment();
+    trace("segment-open");
     this.timers.push(window.setInterval(() => this.tick(), 500));
   }
 
   /** One screen-picker prompt gives the video and, on Windows, the computer audio too. */
   private async addScreen(withSystemAudio: boolean) {
     const { platform } = await bridge().info();
-    const s = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 15 },
-      audio: withSystemAudio && platform === "win32",
-    });
+    const s = await this.bounded(
+      "Screen capture",
+      120_000,
+      navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 15 },
+        audio: withSystemAudio && platform === "win32",
+      }),
+    );
     const v = s.getVideoTracks()[0];
     if (!v) throw new Error("No screen was shared.");
     this.video = v;
@@ -137,10 +181,14 @@ export class Capture {
     try {
       if (platform === "win32") {
         // Main process answers with the screen + "loopback" (system) audio; we drop the video.
-        const s = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true,
-        });
+        const s = await this.bounded(
+          "Computer audio capture",
+          60_000,
+          navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true,
+          }),
+        );
         s.getVideoTracks().forEach((t) => t.stop());
         if (!s.getAudioTracks().length)
           throw new Error("No system audio track");
@@ -212,7 +260,11 @@ export class Capture {
 
   private async openSegment() {
     this.segIdx += 1;
-    await bridge().segmentOpen(this.recordingId, this.segIdx, EXT);
+    await this.bounded(
+      "Preparing the recording file",
+      10_000,
+      bridge().segmentOpen(this.recordingId, this.segIdx, EXT),
+    );
     this.segActiveMs = 0;
     this.segResumedAt = Date.now();
     await bridge().activeSet({
