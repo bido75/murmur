@@ -108,6 +108,10 @@ export class Capture {
       trace("devices-probed");
       const inputs = list.filter((d) => d.kind === "audioinput");
       if (inputs.length === 0) {
+        console.error(
+          "murmur-capture device-dump",
+          JSON.stringify(list.map((d) => ({ kind: d.kind, id: d.deviceId, label: d.label }))),
+        );
         const ua = navigator.userAgent;
         const os = ua.includes("Windows")
           ? "Check Windows Settings → Privacy → Microphone → allow desktop apps to access your microphone."
