@@ -61,8 +61,18 @@ async function translateAll(lines: string[], language: string): Promise<string[]
   const out: string[] = [];
   for (const chunk of chunkLines(lines)) {
     const r = await llmStructured<{ lines: string[] }>(translateSystem(language), [{ role: 'user', content: JSON.stringify(chunk) }], TRANSLATE_TOOL);
+    // Some models return a bare JSON array instead of the expected {lines: [...]}
+    // object shape. Accept both: if r is itself an array, use it directly.
+    const translated = Array.isArray(r) ? r : (r as { lines?: string[] })?.lines;
     // Keep the original if the model returned the wrong count for a chunk.
-    out.push(...(Array.isArray(r.lines) && r.lines.length === chunk.length ? r.lines.map(String) : chunk));
+    out.push(...(Array.isArray(translated) && translated.length === chunk.length ? translated.map(String) : chunk));
+  }
+  // Untranslated-echo guard: if every output line is byte-identical to its
+  // input, the model did not translate. Surface an error to the client rather
+  // than silently storing English as a "translation" in a foreign-language label.
+  if (lines.length && out.length === lines.length && out.every((l, i) => l.trim() === lines[i].trim())) {
+    throw new HttpError(502,
+      `The translation provider returned the original text for ${language}. It may not support this language. Please try again later.`);
   }
   return out;
 }

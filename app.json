@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.example.murmur"
+      "package": "com.giscop.murmur"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -53,6 +53,11 @@
     "scheme": "murmur",
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c0a97185-7794-48e9-8be9-e89734f1c9f0"
+      }
     }
   }
 }

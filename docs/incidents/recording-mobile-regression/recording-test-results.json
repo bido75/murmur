@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-30",
+  "web": {
+    "permissions_policy": {
+      "before": "camera=(), microphone=(), geolocation=(self), payment=()",
+      "after": "camera=(), microphone=(self), geolocation=(self), payment=()",
+      "verified_live": true
+    },
+    "other_headers": "HSTS/nosniff/DENY/referrer/CSP-report-only unchanged",
+    "bundle": "unchanged (server-header fix only)"
+  },
+  "tests": {
+    "desktop_unit": { "pass": 160, "fail": 0, "skipped": 2 },
+    "deno_functions": { "pass": 192, "fail": 0 },
+    "zapier": { "pass": 2, "fail": 0 },
+    "security_headers_regression": { "pass": 4, "fail": 0 },
+    "expo_doctor": "20/20 (after react-native 0.88.0 -> 0.88.1)"
+  },
+  "real_device": {
+    "android_chrome_recording": "PENDING-USER",
+    "desktop_browser_recording": "PENDING-USER",
+    "expo_dev_build": "BLOCKED (eas-cli login)",
+    "preview_apk_hardware_suite": "BLOCKED (EAS build + device)"
+  }
+}

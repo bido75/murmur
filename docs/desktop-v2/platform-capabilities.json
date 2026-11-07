@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-29",
+  "platforms": {
+    "windows": {
+      "versions": "10/11 x64 (Electron 44)",
+      "microphone": "IMPLEMENTED BUT NOT LIVE-TESTED",
+      "system_audio_loopback": "IMPLEMENTED BUT NOT LIVE-TESTED (getDisplayMedia loopback via setDisplayMediaRequestHandler)",
+      "screen_recording": "IMPLEMENTED BUT NOT LIVE-TESTED",
+      "dictation_insertion": "IMPLEMENTED (clipboard/paste/type; per-app caveats documented)",
+      "onnx_local_transcription": "IMPLEMENTED BUT NOT LIVE-TESTED",
+      "packaging": "NSIS configured, unsigned (BLOCKED: certificate)",
+      "ci": "windows-latest lane green"
+    },
+    "macos": {
+      "versions": "13+ (arm64/Intel)",
+      "microphone": "IMPLEMENTED BUT NOT LIVE-TESTED (TCC prompt via askForMediaAccess)",
+      "system_audio_loopback": "IMPLEMENTED BUT NOT LIVE-TESTED (ScreenCaptureKit helper, float32 48kHz stdout; TCC permission flow)",
+      "screen_recording": "IMPLEMENTED BUT NOT LIVE-TESTED",
+      "dictation_insertion": "IMPLEMENTED (same three methods)",
+      "onnx_local_transcription": "IMPLEMENTED BUT NOT LIVE-TESTED",
+      "packaging": "dmg+zip, hardened runtime + entitlements configured; notarization BLOCKED (Apple ID)",
+      "ci": "macos-latest lane"
+    },
+    "linux": {
+      "microphone": "UNTESTED (Chromium supports it; no Linux hardware available)",
+      "system_audio_loopback": "UNSUPPORTED (no PipeWire/PulseAudio path; UI does not offer it)",
+      "packaging": "DEFERRED by operator decision",
+      "note": "No broken controls shipped for unsupported features"
+    }
+  },
+  "shared_notes": [
+    "Mic and system audio mix on one Web Audio graph timeline (48kHz AudioContext), not concatenated streams",
+    "Drift over long recordings not measured (needs hardware) - recorded gap",
+    "Device-selection UI beyond default devices is Phase 7+ work"
+  ]
+}

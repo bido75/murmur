@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
+    "electron-updater": "^6.8.11",
     "onnxruntime-node": "^1.30.0"
   }
 }
