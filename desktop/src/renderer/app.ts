@@ -992,21 +992,32 @@ async function stopRecording() {
   stopLive?.();
   stopLive = null;
   const id = recordingId;
-  const total = await capture.stop();
-  await enqueue(
-    speech.local
-      ? { kind: "local_finalize", recordingId: id, durationMs: total }
-      : { kind: "finalize", recordingId: id, durationMs: total },
-  );
+  let total = 0;
+  try {
+    total = await capture.stop();
+  } catch (e) {
+    state.error = `Stopping failed: ${(e as Error).message}`;
+  }
+  // Finalize (transcribe) even if stop() partly failed, so the audio we did
+  // capture is still processed; never let a failure keep the app in "recording".
+  try {
+    await enqueue(
+      speech.local
+        ? { kind: "local_finalize", recordingId: id, durationMs: total }
+        : { kind: "finalize", recordingId: id, durationMs: total },
+    );
+  } catch (e) {
+    state.error = `Finalizing failed: ${(e as Error).message}`;
+  }
   capture = null;
   recordingId = null;
   state.view = "home";
   state.warning = null;
   state.form.title = "";
   state.form.consent = "";
-  await bridge().setRecording(false);
-  await bridge().floatingHide();
   render();
+  void bridge().setRecording(false).catch(() => {});
+  void bridge().floatingHide().catch(() => {});
   void refresh();
 }
 

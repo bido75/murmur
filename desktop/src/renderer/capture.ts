@@ -323,11 +323,24 @@ export class Capture {
     const rec = this.recorder;
     if (!rec) return;
     const durationMs = this.segmentMs();
-    await new Promise<void>((resolve) => {
-      rec.onstop = () => resolve();
-      rec.stop();
-    });
-    await this.writes;
+    try {
+      if (rec.state === "recording" || rec.state === "paused") {
+        await new Promise<void>((resolve) => {
+          rec.onstop = () => resolve();
+          try {
+            rec.stop();
+          } catch {
+            resolve();
+          }
+          // Never wait forever on the recorder: a stuck MediaRecorder must not
+          // keep the app in "recording" mode.
+          setTimeout(resolve, 5_000);
+        });
+      }
+    } catch {
+      // Recorder already stopped/errored — carry on with what we captured.
+    }
+    await this.writes.catch(() => {});
     this.recorder = null;
     // Where this part starts on the recording's own timeline, before the total moves on.
     const offsetMs = this.doneMs;
@@ -399,11 +412,14 @@ export class Capture {
     this.timers.forEach((t) => clearInterval(t));
     this.timers = [];
     await this.closeSegment();
-    await bridge().macAudioStop();
+    await bridge().macAudioStop().catch(() => {});
     this.offMac?.();
     this.inputs.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-    await this.ctx?.close();
-    await bridge().activeSet(null);
+    if (this.ctx)
+      await this.bounded("Closing the audio engine", 5_000, this.ctx.close()).catch(
+        () => {},
+      );
+    await bridge().activeSet(null).catch(() => {});
     return this.doneMs;
   }
 }
