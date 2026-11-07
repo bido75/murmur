@@ -112,15 +112,27 @@ export class Capture {
           "murmur-capture device-dump",
           JSON.stringify(list.map((d) => ({ kind: d.kind, id: d.deviceId, label: d.label }))),
         );
-        const ua = navigator.userAgent;
-        const os = ua.includes("Windows")
-          ? "Check Windows Settings → Privacy → Microphone → allow desktop apps to access your microphone."
-          : ua.includes("Mac")
-            ? "Check System Settings → Privacy & Security → Microphone."
-            : "Check your operating system's microphone settings.";
-        throw new Error(
-          "No microphone was found. " + os,
-        );
+        const hasCamera = list.some((d) => d.kind === "videoinput");
+        const outputs = list.filter((d) => d.kind === "audiooutput");
+        const remoteOnly =
+          outputs.length > 0 && outputs.every((d) => /remote/i.test(d.label));
+        // Give a specific, actionable hint instead of a generic "no microphone".
+        let hint: string;
+        if (hasCamera && remoteOnly) {
+          hint =
+            "This looks like a Remote Desktop session. In the RDP client, enable \"Record from this computer\" (Local Resources → Remote audio) so your local microphone is available here — or plug a microphone into this computer.";
+        } else if (hasCamera) {
+          hint =
+            "Your camera was detected, but it has no microphone (camera-only), or its microphone driver is missing. Plug in a microphone or headset and try again.";
+        } else {
+          const ua = navigator.userAgent;
+          hint = ua.includes("Windows")
+            ? "Check Windows Settings → Privacy → Microphone → allow desktop apps to access your microphone."
+            : ua.includes("Mac")
+              ? "Check System Settings → Privacy & Security → Microphone."
+              : "Check your operating system's microphone settings.";
+        }
+        throw new Error("No microphone was found. " + hint);
       }
     } catch (e) {
       // Re-throw our own error; let other errors fall through to getUserMedia.
