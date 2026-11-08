@@ -109,12 +109,14 @@ async function digest() {
 }
 
 /**
- * Recover recordings stranded in a transcribing/summarizing state: a backend
- * outage or an edge-runtime crash can kill a run mid-pipeline and leave the row
- * stuck forever, since process-recording short-circuits when it sees the status
- * is already "transcribing". A row left untouched for STUCK_RECORDING_MIN minutes
- * is reset and its pipeline re-run; after PROCESS_MAX_ATTEMPTS runs it is marked
- * failed rather than retried forever.
+ * Recover recordings stranded in a non-terminal state: a backend outage or an
+ * edge-runtime crash can kill a run mid-pipeline and leave the row stuck forever,
+ * since process-recording short-circuits when it sees the status is already
+ * "transcribing". A row left untouched for STUCK_RECORDING_MIN minutes in
+ * "uploading" (finalize reached the server but process-recording was never
+ * started) or "transcribing"/"summarizing" (a run died mid-pipeline) is reset and
+ * its pipeline re-run; after PROCESS_MAX_ATTEMPTS runs it is marked failed rather
+ * than retried forever.
  */
 async function recoverStuck() {
   const admin = adminClient();
@@ -124,7 +126,7 @@ async function recoverStuck() {
   const { data: stuck, error } = await admin
     .from('recordings')
     .select('id, process_attempts')
-    .in('status', ['transcribing', 'summarizing'])
+    .in('status', ['uploading', 'transcribing', 'summarizing'])
     .lte('updated_at', cutoff)
     .limit(100);
   if (error) throw new Error(error.message);
