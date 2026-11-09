@@ -1,4 +1,4 @@
-# Detailed Notes — Coverage Evaluation
+# Detailed Notes — Literal Recall (limited diagnostic)
 
 ## Baba Vanga Prophecies Analysis Recording
 
@@ -44,4 +44,4 @@
 </details>
 
 
-_Expected topics are human-annotated from the two reviewed sample recordings. "Literal recall" is a deterministic lower bound (substring match against generated headings + overview); it under-counts semantic coverage because paraphrased topics use different wording. Semantic coverage is verified by reviewing the generated section headings above. This metric is an evaluation result, not a per-recording guarantee._
+_Literal recall is a limited diagnostic only — it substring-matches expected topics against headings and under-counts semantic coverage, so it is NOT a quality metric. The primary quality metrics are semantic completeness (recall) and factual faithfulness, computed by scripts/evaluate-notes-quality.mts and reported in evaluations/quality-report.md._

@@ -54,3 +54,5 @@ watch/*.xcodeproj/
 # evaluation artifacts carrying private recording content
 evaluations/detailed-notes-*.md
 evaluations/*.headings.txt
+evaluations/quality-report.md
+evaluations/quality-report.json
