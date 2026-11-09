@@ -21,6 +21,20 @@ export function toMarkdown(
 ): string {
   const lines: string[] = [`# ${rec.title}`, shortDate(rec.created_at), ""];
   if (summary?.overview) lines.push(summary.overview, "");
+  const sections = summary?.detailed_sections ?? [];
+  if (sections.length) {
+    lines.push("## Detailed notes");
+    for (const s of sections) {
+      lines.push(`### ${s.heading}`, "", ...s.paragraphs, "");
+      if (s.quote)
+        lines.push(
+          `> “${s.quote}”${s.quote_ms != null ? ` (${clock(s.quote_ms)})` : ""}`,
+          "",
+        );
+    }
+  }
+  if (summary?.conclusions?.length)
+    lines.push("## Conclusions", ...summary.conclusions.map((c) => `- ${c}`), "");
   const log = siteLogSections(summary?.site_log);
   if (log.length) {
     lines.push("## Daily site log");
@@ -73,6 +87,21 @@ export function toHtml(
 ): string {
   const list = (items: string[]) =>
     `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`;
+  const sections = (summary?.detailed_sections ?? [])
+    .map((s) =>
+      [
+        `<h3>${esc(s.heading)}</h3>`,
+        s.paragraphs.map((p) => `<p>${esc(p)}</p>`).join(""),
+        s.quote ? `<blockquote class="q">“${esc(s.quote)}”${s.quote_ms != null ? ` ${clock(s.quote_ms)}` : ""}</blockquote>` : "",
+      ].join(""),
+    )
+    .join("");
+  const detailedHtml = sections
+    ? `<h2>Detailed notes</h2>${sections}`
+    : "";
+  const conclusionsHtml = summary?.conclusions?.length
+    ? `<h2>Conclusions</h2><ul>${summary.conclusions.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>`
+    : "";
   const log = siteLogSections(summary?.site_log);
   const logHtml = log.length
     ? `<h2>Daily site log</h2>${log.map((sec) => `<h3${sec.title === "Safety" ? ' class="safety"' : ""}>${esc(sec.title)}</h3>${list(sec.items)}`).join("")}`
@@ -105,6 +134,8 @@ export function toHtml(
   </style></head><body>
     <h1>${esc(rec.title)}</h1><div class="date">${esc(shortDate(rec.created_at))}</div>
     ${summary?.overview ? `<p>${esc(summary.overview)}</p>` : ""}
+    ${detailedHtml}
+    ${conclusionsHtml}
     ${logHtml}
     ${summary?.key_points?.length ? `<h2>Key points</h2>${list(summary.key_points)}` : ""}
     ${summary?.decisions?.length ? `<h2>Decisions</h2>${list(summary.decisions.map((d) => d.text))}` : ""}

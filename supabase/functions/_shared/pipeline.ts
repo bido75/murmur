@@ -3,7 +3,7 @@
 import { adminClient, llmStructured, transcribe } from './services.ts';
 import { userFacingError } from './errors.ts';
 import { deferNotes, notesAllowed } from './billing_store.ts';
-import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
+import { chunkTranscript, notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
 import { boundaryExcerpt, joinParts, mapLimited, mergeChannels, parseSpeakerMap, speakersIn, sttCacheKey } from './parts.ts';
 import { normalizeMediaLink } from './links.ts';
 import { notifyUser } from './push.ts';
@@ -161,12 +161,35 @@ async function run(recordingId: string, userId: string, template: string, curren
     const openTasks = projectId ? await openProjectTasks(projectId, recordingId) : [];
     const refs = makeRefs(openTasks);
 
-    // 3. Structured notes from Claude.
-    const notes = await llmStructured<NotesOutput>(
-      systemPrompt(template, custom),
-      [{ role: 'user', content: userMessage(formatTranscript(all, speakerNames), refs, userNotes) }],
-      notesTool(template),
-    );
+    // 3. Structured notes from Claude. Long transcripts are processed in overlapping
+    // chunks so the end is not silently dropped: the summary comes from the first
+    // chunk and detailed_sections are merged across every chunk.
+    const formatted = formatTranscript(all, speakerNames);
+    const chunks = chunkTranscript(formatted);
+    let notes: NotesOutput;
+    if (chunks.length === 1) {
+      notes = await llmStructured<NotesOutput>(
+        systemPrompt(template, custom),
+        [{ role: 'user', content: userMessage(chunks[0], refs, userNotes) }],
+        notesTool(template),
+      );
+    } else {
+      const first = await llmStructured<NotesOutput>(
+        systemPrompt(template, custom),
+        [{ role: 'user', content: userMessage(chunks[0], refs, userNotes) }],
+        notesTool(template),
+      );
+      const sections: NonNullable<NotesOutput['detailed_sections']> = [...(first.detailed_sections ?? [])];
+      for (const c of chunks.slice(1)) {
+        const n = await llmStructured<NotesOutput>(
+          systemPrompt(template, custom),
+          [{ role: 'user', content: userMessage(c, [], null) }],
+          notesTool(template),
+        );
+        sections.push(...(n.detailed_sections ?? []));
+      }
+      notes = { ...first, detailed_sections: sections };
+    }
 
     // 4. Check every task, decision and update against the transcript before saving.
     const tasks = dropRepeats(verifyActionItems(notes.action_items ?? [], all, speakerNames), openTasks.map((t) => t.text));
@@ -194,6 +217,18 @@ async function run(recordingId: string, userId: string, template: string, curren
     // Key points keep their text for sharing, search and export; the details carry the
     // quote and the time so the app can show where a point came from.
     const keyPoints = verifyKeyPoints(notes.key_points ?? [], all);
+    // Comprehensive topic-by-topic notes: each section is anchored to the transcript
+    // by its quote (found -> quote_ms + verified), the same way key points are.
+    const detailedSections = (notes.detailed_sections ?? []).map((s) => {
+      const m = s.quote ? findQuote(s.quote, all) : { start_ms: null, found: false };
+      return {
+        heading: s.heading,
+        paragraphs: s.paragraphs ?? [],
+        quote: s.quote ?? null,
+        quote_ms: m.start_ms,
+        verified: s.quote ? m.found : true,
+      };
+    });
 
     await admin.from('summaries').upsert({
       recording_id: recordingId,
@@ -205,6 +240,8 @@ async function run(recordingId: string, userId: string, template: string, curren
       open_questions: notes.open_questions ?? [],
       task_updates: updates,
       site_log: siteLog,
+      detailed_sections: detailedSections.length ? detailedSections : null,
+      conclusions: notes.conclusions ?? [],
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });
 

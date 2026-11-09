@@ -41,7 +41,19 @@ export function systemPrompt(template: string, custom: string | null = null): st
     '- Do not invent facts, names, numbers or dates. If something is unclear, put it in open_questions.',
     '- Decisions also need a word-for-word quote.',
     '- Each key point needs a word-for-word quote from the transcript (5 to 25 words) that shows where the point came from. Keep the point short.',
-    '- Keep the overview to 2–4 sentences. Key points are short bullets.',
+    '- Keep the overview to 2–4 sentences (a concise executive summary).',
+    '',
+    'Then write COMPREHENSIVE notes as detailed_sections. Organize the recording into topic-by-topic sections — every substantive topic the speaker discusses, in order. For each section:',
+    '- heading: a short topic heading.',
+    '- paragraphs: 2–6 paragraphs that preserve the substantive content — the reasoning, arguments, explanations, examples, comparisons, qualifications, and any significant numbers, names or dates. Do not compress a rich discussion into a single sentence.',
+    '- quote: one word-for-word excerpt from the transcript (10 to 40 words) that anchors this section, if a matching passage exists.',
+    '',
+    'Coverage rules:',
+    '- Do not reduce a long or complex recording to four or five bullets. A lecture, presentation, interview or essay should produce enough sections to cover its real topics.',
+    '- Preserve material from the beginning, middle and end of the transcript.',
+    '- Distinguish what the speaker asserts or speculates from what is established fact. Attribute claims to the speaker or to the sources the speaker names.',
+    '- Do not invent decisions, action items, owners or deadlines for a monologue, lecture or presentation.',
+    '- conclusions: the speaker\'s concluding points or recommendations, if any (empty when there are none).',
     '',
     'If a list of open tasks from earlier recordings is given:',
     '- Report in task_updates only the ones actually discussed: status "done" if someone says it is finished, "in_progress" or "blocked" otherwise, with a word-for-word quote. Leave the rest out.',
@@ -59,6 +71,25 @@ export const NOTES_MAX_TRANSCRIPT_CHARS = 120_000;
 export function capForNotes(transcript: string): string {
   if (transcript.length <= NOTES_MAX_TRANSCRIPT_CHARS) return transcript;
   return `${transcript.slice(0, NOTES_MAX_TRANSCRIPT_CHARS)}\n…[transcript truncated for the notes]`;
+}
+
+/** Split an over-long transcript into overlapping, roughly-even chunks so no part is
+ * silently dropped. Cuts are aligned to line boundaries where possible. */
+export function chunkTranscript(text: string, maxChars = NOTES_MAX_TRANSCRIPT_CHARS, overlap = 1000): string[] {
+  if (text.length <= maxChars) return [text];
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + maxChars, text.length);
+    if (end < text.length) {
+      const lastNewline = text.lastIndexOf('\n', end);
+      if (lastNewline > start + Math.floor(maxChars / 2)) end = lastNewline;
+    }
+    chunks.push(text.slice(start, end).trimEnd());
+    if (end >= text.length) break;
+    start = Math.max(end - overlap, start + 1);
+  }
+  return chunks;
 }
 
 export function userMessage(transcript: string, openTasks: { ref: string; text: string }[], userNotes: string | null = null): string {
@@ -119,6 +150,24 @@ export const NOTES_TOOL = {
         },
       },
       open_questions: { type: 'array', items: { type: 'string' } },
+      detailed_sections: {
+        type: 'array',
+        description: 'Comprehensive topic-by-topic sections. Empty is allowed only when the recording has no substantive content.',
+        items: {
+          type: 'object',
+          properties: {
+            heading: { type: 'string', description: 'Short topic heading.' },
+            paragraphs: { type: 'array', items: { type: 'string' }, description: '2–6 paragraphs of substantive detail.' },
+            quote: { type: ['string', 'null'], description: 'Word-for-word excerpt from the transcript anchoring this section (10 to 40 words), or null.' },
+          },
+          required: ['heading', 'paragraphs', 'quote'],
+        },
+      },
+      conclusions: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'The speaker\'s concluding points or recommendations, if any.',
+      },
       task_updates: {
         type: 'array',
         description: 'Updates to the earlier open tasks listed, if any were discussed.',
@@ -134,7 +183,7 @@ export const NOTES_TOOL = {
         },
       },
     },
-    required: ['title', 'overview', 'key_points', 'decisions', 'action_items', 'open_questions', 'task_updates'],
+    required: ['title', 'overview', 'key_points', 'decisions', 'action_items', 'open_questions', 'task_updates', 'detailed_sections', 'conclusions'],
   },
 } as const;
 
@@ -155,8 +204,7 @@ export type NotesOutput = {
   title: string;
   overview: string;
   key_points: { text: string; quote: string }[];
-  decisions: { text: string; quote: string }[];
-  action_items: {
+  decisions: { text: string; quote: string }[];  action_items: {
     task: string;
     owner: string | null;
     owner_basis: 'named' | 'self_assigned' | 'unassigned';
@@ -167,6 +215,10 @@ export type NotesOutput = {
   open_questions: string[];
   task_updates?: { ref: string; status: 'done' | 'in_progress' | 'blocked'; note: string | null; quote: string }[];
   site_log?: RawSiteLog | null;
+  /** Comprehensive topic-by-topic notes. */
+  detailed_sections?: { heading: string; paragraphs: string[]; quote: string | null }[];
+  /** The speaker's concluding points or recommendations. */
+  conclusions?: string[];
 };
 
 export const ASK_SYSTEM = [
