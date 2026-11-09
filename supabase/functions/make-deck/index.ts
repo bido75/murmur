@@ -4,7 +4,7 @@ import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, resolveTheme, sanit
 import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
-import { DEFAULT_IMAGE_BUDGET, IMAGE_SIZE, imageBudget, imagePrompt, imageProviderConfig, type ImageProviderConfig } from '../_shared/deck_images.ts';
+import { DEFAULT_IMAGE_BUDGET, imageBudget, imageProviderConfig, imageRequest, type ImageProviderConfig } from '../_shared/deck_images.ts';
 
 type Rec = { id: string; title: string; created_at: string };
 type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; detailed_sections: { heading: string; paragraphs: string[] }[] | null; conclusions: string[] | null; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
@@ -174,23 +174,19 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-/** Generate one image from an OpenAI-compatible provider. Returns a PNG data URI. */
+/** Generate one image from the configured provider (OpenRouter or OpenAI). Returns a data URI. */
 async function generateImage(cfg: ImageProviderConfig, description: string, style: string): Promise<{ dataUri: string }> {
-  const res = await fetch(`${cfg.baseUrl}/images/generations`, {
+  const { url, body } = imageRequest(cfg, { description, style, illustrative: true });
+  const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: cfg.model,
-      prompt: imagePrompt({ description, style, illustrative: true }),
-      n: 1,
-      size: IMAGE_SIZE,
-      response_format: 'b64_json',
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) throw new Error(`image provider ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
   const b64 = data?.data?.[0]?.b64_json;
   if (!b64) throw new Error('image provider returned no image');
-  return { dataUri: `data:image/png;base64,${b64}` };
+  const mediaType = data?.data?.[0]?.media_type ?? 'image/png';
+  return { dataUri: `data:${mediaType};base64,${b64}` };
 }
