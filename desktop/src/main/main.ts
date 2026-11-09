@@ -1,6 +1,10 @@
 // Electron main process: window + tray, a local file store for audio segments and the
 // upload queue (so recordings survive crashes and restarts), system audio capture, and
 // meeting detection.
+// Baked in by build.mjs so the running installer can be matched to its source commit.
+declare const __BUILD_SHA__: string;
+declare const __BUILD_TIME__: string;
+
 import {
   execFile,
   spawn,
@@ -299,6 +303,8 @@ function registerIpc() {
   ipcMain.handle("app:info", () => ({
     platform: process.platform,
     version: app.getVersion(),
+    sha: __BUILD_SHA__,
+    builtAt: __BUILD_TIME__,
   }));
   ipcMain.handle("app:open-external", (_e, url: string) => {
     if (/^https:\/\//.test(url)) void shell.openExternal(url);

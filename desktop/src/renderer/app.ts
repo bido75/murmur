@@ -130,6 +130,12 @@ let recordingId: string | null = null;
 let appSettings: Settings = { ...DEFAULT_SETTINGS };
 /** What the server last had, so we only push real changes. */
 let lastSyncedRow: Partial<ServerPrefs> | null = null;
+/** Version, commit and build time so a running installer can be matched to its source. */
+let buildInfo: { version: string; sha: string; builtAt: string } = {
+  version: "",
+  sha: "",
+  builtAt: "",
+};
 
 // ---------- tiny DOM helpers ----------
 
@@ -541,6 +547,11 @@ function settingsView(): Child[] {
             "Manage connections in Murmur",
           )
         : null,
+    ),
+    h(
+      "p",
+      { class: "muted" },
+      `Murmur ${buildInfo.version || ""}${buildInfo.sha ? ` · ${buildInfo.sha}` : ""}${buildInfo.builtAt ? ` · ${new Date(buildInfo.builtAt).toLocaleString()}` : ""}`,
     ),
     state.error && h("div", { class: "banner" }, state.error),
   ];
@@ -1310,6 +1321,12 @@ async function boot() {
   // The speech model, and whether new recordings are made on this computer.
   await initSpeech();
   await loadDictationSettings();
+  bridge()
+    .info()
+    .then((i) => {
+      buildInfo = i;
+    })
+    .catch(() => {});
   onSpeechProgress(() => {
     if (state.view === "home") render();
   });

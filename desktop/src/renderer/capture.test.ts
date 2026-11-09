@@ -30,7 +30,7 @@ const events = {
 function bridgeMock() {
   return {
     micPermission: async () => true,
-    info: async () => ({ platform: "win32", version: "1.0.0" }),
+    info: async () => ({ platform: "win32", version: "1.0.0", sha: "test", builtAt: "" }),
     segmentOpen: async () => {},
     activeSet: async () => {},
     segmentAppend: async () => {},

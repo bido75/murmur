@@ -76,7 +76,7 @@ export type Bridge = {
   activeGet(): Promise<unknown | null>;
   activeSet(value: unknown | null): Promise<void>;
   setRecording(isRecording: boolean): Promise<void>;
-  info(): Promise<{ platform: string; version: string }>;
+  info(): Promise<{ platform: string; version: string; sha: string; builtAt: string }>;
   openExternal(url: string): Promise<void>;
   micPermission(): Promise<boolean>;
   macAudioStart(): Promise<{
