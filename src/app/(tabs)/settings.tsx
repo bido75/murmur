@@ -48,9 +48,16 @@ import {
   CAL_LABELS,
   TEMPLATE_LABELS,
   type CalProvider,
+  type DetailLevel,
   type Template,
   type Workspace,
 } from "@/lib/types";
+
+const DETAIL_LEVELS: { id: DetailLevel; label: string }[] = [
+  { id: "detailed", label: "Detailed" },
+  { id: "standard", label: "Standard" },
+  { id: "brief", label: "Brief" },
+];
 
 export default function SettingsScreen() {
   const { retakeTour, showTip, hideChecklist, showChecklist, resetTips, state: obState } = useTourController();
@@ -338,6 +345,39 @@ export default function SettingsScreen() {
               >
                 <T size={14} style={{ color: on ? t.accent : t.ink }}>
                   {TEMPLATE_LABELS[k]}
+                </T>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
+
+      <Card style={{ gap: space.md }}>
+        <T weight="600">Note detail</T>
+        <T muted size={14}>
+          How much substance your notes keep. Detailed is a full topic-by-topic
+          write-up with supporting quotes; brief is key points only.
+        </T>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+          {DETAIL_LEVELS.map((d) => {
+            const on = settings.notesDetailLevel === d.id;
+            return (
+              <Pressable
+                key={d.id}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on }}
+                onPress={() => update({ notesDetailLevel: d.id })}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? t.accent : t.border,
+                  backgroundColor: on ? t.accentSoft : "transparent",
+                }}
+              >
+                <T size={14} style={{ color: on ? t.accent : t.ink }}>
+                  {d.label}
                 </T>
               </Pressable>
             );
