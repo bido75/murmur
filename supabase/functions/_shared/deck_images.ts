@@ -35,7 +35,8 @@ export function imageProviderConfig(env: Record<string, string | undefined>): Im
       name: 'openrouter',
       baseUrl: 'https://openrouter.ai/api/v1',
       apiKey,
-      model: env['IMAGE_MODEL'] ?? 'openai/gpt-image-1',
+      // gpt-image-2 supports 16:9 (gpt-image-1 only accepts 1:1/3:2/2:3/auto).
+      model: env['IMAGE_MODEL'] ?? 'openai/gpt-image-2',
     };
   }
   return {

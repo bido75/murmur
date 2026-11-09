@@ -17,7 +17,7 @@ test('imageProviderConfig uses OpenAI when IMAGE_API_KEY is present', () => {
 test('imageProviderConfig falls back to OpenRouter using OPENROUTER_API_KEY', () => {
   const c = imageProviderConfig({ OPENROUTER_API_KEY: 'or-test' })!;
   assert.equal(c.name, 'openrouter');
-  assert.equal(c.model, 'openai/gpt-image-1');
+  assert.equal(c.model, 'openai/gpt-image-2');
   assert.equal(c.baseUrl, 'https://openrouter.ai/api/v1');
 });
 
