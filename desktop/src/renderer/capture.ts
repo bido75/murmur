@@ -4,6 +4,7 @@
 // so a crash or power cut loses at most a few seconds.
 import type { Bridge } from "../shared/bridge";
 import { SilenceGuard, dbfs, keepSegment } from "../shared/level";
+import { micFailureMessage, type MicDeviceInfo } from "../shared/micFailure";
 import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config";
 
 declare const window: Window & { murmur: Bridge };
@@ -76,24 +77,6 @@ export class Capture {
     }
   }
 
-  /** A specific, actionable reason a microphone is missing, from the device dump. */
-  private micHint(
-    d: { audioInputs: number; hasCamera: boolean; remoteOnly: boolean } | null,
-  ): string {
-    if (d?.remoteOnly) {
-      return 'This looks like a Remote Desktop session. In the RDP client, enable "Record from this computer" (Local Resources → Remote audio) so your local microphone is available here — or plug a microphone into this computer. Playback devices are not microphones.';
-    }
-    if (d?.hasCamera) {
-      return "Your camera was detected, but it has no microphone (camera-only), or its microphone driver is missing. Plug in a microphone or headset and try again. In Windows, confirm the webcam microphone appears under Settings → System → Sound → Input.";
-    }
-    const ua = navigator.userAgent;
-    return ua.includes("Windows")
-      ? "Check Windows Settings → Privacy → Microphone → allow desktop apps to access your microphone, and confirm a microphone appears under Settings → System → Sound → Input."
-      : ua.includes("Mac")
-        ? "Check System Settings → Privacy & Security → Microphone."
-        : "Check your operating system's microphone settings.";
-  }
-
   /** withScreen: also record the screen (video kept for playback; audio is transcribed as usual). */
   async start(withSystemAudio: boolean, withScreen = false) {
     // One sanitized diagnostic identifier per attempt; each stage logs next to it.
@@ -120,7 +103,7 @@ export class Capture {
     // misreport devices (Safari returns an empty list before permission; an RDP session
     // exposes only playback devices; a camera may have no mic), so "no audioinput here"
     // does not prove getUserMedia will fail. The real decision is the acquisition below.
-    let deviceInfo: { audioInputs: number; hasCamera: boolean; remoteOnly: boolean } | null = null;
+    let deviceInfo: MicDeviceInfo = null;
     try {
       const list = await this.bounded(
         "Listing audio devices",
@@ -165,32 +148,14 @@ export class Capture {
       );
     } catch (e) {
       const name = (e as { name?: string }).name ?? "";
-      const detail = (e as Error).message
-        ? ` (${(e as Error).message.slice(0, 160)})`
-        : "";
-      switch (name.toLowerCase()) {
-        case "notfounderror":
-        case "devicesnotfounderror":
-          throw new Error("No microphone was found. " + this.micHint(deviceInfo));
-        case "notallowederror":
-        case "securityerror":
-          throw new Error(
-            "Microphone access is off. Allow it in your system settings (Windows Settings → Privacy → Microphone, or System Settings → Privacy & Security → Microphone on Mac).",
-          );
-        case "notreadableerror":
-        case "trackstarterror":
-          throw new Error(
-            "Your microphone is busy or could not be opened. Close any other app using it, then try again.",
-          );
-        case "overconstrainederror":
-          throw new Error(
-            "The selected microphone does not support the requested settings.",
-          );
-        case "aborterror":
-          throw new Error("Opening the microphone was cancelled.");
-        default:
-          throw new Error("Couldn't open the microphone" + detail + ".");
-      }
+      throw new Error(
+        micFailureMessage(
+          name,
+          (e as Error).message,
+          deviceInfo,
+          navigator.userAgent,
+        ),
+      );
     }
     trace("mic-open");
 
