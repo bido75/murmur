@@ -14,14 +14,6 @@
  * through unchanged.
  */
 
-/** CP1252 bytes for the lead characters of common double-encoded UTF-8 sequences. */
-const CP1252_REVERSIBLE = [
-  { cp1252Lead: "Ã", utf8Lead: 0xc3 },
-  { cp1252Lead: "Â", utf8Lead: 0xc2 },
-  { cp1252Lead: "â€", utf8Lead: 0xe2 },
-  { cp1252Lead: "ðŸ", utf8Lead: 0xf0 },
-];
-
 /** Targeted repairs for CP1252-mangled sequences, highest-confidence first.
  *  Keys are the corrupted ASCII-safe sequences; values the intended characters. */
 export const MOJIBAKE_MAP: [string, string][] = [

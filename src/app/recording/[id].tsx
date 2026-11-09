@@ -70,7 +70,7 @@ import {
 } from "@/lib/api";
 import { confirm, isWeb, notify, shareOrCopy } from "@/lib/dialog";
 import { APP_URL } from "@/lib/config";
-import { findLanguage, TRANSLATION_LANGUAGES, photoMoment } from "@/lib/shared";
+import { TRANSLATION_LANGUAGES, photoMoment } from "@/lib/shared";
 import { LanguagePickerSheet } from "@/components/LanguagePickerSheet";
 import { queuePhoto, takePhoto } from "@/lib/photos";
 import { clock, minutes, shortDate, speakerLabel } from "@/lib/format";
