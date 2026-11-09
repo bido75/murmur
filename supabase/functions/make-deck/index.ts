@@ -98,19 +98,31 @@ Deno.serve(async (req) => {
       deck.photos = await deckPhotos(client, ids, logs, (tasks ?? []) as TaskRow[], Object.fromEntries(recs.map((r) => [r.id, r.title])));
     }
 
-    // Illustrative imagery: generated only for the "visual" slides, only when the user
-    // asked for images AND a provider is configured. Failures degrade to the editable
-    // text placeholder, never a broken deck.
+    // Illustrative imagery: generated for any slide that requested one (a caption), only
+// when the user asked for images AND a provider is configured. Failures degrade to the
+// editable placeholder and are reported, never a broken deck.
+    const imageStatus = {
+      requested: enh.images,
+      providerConfigured: false,
+      requestedCount: 0,
+      generated: 0,
+      failed: 0,
+      reason: null as string | null,
+    };
     if (enh.images) {
       const cfg = imageProviderConfig(Deno.env.toObject());
       if (cfg) {
-        const visuals = deck.slides.filter((s) => s.kind === 'visual');
-        const budget = imageBudget(visuals.length, Number(Deno.env.get('IMAGE_BUDGET') ?? '') || DEFAULT_IMAGE_BUDGET);
-        for (const v of visuals.slice(0, budget) as { kind: 'visual'; image?: { dataUri: string; illustrative: boolean }; caption: string }[]) {
+        imageStatus.providerConfigured = true;
+        const wanted = deck.slides.filter((s) => (s.caption ?? '').trim());
+        imageStatus.requestedCount = wanted.length;
+        const budget = imageBudget(wanted.length, Number(Deno.env.get('IMAGE_BUDGET') ?? '') || DEFAULT_IMAGE_BUDGET);
+        for (const sl of wanted.slice(0, budget)) {
           try {
-            v.image = { ...(await generateImage(cfg, v.caption, theme.name)), illustrative: true };
+            sl.image = { ...(await generateImage(cfg, sl.caption!, theme.name)), illustrative: true };
+            imageStatus.generated += 1;
           } catch (e) {
-            console.warn('deck image generation failed; using placeholder', (e as Error).message.slice(0, 200));
+            imageStatus.failed += 1;
+            imageStatus.reason = imageStatus.reason ?? (e as Error).message.slice(0, 200);
           }
         }
       }
@@ -127,7 +139,7 @@ Deno.serve(async (req) => {
     });
     if (upErr) throw new Error(upErr.message);
     const { data: signed } = await admin.storage.from('exports').createSignedUrl(path, 60 * 60, { download: filename });
-    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1 });
+    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1, images: imageStatus });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     return json({ error: (e as Error).message }, status);

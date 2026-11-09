@@ -49,7 +49,7 @@ export default function Deck() {
   const [enhancements, setEnhancements] = useState<DeckEnhancements>({
     diagrams: true,
     charts: true,
-    images: false,
+    images: true,
     notes: true,
   });
   const [audience, setAudience] = useState("");

@@ -54,15 +54,20 @@ export function resolveTheme(style: DeckStyle | undefined): DeckTheme {
 
 // ---------- Slide shapes ----------
 
-export type BulletSlide = { kind: 'bullets'; title: string; bullets: string[]; speakerNotes?: string };
-export type TwoColumnSlide = { kind: 'two_column'; title: string; left: { heading: string; bullets: string[] }; right: { heading: string; bullets: string[] }; speakerNotes?: string };
-export type ProcessSlide = { kind: 'process'; title: string; steps: { heading: string; detail: string }[]; speakerNotes?: string };
-export type TimelineSlide = { kind: 'timeline'; title: string; milestones: { label: string; note: string }[]; speakerNotes?: string };
-export type PillarsSlide = { kind: 'pillars'; title: string; pillars: { heading: string; detail: string }[]; speakerNotes?: string };
-export type ChartSlide = { kind: 'chart'; title: string; chartType: 'bar' | 'line' | 'doughnut'; categories: string[]; series: { name: string; values: number[] }[]; speakerNotes?: string };
-export type KpiSlide = { kind: 'kpi'; title: string; metrics: { label: string; value: string }[]; speakerNotes?: string };
-export type EditorialSlide = { kind: 'editorial'; title: string; statement: string; speakerNotes?: string };
-export type VisualSlide = { kind: 'visual'; title: string; caption: string; image?: { dataUri: string; illustrative: boolean }; speakerNotes?: string };
+/** A resolved image (generated or uploaded) that can accompany any slide layout. */
+export type SlideImage = { dataUri: string; illustrative: boolean };
+/** The model's request for an image on a slide: a short description of what to depict. */
+export type ImageCaption = string;
+
+export type BulletSlide = { kind: 'bullets'; title: string; bullets: string[]; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type TwoColumnSlide = { kind: 'two_column'; title: string; left: { heading: string; bullets: string[] }; right: { heading: string; bullets: string[] }; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type ProcessSlide = { kind: 'process'; title: string; steps: { heading: string; detail: string }[]; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type TimelineSlide = { kind: 'timeline'; title: string; milestones: { label: string; note: string }[]; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type PillarsSlide = { kind: 'pillars'; title: string; pillars: { heading: string; detail: string }[]; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type ChartSlide = { kind: 'chart'; title: string; chartType: 'bar' | 'line' | 'doughnut'; categories: string[]; series: { name: string; values: number[] }[]; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type KpiSlide = { kind: 'kpi'; title: string; metrics: { label: string; value: string }[]; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type EditorialSlide = { kind: 'editorial'; title: string; statement: string; speakerNotes?: string; caption?: string; image?: SlideImage };
+export type VisualSlide = { kind: 'visual'; title: string; caption: string; image?: SlideImage; speakerNotes?: string };
 export type NarrativeSlide = BulletSlide | TwoColumnSlide | ProcessSlide | TimelineSlide | PillarsSlide | ChartSlide | KpiSlide | EditorialSlide | VisualSlide;
 
 export type DeckData = {
@@ -118,7 +123,7 @@ export const DECK_TOOL = {
             series: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, values: { type: 'array', items: { type: 'number' } } } }, description: 'For chart: 1–3 series; every value must be a number stated in the material.' },
             metrics: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } } }, description: 'For kpi: 2–4 metrics, value as a short string (number or phrase) from the material.' },
             statement: { type: 'string', description: 'For editorial: one strong sentence, max 24 words.' },
-            caption: { type: 'string', description: 'For visual: a short description of the illustration to generate (no text in the image).' },
+            caption: { type: 'string', description: 'Optional: describe an illustration to accompany this slide (no text in the image). Omit when an image does not help.' },
             notes: { type: 'string', description: 'Optional speaker notes for this slide, 1–2 sentences to say aloud (factual, from the material).' },
           },
           required: ['kind', 'title'],
@@ -154,7 +159,7 @@ export function deckSystemPrompt(kind: DeckKind, audience: string | null, e?: De
     ? 'For every slide, write a one-to-two sentence speaker note (the notes field) a presenter can say aloud; keep it factual.'
     : 'Do not write speaker notes.';
   const imagesRule = enh.images
-    ? 'For a visual slide, write a short caption (caption field) describing the illustration; it must not contain words or depict a real place/product as if photographed.'
+    ? 'For any slide where an illustration genuinely helps (a concept, hero idea or abstract idea), write a short caption (caption field) describing it; it must not contain words or depict a real place/product as if photographed. Use sparingly, not on every slide.'
     : '';
   return [
     'You turn verified meeting notes into a clear, professional slide deck.',
@@ -195,19 +200,20 @@ export function sanitizeSlides(raw: unknown): NarrativeSlide[] {
     const clean = (b: unknown) => (Array.isArray(b) ? b.map((x) => String(x).trim()).filter(Boolean) : []);
     const kind = String(s.kind ?? 'bullets');
     const speakerNotes = String(s?.notes ?? '').trim() || undefined;
+    const imageCaption = String(s?.caption ?? '').trim() || undefined;
     if (kind === 'two_column' && s.left && s.right) {
       const left = { heading: String(s.left.heading ?? '').trim(), bullets: clean(s.left.bullets).slice(0, 6) };
       const right = { heading: String(s.right.heading ?? '').trim(), bullets: clean(s.right.bullets).slice(0, 6) };
-      if (left.bullets.length || right.bullets.length) out.push({ kind: 'two_column', title, left, right, speakerNotes });
+      if (left.bullets.length || right.bullets.length) out.push({ kind: 'two_column', title, left, right, speakerNotes, caption: imageCaption });
     } else if (kind === 'process') {
       const steps = (Array.isArray(s.steps) ? s.steps : []).map((x: any) => ({ heading: String(x?.heading ?? '').trim(), detail: String(x?.detail ?? '').trim() })).filter((x: any) => x.heading).slice(0, 5);
-      if (steps.length >= 2) out.push({ kind: 'process', title, steps, speakerNotes });
+      if (steps.length >= 2) out.push({ kind: 'process', title, steps, speakerNotes, caption: imageCaption });
     } else if (kind === 'timeline') {
       const milestones = (Array.isArray(s.milestones) ? s.milestones : []).map((x: any) => ({ label: String(x?.label ?? '').trim(), note: String(x?.note ?? '').trim() })).filter((x: any) => x.label).slice(0, 6);
-      if (milestones.length >= 2) out.push({ kind: 'timeline', title, milestones, speakerNotes });
+      if (milestones.length >= 2) out.push({ kind: 'timeline', title, milestones, speakerNotes, caption: imageCaption });
     } else if (kind === 'pillars') {
       const pillars = (Array.isArray(s.pillars) ? s.pillars : []).map((x: any) => ({ heading: String(x?.heading ?? '').trim(), detail: String(x?.detail ?? '').trim() })).filter((x: any) => x.heading).slice(0, 4);
-      if (pillars.length >= 2) out.push({ kind: 'pillars', title, pillars, speakerNotes });
+      if (pillars.length >= 2) out.push({ kind: 'pillars', title, pillars, speakerNotes, caption: imageCaption });
     } else if (kind === 'chart') {
       const c: ChartSlide = {
         kind: 'chart',
@@ -216,20 +222,21 @@ export function sanitizeSlides(raw: unknown): NarrativeSlide[] {
         categories: clean(s.categories).slice(0, 8),
         series: (Array.isArray(s.series) ? s.series : []).map((x: any) => ({ name: String(x?.name ?? '').trim(), values: (Array.isArray(x?.values) ? x.values : []).map((v: any) => Number(v)) })).slice(0, 3),
         speakerNotes,
+        caption: imageCaption,
       };
       if (!validateChartData(c)) out.push(c);
     } else if (kind === 'kpi') {
       const metrics = (Array.isArray(s.metrics) ? s.metrics : []).map((x: any) => ({ label: String(x?.label ?? '').trim(), value: String(x?.value ?? '').trim() })).filter((x: any) => x.value).slice(0, 4);
-      if (metrics.length) out.push({ kind: 'kpi', title, metrics, speakerNotes });
+      if (metrics.length) out.push({ kind: 'kpi', title, metrics, speakerNotes, caption: imageCaption });
     } else if (kind === 'editorial') {
       const statement = String(s.statement ?? '').trim();
-      if (statement) out.push({ kind: 'editorial', title, statement: statement.slice(0, 180), speakerNotes });
+      if (statement) out.push({ kind: 'editorial', title, statement: statement.slice(0, 180), speakerNotes, caption: imageCaption });
     } else if (kind === 'visual') {
       const caption = String(s.caption ?? '').trim();
       if (caption) out.push({ kind: 'visual', title, caption: caption.slice(0, 300), speakerNotes });
     } else {
       const bullets = clean(s.bullets);
-      if (bullets.length) out.push({ kind: 'bullets', title, bullets: bullets.slice(0, 7), speakerNotes });
+      if (bullets.length) out.push({ kind: 'bullets', title, bullets: bullets.slice(0, 7), speakerNotes, caption: imageCaption });
     }
   }
   return out.slice(0, 12);

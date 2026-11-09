@@ -1242,7 +1242,19 @@ export function makeDeck(opts: {
   detail?: DeckDetail;
   enhancements?: { images: boolean; diagrams: boolean; charts: boolean; notes: boolean };
 }) {
-  return callFn<{ url: string; filename: string; slides: number }>(
+  return callFn<{
+    url: string;
+    filename: string;
+    slides: number;
+    images?: {
+      requested: boolean;
+      providerConfigured: boolean;
+      requestedCount: number;
+      generated: number;
+      failed: number;
+      reason: string | null;
+    };
+  }>(
     "make-deck",
     {
       kind: opts.kind,

@@ -56,8 +56,14 @@ export async function buildPptx(d: DeckData, opts: { theme?: DeckTheme } = {}): 
     slideNumber: { x: W - 1.2, y: 7.0, w: 0.6, h: 0.35, fontFace: FONT, fontSize: 10, color: C.muted, align: 'right' },
   });
 
-  const heading = (s: Slide, text: string) =>
-    s.addText(text, { x: 0.6, y: 0.45, w: W - 1.2, h: 0.9, fontFace: FONT, fontSize: 28, bold: true, color: C.ink, valign: 'top', fit: 'shrink' });
+  const heading = (s: Slide, text: string, w = W - 1.2) =>
+    s.addText(text, { x: 0.6, y: 0.45, w, h: 0.9, fontFace: FONT, fontSize: 28, bold: true, color: C.ink, valign: 'top', fit: 'shrink' });
+
+  const sideImage = (s: Slide, img: { dataUri: string; illustrative: boolean }) => {
+    const box = fitImage(16, 9, { x: 8.05, y: 1.6, w: 4.7, h: 4.4 });
+    s.addImage({ data: img.dataUri, ...box });
+    if (img.illustrative) s.addText('Illustrative image', { x: 8.05, y: 6.1, w: 4.7, h: 0.3, fontFace: FONT, fontSize: 9, color: C.muted, align: 'center' });
+  };
 
   const bullets = (s: Slide, items: string[], x: number, y: number, w: number, h: number, size = 20) =>
     s.addText(
@@ -76,37 +82,40 @@ export async function buildPptx(d: DeckData, opts: { theme?: DeckTheme } = {}): 
 
   for (const sl of d.slides) {
     const s = p.addSlide({ masterName: 'BODY' });
+    const side = sl.kind !== 'visual' && sl.image?.dataUri ? sl.image : null;
+    const cw = side ? 6.9 : W - 1.2;
+    if (side) sideImage(s, side);
     switch (sl.kind) {
       case 'bullets':
-        heading(s, sl.title);
-        bullets(s, sl.bullets, 0.6, bodyTop, W - 1.2, bodyH);
+        heading(s, sl.title, cw);
+        bullets(s, sl.bullets, 0.6, bodyTop, cw, bodyH);
         break;
       case 'two_column':
-        heading(s, sl.title);
-        renderTwoColumn(p, s, sl, C, FONT, bodyTop);
+        heading(s, sl.title, cw);
+        renderTwoColumn(p, s, sl, C, FONT, bodyTop, cw);
         break;
       case 'process':
-        heading(s, sl.title);
-        renderProcess(p, s, sl, C, FONT);
+        heading(s, sl.title, cw);
+        renderProcess(p, s, sl, C, FONT, cw);
         break;
       case 'timeline':
-        heading(s, sl.title);
-        renderTimeline(p, s, sl, C, FONT);
+        heading(s, sl.title, cw);
+        renderTimeline(p, s, sl, C, FONT, cw);
         break;
       case 'pillars':
-        heading(s, sl.title);
-        renderPillars(p, s, sl, C, FONT);
+        heading(s, sl.title, cw);
+        renderPillars(p, s, sl, C, FONT, cw);
         break;
       case 'chart':
-        heading(s, sl.title);
-        renderChart(p, s, sl, C, FONT);
+        heading(s, sl.title, cw);
+        renderChart(p, s, sl, C, FONT, cw);
         break;
       case 'kpi':
-        heading(s, sl.title);
-        renderKpi(p, s, sl, C, FONT);
+        heading(s, sl.title, cw);
+        renderKpi(p, s, sl, C, FONT, cw);
         break;
       case 'editorial':
-        renderEditorial(s, sl, C, FONT);
+        renderEditorial(s, sl, C, FONT, cw);
         break;
       case 'visual':
         heading(s, sl.title);
@@ -182,8 +191,8 @@ export async function buildPptx(d: DeckData, opts: { theme?: DeckTheme } = {}): 
 
 // ---------- Native diagram renderers (all editable shapes, no flattened images) ----------
 
-function renderTwoColumn(p: Pptx, s: Slide, sl: TwoColumnSlide, C: DeckTheme, FONT: string, top: number) {
-  const colW = (W - 1.2 - 0.5) / 2;
+function renderTwoColumn(p: Pptx, s: Slide, sl: TwoColumnSlide, C: DeckTheme, FONT: string, top: number, cw = W - 1.2) {
+  const colW = (cw - 0.5) / 2;
   [sl.left, sl.right].forEach((col, i) => {
     const x = 0.6 + i * (colW + 0.5);
     s.addShape(p.ShapeType.rect, { x, y: top, w: colW, h: 0.55, fill: { color: C.soft }, line: { color: C.soft } });
@@ -195,10 +204,10 @@ function renderTwoColumn(p: Pptx, s: Slide, sl: TwoColumnSlide, C: DeckTheme, FO
   });
 }
 
-function renderProcess(p: Pptx, s: Slide, sl: ProcessSlide, C: DeckTheme, FONT: string) {
+function renderProcess(p: Pptx, s: Slide, sl: ProcessSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
   const n = sl.steps.length;
   const gap = 0.35;
-  const boxW = (W - 1.2 - gap * (n - 1)) / n;
+  const boxW = (cw - gap * (n - 1)) / n;
   sl.steps.forEach((step, i) => {
     const x = 0.6 + i * (boxW + gap);
     const y = 2.0;
@@ -211,11 +220,12 @@ function renderProcess(p: Pptx, s: Slide, sl: ProcessSlide, C: DeckTheme, FONT: 
   });
 }
 
-function renderTimeline(p: Pptx, s: Slide, sl: TimelineSlide, C: DeckTheme, FONT: string) {
+function renderTimeline(p: Pptx, s: Slide, sl: TimelineSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
   const y = 3.4;
-  s.addShape(p.ShapeType.line, { x: 0.9, y, w: W - 1.8, h: 0, line: { color: C.accent, width: 2 } });
+  const lineW = cw - 0.6;
+  s.addShape(p.ShapeType.line, { x: 0.9, y, w: lineW, h: 0, line: { color: C.accent, width: 2 } });
   const n = sl.milestones.length;
-  const step = (W - 1.8) / (n - 1);
+  const step = lineW / (n - 1);
   sl.milestones.forEach((m, i) => {
     const x = 0.9 + i * step;
     s.addShape(p.ShapeType.ellipse, { x: x - 0.12, y: y - 0.12, w: 0.24, h: 0.24, fill: { color: C.accent }, line: { color: C.accent } });
@@ -226,10 +236,10 @@ function renderTimeline(p: Pptx, s: Slide, sl: TimelineSlide, C: DeckTheme, FONT
   });
 }
 
-function renderPillars(p: Pptx, s: Slide, sl: PillarsSlide, C: DeckTheme, FONT: string) {
+function renderPillars(p: Pptx, s: Slide, sl: PillarsSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
   const n = sl.pillars.length;
   const gap = 0.4;
-  const boxW = (W - 1.2 - gap * (n - 1)) / n;
+  const boxW = (cw - gap * (n - 1)) / n;
   sl.pillars.forEach((pill, i) => {
     const x = 0.6 + i * (boxW + gap);
     const y = 1.8;
@@ -241,10 +251,10 @@ function renderPillars(p: Pptx, s: Slide, sl: PillarsSlide, C: DeckTheme, FONT: 
   });
 }
 
-function renderKpi(p: Pptx, s: Slide, sl: KpiSlide, C: DeckTheme, FONT: string) {
+function renderKpi(p: Pptx, s: Slide, sl: KpiSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
   const n = sl.metrics.length;
   const gap = 0.4;
-  const boxW = (W - 1.2 - gap * (n - 1)) / n;
+  const boxW = (cw - gap * (n - 1)) / n;
   sl.metrics.forEach((m, i) => {
     const x = 0.6 + i * (boxW + gap);
     const y = 2.0;
@@ -254,12 +264,12 @@ function renderKpi(p: Pptx, s: Slide, sl: KpiSlide, C: DeckTheme, FONT: string) 
   });
 }
 
-function renderChart(p: Pptx, s: Slide, sl: ChartSlide, C: DeckTheme, FONT: string) {
+function renderChart(p: Pptx, s: Slide, sl: ChartSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
   const type = CHART_TYPES[sl.chartType];
   const series = (type === 'doughnut' ? sl.series.slice(0, 1) : sl.series).map((sr) => ({ name: sr.name, labels: sl.categories, values: sr.values }));
   if (!series.length) return;
   s.addChart(p.ChartType[type], series, {
-    x: 0.8, y: 1.5, w: W - 1.6, h: 5.0,
+    x: 0.8, y: 1.5, w: cw - 0.4, h: 5.0,
     chartColors: [C.accent, C.muted, C.soft],
     showTitle: false, showLegend: type !== 'doughnut', legendPos: 'b', legendFontFace: FONT, legendFontSize: 12, legendColor: C.muted,
     catAxisLabelColor: C.muted, catAxisLabelFontFace: FONT, catAxisLabelFontSize: 11,
@@ -269,9 +279,10 @@ function renderChart(p: Pptx, s: Slide, sl: ChartSlide, C: DeckTheme, FONT: stri
   });
 }
 
-function renderEditorial(s: Slide, sl: EditorialSlide, C: DeckTheme, FONT: string) {
-  s.addText(sl.statement, { x: 1.4, y: 2.3, w: W - 2.8, h: 2.0, fontFace: FONT, fontSize: 34, bold: true, color: C.ink, align: 'center', valign: 'middle', fit: 'shrink' });
-  s.addText(sl.title, { x: 1.4, y: 4.6, w: W - 2.8, h: 0.6, fontFace: FONT, fontSize: 16, color: C.muted, align: 'center' });
+function renderEditorial(s: Slide, sl: EditorialSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const w = cw - 1.6;
+  s.addText(sl.statement, { x: 1.4, y: 2.3, w, h: 2.0, fontFace: FONT, fontSize: 34, bold: true, color: C.ink, align: 'center', valign: 'middle', fit: 'shrink' });
+  s.addText(sl.title, { x: 1.4, y: 4.6, w, h: 0.6, fontFace: FONT, fontSize: 16, color: C.muted, align: 'center' });
 }
 
 function renderVisual(p: Pptx, s: Slide, sl: VisualSlide, C: DeckTheme, FONT: string) {
