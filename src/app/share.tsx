@@ -380,7 +380,7 @@ export default function Share() {
             kind="secondary"
             onPress={() =>
               void run("pdf", () =>
-                sharePdf(rec, data.summary, data.tasks, data.photos),
+                sharePdf(rec, data.summary, data.tasks, data.photos, data.transcript),
               )
             }
             style={{ flex: 1, minWidth: 90 }}
@@ -389,7 +389,7 @@ export default function Share() {
             label="Text"
             kind="secondary"
             onPress={() =>
-              void run("text", () => shareText(rec, data.summary, data.tasks))
+              void run("text", () => shareText(rec, data.summary, data.tasks, data.transcript))
             }
             style={{ flex: 1, minWidth: 90 }}
           />

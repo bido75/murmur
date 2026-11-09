@@ -4,7 +4,7 @@ import { File, Paths } from "expo-file-system";
 import { Share } from "react-native";
 import { APP_NAME } from "./config";
 import { isWeb } from "./dialog";
-import { clock, shortDate } from "./format";
+import { clock, shortDate, speakerLabel } from "./format";
 import { siteLogSections } from "./siteLogText";
 import {
   CONSENT_LABELS,
@@ -12,12 +12,23 @@ import {
   type Recording,
   type Summary,
   type Task,
+  type Transcript,
 } from "./types";
+
+/** One transcript line in the export document: `[m:ss] Speaker Name: words`. */
+function transcriptLines(transcript: Transcript | null | undefined): string[] {
+  if (!transcript?.utterances?.length) return [];
+  return transcript.utterances.map(
+    (u) =>
+      `[${clock(u.start_ms)}] ${speakerLabel(u.speaker, transcript.speaker_names)}: ${u.text}`,
+  );
+}
 
 export function toMarkdown(
   rec: Recording,
   summary: Summary | null,
   tasks: Task[],
+  transcript?: Transcript | null,
 ): string {
   const lines: string[] = [`# ${rec.title}`, shortDate(rec.created_at), ""];
   if (summary?.overview) lines.push(summary.overview, "");
@@ -69,6 +80,8 @@ export function toMarkdown(
       ...summary.open_questions.map((q) => `- ${q}`),
       "",
     );
+  const tlines = transcriptLines(transcript);
+  if (tlines.length) lines.push("## Transcript", "", ...tlines, "");
   if (rec.consent_method)
     lines.push(`Recording notice: ${CONSENT_LABELS[rec.consent_method]}`);
   lines.push(`— Notes by ${APP_NAME}`);
@@ -84,6 +97,7 @@ export function toHtml(
   summary: Summary | null,
   tasks: Task[],
   photos: Photo[] = [],
+  transcript: Transcript | null = null,
 ): string {
   const list = (items: string[]) =>
     `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`;
@@ -124,6 +138,10 @@ export function toHtml(
         `<tr><td>${t.status === "done" ? "☑" : "☐"}</td><td>${esc(t.text)}</td><td>${esc(t.owner ?? "")}</td><td>${esc(t.due_text ?? "")}</td><td class="q">${t.quote ? `“${esc(t.quote)}”${t.quote_ms != null ? ` ${clock(t.quote_ms)}` : ""}` : ""}</td></tr>`,
     )
     .join("");
+  const tlines = transcriptLines(transcript);
+  const transcriptHtml = tlines.length
+    ? `<h2>Transcript</h2><div class="transcript">${tlines.map((l) => `<p>${esc(l)}</p>`).join("")}</div>`
+    : "";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     body{font-family:-apple-system,Helvetica,Arial,sans-serif;color:#1A1C1A;padding:32px;line-height:1.5}
     h1{font-size:24px;margin:0} .date{color:#6B6F6A;margin-bottom:16px} h2{font-size:16px;margin-top:24px}
@@ -131,6 +149,7 @@ export function toHtml(
     .q{color:#6B6F6A;font-style:italic} footer{margin-top:32px;color:#6B6F6A;font-size:12px}
     h3{font-size:14px;margin:12px 0 0} h3.safety{color:#C2412D} .photos{display:flex;flex-wrap:wrap;gap:8px}
     figure{margin:0;width:48%;break-inside:avoid} figure img{width:100%;border-radius:4px} figcaption{font-size:11px;color:#6B6F6A}
+    .transcript{font-size:12px;color:#4A4F4A} .transcript p{margin:3px 0;break-inside:avoid}
   </style></head><body>
     <h1>${esc(rec.title)}</h1><div class="date">${esc(shortDate(rec.created_at))}</div>
     ${summary?.overview ? `<p>${esc(summary.overview)}</p>` : ""}
@@ -142,6 +161,7 @@ export function toHtml(
     ${taskRows ? `<h2>Action items</h2><table>${taskRows}</table>` : ""}
     ${summary?.open_questions?.length ? `<h2>Open questions</h2>${list(summary.open_questions)}` : ""}
     ${photoHtml}
+    ${transcriptHtml}
     <footer>${rec.consent_method ? `Recording notice: ${esc(CONSENT_LABELS[rec.consent_method])} · ` : ""}Notes by ${esc(APP_NAME)}</footer>
   </body></html>`;
 }
@@ -150,8 +170,9 @@ export async function shareText(
   rec: Recording,
   summary: Summary | null,
   tasks: Task[],
+  transcript: Transcript | null = null,
 ) {
-  const md = toMarkdown(rec, summary, tasks);
+  const md = toMarkdown(rec, summary, tasks, transcript);
   if (isWeb) {
     downloadWeb(
       `${safeName(rec.title)}.md`,
@@ -167,12 +188,13 @@ export async function sharePdf(
   summary: Summary | null,
   tasks: Task[],
   photos: Photo[] = [],
+  transcript: Transcript | null = null,
 ) {
   if (isWeb) {
     // Opens the browser's print dialog, where "Save as PDF" is available.
     const w = window.open("", "_blank");
     if (!w) throw new Error("Allow pop-ups for this site to save a PDF.");
-    w.document.write(toHtml(rec, summary, tasks, photos));
+    w.document.write(toHtml(rec, summary, tasks, photos, transcript));
     w.document.close();
     w.focus();
     w.print();
@@ -182,7 +204,7 @@ export async function sharePdf(
   // Android ("Not allowed to read file under given URL"), so the PDF is written to our
   // own cache file instead, from the base64 print can return.
   const { base64 } = await Print.printToFileAsync({
-    html: toHtml(rec, summary, tasks, photos),
+    html: toHtml(rec, summary, tasks, photos, transcript),
     base64: true,
   });
   const pdf = new File(Paths.cache, `${safeName(rec.title)}.pdf`);

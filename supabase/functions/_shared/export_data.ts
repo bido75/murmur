@@ -33,11 +33,16 @@ export function notesMarkdown(n: PublicNotes): string {
   if (n.tasks.length) lines.push('## Tasks', '', ...n.tasks.map((t) => `- [${t.done ? 'x' : ' '}] ${t.text}${t.owner ? ` (${t.owner})` : ''}${t.due ? ` — due ${t.due}` : ''}`), '');
   if (n.open_questions.length) lines.push('## Open questions', '', ...n.open_questions.map((q) => `- ${q}`), '');
   for (const s of n.site_log) lines.push(`## ${s.title}`, '', ...s.items.map((i) => `- ${i}`), '');
+  if ((n.transcript?.length ?? 0) > 0) lines.push('## Transcript', '', ...transcriptLines(n), '');
   return lines.join('\n');
 }
 
+export function transcriptLines(n: PublicNotes): string[] {
+  return (n.transcript ?? []).map((u) => `[${u.at}] ${u.speaker}: ${u.text}`);
+}
+
 export function transcriptText(n: PublicNotes): string {
-  return (n.transcript ?? []).map((u) => `[${u.at}] ${u.speaker}: ${u.text}`).join('\n') + '\n';
+  return transcriptLines(n).join('\n') + '\n';
 }
 
 const csvCell = (v: unknown) => {
@@ -55,8 +60,8 @@ export function tasksCsv(rows: { text: string; owner: string | null; due_text: s
 export const EXPORT_README = (app: string, when: string) => `${app} data export — ${when}
 
 recordings/<date>-<title>/
-  notes.md        summary, decisions, tasks and site log
-  transcript.txt  the full transcript with speakers and times
+  notes.md        the notes and, at the end, the full transcript as an appendix
+  transcript.txt  the full transcript with speakers and times (standalone)
   data.json       everything above in machine-readable form
 tasks.csv         every task from your recordings
 audio-links.txt   download links for your audio (valid for 7 days)
