@@ -1211,6 +1211,15 @@ export async function sendSiteLogToProcore(
 // ---------- Decks ----------
 
 export type DeckKind = "client_update" | "site_report" | "pitch" | "proposal";
+export type DeckStyle =
+  | "corporate"
+  | "minimal"
+  | "tech"
+  | "research"
+  | "construction"
+  | "dark"
+  | "creative";
+export type DeckDetail = "concise" | "standard" | "detailed";
 export const DECK_LABELS: Record<DeckKind, string> = {
   client_update: "Client update",
   site_report: "Site report",
@@ -1223,6 +1232,8 @@ export function makeDeck(opts: {
   recordingId?: string;
   projectId?: string;
   audience?: string;
+  style?: DeckStyle;
+  detail?: DeckDetail;
 }) {
   return callFn<{ url: string; filename: string; slides: number }>(
     "make-deck",
@@ -1231,6 +1242,8 @@ export function makeDeck(opts: {
       recording_id: opts.recordingId,
       project_id: opts.projectId,
       audience: opts.audience || undefined,
+      style: opts.style || undefined,
+      detail: opts.detail || undefined,
     },
   );
 }
