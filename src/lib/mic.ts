@@ -39,27 +39,21 @@ export async function requestMic(): Promise<void> {
     const reason = micUnavailableReason();
     throw new Error(reason || noBrowserSupportMessage());
   }
-  // Probe what the browser can see before asking for permission: if no audio
-  // input exists at all, the problem is hardware or OS settings, not the site.
-  try {
-    const list = await devices.enumerateDevices();
-    const inputs = list.filter((d) => d.kind === "audioinput");
-    if (inputs.length === 0) {
-      throw new Error(micMessage("no-device", "web") + " " + osMicGuidance());
-    }
-  } catch (e) {
-    // enumerateDevices itself can fail; fall through to getUserMedia which
-    // gives the real error.
-    if ((e as Error).message?.includes("No microphone")) throw e;
-  }
+  // Ask the browser directly. Device enumeration is unreliable here (Safari lists no
+  // inputs before permission; an RDP session shows only Remote Audio playback; a camera
+  // may have no mic), so it is never used to pre-empt the request — the browser gives
+  // the real answer, and its error name tells us what to say.
   try {
     const stream = await devices.getUserMedia({ audio: true });
     // Let go straight away: the recorder opens its own stream when it starts, and a
     // microphone that is held open shows the recording light for nothing.
     for (const track of stream.getTracks()) track.stop();
   } catch (e) {
+    const problem = micProblem((e as { name?: string })?.name);
     throw new Error(
-      micMessage(micProblem((e as { name?: string })?.name), "web"),
+      problem === "no-device"
+        ? micMessage("no-device", "web") + " " + osMicGuidance()
+        : micMessage(problem, "web"),
     );
   }
 }
