@@ -21,7 +21,7 @@ import {
   type Utterance,
 } from './verify.ts';
 
-export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean } = {}) {
+export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean; reuseTranscript?: boolean } = {}) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
@@ -48,17 +48,19 @@ export async function runPipeline(recordingId: string, opts: { skipLimit?: boole
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
     custom = (t?.instructions as string | undefined) ?? null;
   }
-  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2);
+  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2, Boolean(opts.reuseTranscript));
 }
 
-async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false) {
+async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false, reuseTranscript = false) {
   const admin = adminClient();
   const startedAt = Date.now();
   try {
     // Corrected transcripts (and ones whose audio retention removed, or made on the phone) are reused, not re-transcribed.
     const { data: existing } = await admin.from('transcripts').select('utterances, speaker_names, edited_at').eq('recording_id', recordingId).maybeSingle();
     const speakerNames = ((existing?.speaker_names as Record<string, string> | null) ?? {}) as Record<string, string>;
-    const reuse = Boolean((existing?.edited_at || audioDeleted) && (existing?.utterances as Utterance[] | null)?.length);
+    // Regenerating notes reuses the stored transcript (no re-transcription); otherwise
+    // only edited/deleted/local transcripts are reused.
+    const reuse = Boolean(((reuseTranscript || existing?.edited_at || audioDeleted) && (existing?.utterances as Utterance[] | null)?.length));
 
     let offset = 0;
     let language: string | null = null;
@@ -242,6 +244,8 @@ async function run(recordingId: string, userId: string, template: string, curren
       site_log: siteLog,
       detailed_sections: detailedSections.length ? detailedSections : null,
       conclusions: notes.conclusions ?? [],
+      detail_level: 'detailed',
+      notes_schema_version: 2,
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });
 

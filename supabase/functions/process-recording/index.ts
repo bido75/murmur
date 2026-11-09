@@ -20,6 +20,7 @@ Deno.serve(async (req) => {
   try {
     const { id: userId, client } = await requireUser(req);
     if (new URL(req.url).pathname.endsWith('/relink-photos')) return await relinkPhotos(userId, client, await req.json());
+    if (new URL(req.url).pathname.endsWith('/regenerate')) return await regenerateNotes(userId, client, await req.json());
     const { recording_id } = await req.json();
     if (!recording_id) throw new HttpError(400, 'recording_id is required');
 
@@ -50,6 +51,27 @@ Deno.serve(async (req) => {
   }
 });
 
+
+/** Regenerate notes from the stored transcript — no re-transcription or re-upload.
+ * Uses the existing transcript, so it is fast and does not re-run speech-to-text. */
+// deno-lint-ignore no-explicit-any
+async function regenerateNotes(userId: string, client: any, body: { recording_id?: string }) {
+  const recording_id = String(body.recording_id ?? '');
+  if (!recording_id) throw new HttpError(400, 'recording_id is required');
+  const { data: rec } = await client.from('recordings').select('id, user_id, status').eq('id', recording_id).maybeSingle();
+  if (!rec) throw new HttpError(404, 'Recording not found');
+  if (rec.user_id !== userId) throw new HttpError(403, 'Only the person who made this recording can regenerate its notes');
+  const admin = adminClient();
+  const { data: t } = await admin.from('transcripts').select('id').eq('recording_id', recording_id).maybeSingle();
+  if (!t) throw new HttpError(409, 'No transcript to regenerate from');
+  // Prevent duplicate concurrent regeneration jobs.
+  if (rec.status === 'recording' || rec.status === 'transcribing' || rec.status === 'summarizing') {
+    return json({ status: rec.status }, 202);
+  }
+  await admin.from('recordings').update({ status: 'transcribing', error: null, notes_queued_at: null, process_attempts: 0 }).eq('id', recording_id);
+  EdgeRuntime.waitUntil(runPipeline(recording_id, { skipLimit: true, reuseTranscript: true }));
+  return json({ status: 'regenerating' }, 202);
+}
 
 /** A photo added after the notes were made: re-match photos to tasks and the site log (no AI). */
 // deno-lint-ignore no-explicit-any
