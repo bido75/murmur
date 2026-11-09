@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
 /** Regenerate notes from the stored transcript — no re-transcription or re-upload.
  * Uses the existing transcript, so it is fast and does not re-run speech-to-text. */
 // deno-lint-ignore no-explicit-any
-async function regenerateNotes(userId: string, client: any, body: { recording_id?: string }) {
+async function regenerateNotes(userId: string, client: any, body: { recording_id?: string; detail_level?: string }) {
   const recording_id = String(body.recording_id ?? '');
   if (!recording_id) throw new HttpError(400, 'recording_id is required');
   const { data: rec } = await client.from('recordings').select('id, user_id, status').eq('id', recording_id).maybeSingle();
@@ -68,8 +68,10 @@ async function regenerateNotes(userId: string, client: any, body: { recording_id
   if (rec.status === 'recording' || rec.status === 'transcribing' || rec.status === 'summarizing') {
     return json({ status: rec.status }, 202);
   }
+  const level = body.detail_level;
+  const detailLevel = level === 'brief' || level === 'standard' || level === 'detailed' ? level : undefined;
   await admin.from('recordings').update({ status: 'transcribing', error: null, notes_queued_at: null, process_attempts: 0 }).eq('id', recording_id);
-  EdgeRuntime.waitUntil(runPipeline(recording_id, { skipLimit: true, reuseTranscript: true }));
+  EdgeRuntime.waitUntil(runPipeline(recording_id, { skipLimit: true, reuseTranscript: true, detailLevel }));
   return json({ status: 'regenerating' }, 202);
 }
 

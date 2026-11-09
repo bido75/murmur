@@ -3,7 +3,7 @@
 import { adminClient, llmStructured, transcribe } from './services.ts';
 import { userFacingError } from './errors.ts';
 import { deferNotes, notesAllowed } from './billing_store.ts';
-import { chunkTranscript, notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
+import { chunkTranscript, notesTool, systemPrompt, userMessage, type DetailLevel, type NotesOutput } from './prompts.ts';
 import { boundaryExcerpt, joinParts, mapLimited, mergeChannels, parseSpeakerMap, speakersIn, sttCacheKey } from './parts.ts';
 import { normalizeMediaLink } from './links.ts';
 import { notifyUser } from './push.ts';
@@ -21,7 +21,7 @@ import {
   type Utterance,
 } from './verify.ts';
 
-export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean; reuseTranscript?: boolean } = {}) {
+export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean; reuseTranscript?: boolean; detailLevel?: DetailLevel } = {}) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
@@ -48,10 +48,20 @@ export async function runPipeline(recordingId: string, opts: { skipLimit?: boole
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
     custom = (t?.instructions as string | undefined) ?? null;
   }
-  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2, Boolean(opts.reuseTranscript));
+  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2, Boolean(opts.reuseTranscript), opts.detailLevel ?? await readUserDetailLevel(userId));
 }
 
-async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false, reuseTranscript = false) {
+async function readUserDetailLevel(userId: string): Promise<DetailLevel> {
+  try {
+    const { data } = await adminClient().from('user_settings').select('notes_detail_level').eq('user_id', userId).maybeSingle();
+    const v = data?.notes_detail_level;
+    return v === 'brief' || v === 'standard' || v === 'detailed' ? v : 'detailed';
+  } catch {
+    return 'detailed'; // column not migrated yet (older deploy): keep the comprehensive default
+  }
+}
+
+async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false, reuseTranscript = false, detailLevel: DetailLevel = 'detailed') {
   const admin = adminClient();
   const startedAt = Date.now();
   try {
@@ -171,20 +181,20 @@ async function run(recordingId: string, userId: string, template: string, curren
     let notes: NotesOutput;
     if (chunks.length === 1) {
       notes = await llmStructured<NotesOutput>(
-        systemPrompt(template, custom),
+        systemPrompt(template, custom, detailLevel),
         [{ role: 'user', content: userMessage(chunks[0], refs, userNotes) }],
         notesTool(template),
       );
     } else {
       const first = await llmStructured<NotesOutput>(
-        systemPrompt(template, custom),
+        systemPrompt(template, custom, detailLevel),
         [{ role: 'user', content: userMessage(chunks[0], refs, userNotes) }],
         notesTool(template),
       );
       const sections: NonNullable<NotesOutput['detailed_sections']> = [...(first.detailed_sections ?? [])];
       for (const c of chunks.slice(1)) {
         const n = await llmStructured<NotesOutput>(
-          systemPrompt(template, custom),
+          systemPrompt(template, custom, detailLevel),
           [{ role: 'user', content: userMessage(c, [], null) }],
           notesTool(template),
         );
@@ -244,7 +254,7 @@ async function run(recordingId: string, userId: string, template: string, curren
       site_log: siteLog,
       detailed_sections: detailedSections.length ? detailedSections : null,
       conclusions: notes.conclusions ?? [],
-      detail_level: 'detailed',
+      detail_level: detailLevel,
       notes_schema_version: 2,
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });

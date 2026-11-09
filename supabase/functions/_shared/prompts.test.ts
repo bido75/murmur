@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { capForNotes, chunkTranscript, NOTES_MAX_TRANSCRIPT_CHARS, NOTES_TOOL, userMessage } from './prompts.ts';
+import { capForNotes, chunkTranscript, NOTES_MAX_TRANSCRIPT_CHARS, NOTES_TOOL, systemPrompt, userMessage } from './prompts.ts';
 
 test('a transcript within the budget is passed through unchanged', () => {
   const t = 'hello world';
@@ -45,4 +45,21 @@ test('the notes schema asks for detailed sections and conclusions', () => {
   assert.ok(req.includes('detailed_sections'), 'detailed_sections is required');
   assert.ok(req.includes('conclusions'), 'conclusions is required');
   assert.ok(NOTES_TOOL.input_schema.properties.detailed_sections?.items, 'detailed_sections has an item schema');
+});
+
+test('systemPrompt defaults to the comprehensive detailed instruction', () => {
+  const p = systemPrompt('general');
+  assert.match(p, /COMPREHENSIVE notes as detailed_sections/);
+});
+
+test('systemPrompt brief tells the model to skip detailed_sections', () => {
+  const p = systemPrompt('general', null, 'brief');
+  assert.doesNotMatch(p, /COMPREHENSIVE notes as detailed_sections/);
+  assert.match(p, /Do not fill detailed_sections/);
+});
+
+test('systemPrompt standard asks for a concise treatment', () => {
+  const p = systemPrompt('general', null, 'standard');
+  assert.match(p, /1–2 paragraphs/);
+  assert.doesNotMatch(p, /COMPREHENSIVE notes as detailed_sections/);
 });

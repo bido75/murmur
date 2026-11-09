@@ -21,6 +21,7 @@ import type {
   ConsentMethod,
   ConsentResponse,
   ConnKey,
+  DetailLevel,
   Integration,
   Invite,
   KeyPointDetail,
@@ -750,10 +751,13 @@ export async function retryProcessing(id: string) {
   await processRecording(id);
 }
 
-/** Regenerate the notes from the stored transcript, without re-transcribing the audio. */
-export async function regenerateNotes(id: string) {
+/** Regenerate the notes from the stored transcript, without re-transcribing the audio.
+ * The `detailLevel` (brief/standard/detailed) asks for a specific amount of substance;
+ * omit it to use the account default. */
+export async function regenerateNotes(id: string, detailLevel?: DetailLevel) {
   return callFn<{ status: string }>("process-recording/regenerate", {
     recording_id: id,
+    ...(detailLevel ? { detail_level: detailLevel } : {}),
   });
 }
 
@@ -859,6 +863,8 @@ export type Settings = {
   localOnly: boolean;
   /** Prefer the device when both the device and the cloud would work. */
   preferLocal: boolean;
+  /** How much substance the notes engine should keep (account-wide default). */
+  notesDetailLevel: DetailLevel;
 };
 const SETTINGS_KEY = "settings.v1";
 const DEFAULT_SETTINGS: Settings = {
@@ -870,6 +876,7 @@ const DEFAULT_SETTINGS: Settings = {
   transcriptionMode: "auto",
   localOnly: false,
   preferLocal: false,
+  notesDetailLevel: "detailed",
 };
 
 /**
@@ -881,7 +888,7 @@ async function readUserPrefs(): Promise<Partial<Settings>> {
   try {
     const { data } = await supabase
       .from("user_settings")
-      .select("consent_reminder, field_mode, default_template, my_state")
+      .select("consent_reminder, field_mode, default_template, my_state, notes_detail_level")
       .maybeSingle();
     if (!data) return {};
     return {
@@ -889,6 +896,10 @@ async function readUserPrefs(): Promise<Partial<Settings>> {
       fieldMode: data.field_mode as boolean | undefined,
       defaultTemplate: data.default_template as Template | undefined,
       myState: (data.my_state as string | null | undefined) ?? undefined,
+      notesDetailLevel:
+        data.notes_detail_level === "brief" || data.notes_detail_level === "standard" || data.notes_detail_level === "detailed"
+          ? (data.notes_detail_level as DetailLevel)
+          : undefined,
     };
   } catch {
     return {};
@@ -928,6 +939,7 @@ export async function saveSettings(s: Settings) {
       field_mode: s.fieldMode,
       default_template: s.defaultTemplate,
       my_state: s.myState,
+      notes_detail_level: s.notesDetailLevel,
     },
     { onConflict: "user_id" },
   );

@@ -14,7 +14,12 @@ export const TEMPLATES = {
 
 export type TemplateId = keyof typeof TEMPLATES;
 
-export function systemPrompt(template: string, custom: string | null = null): string {
+/** How much substance the notes should keep. 'detailed' is the default; 'brief' and
+ * 'standard' are lighter, user-chosen alternatives (a short summary alone is never
+ * presented as detailed notes). */
+export type DetailLevel = 'brief' | 'standard' | 'detailed';
+
+export function systemPrompt(template: string, custom: string | null = null, detailLevel: DetailLevel = 'detailed'): string {
   const focus = TEMPLATES[(template as TemplateId)] ?? TEMPLATES.general;
   return [
     'You turn conversation transcripts into accurate, useful notes.',
@@ -43,23 +48,50 @@ export function systemPrompt(template: string, custom: string | null = null): st
     '- Each key point needs a word-for-word quote from the transcript (5 to 25 words) that shows where the point came from. Keep the point short.',
     '- Keep the overview to 2–4 sentences (a concise executive summary).',
     '',
-    'Then write COMPREHENSIVE notes as detailed_sections. Organize the recording into topic-by-topic sections — every substantive topic the speaker discusses, in order. For each section:',
-    '- heading: a short topic heading.',
-    '- paragraphs: 2–6 paragraphs that preserve the substantive content — the reasoning, arguments, explanations, examples, comparisons, qualifications, and any significant numbers, names or dates. Do not compress a rich discussion into a single sentence.',
-    '- quote: one word-for-word excerpt from the transcript (10 to 40 words) that anchors this section, if a matching passage exists.',
-    '',
-    'Coverage rules:',
-    '- Do not reduce a long or complex recording to four or five bullets. A lecture, presentation, interview or essay should produce enough sections to cover its real topics.',
-    '- Preserve material from the beginning, middle and end of the transcript.',
-    '- Distinguish what the speaker asserts or speculates from what is established fact. Attribute claims to the speaker or to the sources the speaker names.',
-    '- Do not invent decisions, action items, owners or deadlines for a monologue, lecture or presentation.',
-    '- conclusions: the speaker\'s concluding points or recommendations, if any (empty when there are none).',
+    ...detailedSectionsInstruction(detailLevel),
     '',
     'If a list of open tasks from earlier recordings is given:',
     '- Report in task_updates only the ones actually discussed: status "done" if someone says it is finished, "in_progress" or "blocked" otherwise, with a word-for-word quote. Leave the rest out.',
     '- Do not add an open task again as a new action item.',
     ...(template === 'site_walk' ? [SITE_LOG_RULES] : []),
   ].join('\n');
+}
+
+/** The detailed_sections instruction varies by detail level: 'brief' drops the
+ * sections entirely, 'standard' keeps them concise, 'detailed' is the comprehensive
+ * default. */
+function detailedSectionsInstruction(level: DetailLevel): string[] {
+  if (level === 'brief') {
+    return [
+      'Write concise notes. Do not fill detailed_sections (leave it an empty array) — put the essential points in key_points, each short. An empty array is acceptable only when the recording has no substantive content.',
+    ];
+  }
+  const depth =
+    level === 'standard'
+      ? [
+          'Then write notes as detailed_sections. Organize the recording into topic-by-topic sections, in order. For each section:',
+          '- heading: a short topic heading.',
+          '- paragraphs: 1–2 paragraphs that capture the essential content of that topic. Concise but complete; do not pad.',
+          '- quote: one word-for-word excerpt from the transcript (10 to 40 words) that anchors this section, if a matching passage exists.',
+        ]
+      : [
+          'Then write COMPREHENSIVE notes as detailed_sections. Organize the recording into topic-by-topic sections — every substantive topic the speaker discusses, in order. For each section:',
+          '- heading: a short topic heading.',
+          '- paragraphs: 2–6 paragraphs that preserve the substantive content — the reasoning, arguments, explanations, examples, comparisons, qualifications, and any significant numbers, names or dates. Do not compress a rich discussion into a single sentence.',
+          '- quote: one word-for-word excerpt from the transcript (10 to 40 words) that anchors this section, if a matching passage exists.',
+        ];
+  return [
+    ...depth,
+    '',
+    'Coverage rules:',
+    ...(level === 'detailed'
+      ? ['- Do not reduce a long or complex recording to four or five bullets. A lecture, presentation, interview or essay should produce enough sections to cover its real topics.']
+      : ['- Cover every substantive topic, but keep each section tight.']),
+    '- Preserve material from the beginning, middle and end of the transcript.',
+    '- Distinguish what the speaker asserts or speculates from what is established fact. Attribute claims to the speaker or to the sources the speaker names.',
+    '- Do not invent decisions, action items, owners or deadlines for a monologue, lecture or presentation.',
+    '- conclusions: the speaker\'s concluding points or recommendations, if any (empty when there are none).',
+  ];
 }
 
 /** The most of a transcript the notes prompt will carry. ~30K tokens: room for a

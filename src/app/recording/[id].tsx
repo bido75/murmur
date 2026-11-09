@@ -590,9 +590,25 @@ export default function RecordingDetail() {
         },
         {
           section: "Organize",
-          label: "Regenerate as detailed notes",
+          label: "Regenerate notes — detailed",
           onPress: guard(async () => {
-            await regenerateNotes(rec.id);
+            await regenerateNotes(rec.id, "detailed");
+            await load();
+          }),
+        },
+        {
+          section: "Organize",
+          label: "Regenerate notes — standard",
+          onPress: guard(async () => {
+            await regenerateNotes(rec.id, "standard");
+            await load();
+          }),
+        },
+        {
+          section: "Organize",
+          label: "Regenerate notes — brief",
+          onPress: guard(async () => {
+            await regenerateNotes(rec.id, "brief");
             await load();
           }),
         },

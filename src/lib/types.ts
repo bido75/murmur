@@ -118,6 +118,9 @@ export type TaskUpdate = {
   verified: boolean;
 };
 
+/** How much substance the notes engine was asked to keep for this recording. */
+export type DetailLevel = "brief" | "standard" | "detailed";
+
 export type Summary = {
   overview: string;
   key_points: string[];
@@ -131,6 +134,8 @@ export type Summary = {
   detailed_sections?: DetailedNoteSection[] | null;
   /** The speaker's concluding points or recommendations. */
   conclusions?: string[] | null;
+  /** The detail level this summary was generated at. */
+  detail_level?: DetailLevel | null;
 };
 
 /** One comprehensive topic section in the detailed notes. */
