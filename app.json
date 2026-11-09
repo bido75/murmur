@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Murmur",
-    "slug": "murmur",
+    "slug": "murmur-notes",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,15 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.giscop.murmur"
+      "package": "com.giscop.murmur",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -58,6 +66,7 @@
       "eas": {
         "projectId": "c0a97185-7794-48e9-8be9-e89734f1c9f0"
       }
-    }
+    },
+    "owner": "vgbewonyo"
   }
 }

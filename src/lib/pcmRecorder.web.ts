@@ -5,7 +5,7 @@ export class PcmWavRecorder {
   level = -160;
   durationMs = 0;
   start(_uri: string) {
-    throw new Error('Not available on the web');
+    throw new Error("Not available on the web");
   }
   pause() {}
   resume() {}
