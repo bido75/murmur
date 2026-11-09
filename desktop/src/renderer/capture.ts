@@ -3,9 +3,9 @@
 // words are yours and only has to tell the remote people apart. Audio is appended to disk every few seconds and split into 5-minute files,
 // so a crash or power cut loses at most a few seconds.
 import type { Bridge } from "../shared/bridge";
-import { SilenceGuard, dbfs, keepSegment } from "../shared/level";
-import { micFailureMessage, type MicDeviceInfo } from "../shared/micFailure";
-import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config";
+import { SilenceGuard, dbfs, keepSegment } from "../shared/level.ts";
+import { micFailureMessage, type MicDeviceInfo } from "../shared/micFailure.ts";
+import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config.ts";
 
 declare const window: Window & { murmur: Bridge };
 const bridge = () => window.murmur;
@@ -44,15 +44,22 @@ export class Capture {
   private silence: SilenceGuard = new SilenceGuard(SILENCE_DB, SILENCE_WARN_MS);
   private rotating = false;
   private video: MediaStreamTrack | null = null; // screen recording
+  private recordingId: string;
+  private events: CaptureEvents;
+  private local: boolean;
   doneMs = 0;
   systemAudio: "on" | "unavailable" | "denied" = "unavailable";
 
   constructor(
-    private recordingId: string,
-    private events: CaptureEvents,
+    recordingId: string,
+    events: CaptureEvents,
     /** Made on this computer: the parts are transcribed here and never uploaded. */
-    private local = false,
-  ) {}
+    local = false,
+  ) {
+    this.recordingId = recordingId;
+    this.events = events;
+    this.local = local;
+  }
 
   /** Reject instead of hanging forever when the OS audio stack never answers
    *  (broken/disabled sound devices leave getUserMedia unresolved). */
