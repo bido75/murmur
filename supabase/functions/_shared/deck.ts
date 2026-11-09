@@ -108,6 +108,7 @@ export async function buildPptx(d: DeckData, opts: { theme?: DeckTheme } = {}): 
         renderEditorial(s, sl, C, FONT);
         break;
     }
+    if (sl.speakerNotes) s.addNotes(sl.speakerNotes);
   }
 
   // Safety, straight from the verified site log

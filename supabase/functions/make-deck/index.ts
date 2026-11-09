@@ -1,6 +1,6 @@
 // POST { kind, recording_id? | project_id?, audience? } → { url, filename }
 // Builds a .pptx from a recording's (or a whole project's) verified notes.
-import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, resolveTheme, sanitizeSlides, type DeckData, type DeckKind, type DeckStyle } from '../_shared/deck.ts';
+import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, resolveTheme, sanitizeSlides, type DeckData, type DeckEnhancements, type DeckKind, type DeckStyle } from '../_shared/deck.ts';
 import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
@@ -13,10 +13,16 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
     const { id: userId, client } = await requireUser(req);
-    const { kind, recording_id, project_id, audience, style, detail } = await req.json();
+    const { kind, recording_id, project_id, audience, style, detail, enhancements } = await req.json();
     if (!(kind in DECK_KINDS)) throw new HttpError(400, 'Unknown deck type');
     if (!recording_id && !project_id) throw new HttpError(400, 'recording_id or project_id is required');
     const theme = resolveTheme((['corporate', 'minimal', 'tech', 'research', 'construction', 'dark', 'creative'] as DeckStyle[]).includes(style) ? style as DeckStyle : undefined);
+    const enh: DeckEnhancements = {
+      images: (enhancements?.images ?? true) !== false,
+      diagrams: (enhancements?.diagrams ?? true) !== false,
+      charts: (enhancements?.charts ?? true) !== false,
+      notes: (enhancements?.notes ?? true) !== false,
+    };
 
     // Gather material as the user (RLS keeps it to their own data).
     let recs: Rec[] = [];
@@ -67,7 +73,7 @@ Deno.serve(async (req) => {
     const k = kind as DeckKind;
     const depth = detail === 'concise' ? 'Keep it tight: 3 to 5 slides.' : detail === 'detailed' ? 'Be thorough: up to 9 slides.' : 'Aim for 4 to 7 slides.';
     const written = await llmStructured<{ title: string; subtitle: string; slides: unknown }>(
-      deckSystemPrompt(k, audience ? String(audience).slice(0, 300) : null) + `\n${depth}`,
+      deckSystemPrompt(k, audience ? String(audience).slice(0, 300) : null, enh) + `\n${depth}`,
       [{ role: 'user', content: `Material:\n\n${material}\n\nTasks (already shown on their own slide):\n${taskList || 'none'}` }],
       DECK_TOOL,
     );

@@ -72,3 +72,16 @@ test('the deck prompt forbids inventing data and steers visual layout by meaning
 test('all four deck kinds are defined', () => {
   assert.deepEqual(Object.keys(DECK_KINDS).sort(), ['client_update', 'pitch', 'proposal', 'site_report']);
 });
+
+test('sanitizeSlides preserves speaker notes (from the model notes field)', () => {
+  const out = sanitizeSlides([{ kind: 'bullets', title: 'T', bullets: ['a'], notes: 'Say this aloud.' }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'bullets');
+  assert.equal((out[0] as { speakerNotes?: string }).speakerNotes, 'Say this aloud.');
+});
+
+test('the deck prompt steers diagrams and charts by the enhancement flags', () => {
+  assert.match(deckSystemPrompt('pitch', null, { images: true, diagrams: false, charts: false, notes: true }), /Do not make charts/);
+  assert.match(deckSystemPrompt('pitch', null, { images: true, diagrams: false, charts: true, notes: true }), /plain bullets, not diagrams/);
+  assert.doesNotMatch(deckSystemPrompt('pitch', null, { images: true, diagrams: true, charts: true, notes: false }), /write a one-to-two sentence speaker note/);
+});

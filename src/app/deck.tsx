@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { Banner, Button, Card, T } from "@/components/ui";
-import { DECK_LABELS, makeDeck, saveDeck, type DeckDetail, type DeckKind, type DeckStyle } from "@/lib/api";
+import { DECK_LABELS, makeDeck, saveDeck, type DeckDetail, type DeckEnhancements, type DeckKind, type DeckStyle } from "@/lib/api";
 import { notify } from "@/lib/dialog";
 import { radius, space, useTheme } from "@/lib/theme";
 
@@ -30,6 +30,13 @@ const DETAILS: { id: DeckDetail; label: string }[] = [
   { id: "detailed", label: "Detailed" },
 ];
 
+const ENHANCEMENTS: { id: keyof DeckEnhancements; label: string }[] = [
+  { id: "diagrams", label: "Diagrams & flows" },
+  { id: "charts", label: "Charts (when data supports)" },
+  { id: "images", label: "Relevant images" },
+  { id: "notes", label: "Speaker notes" },
+];
+
 export default function Deck() {
   const t = useTheme();
   const { recordingId, projectId } = useLocalSearchParams<{
@@ -39,6 +46,12 @@ export default function Deck() {
   const [kind, setKind] = useState<DeckKind>("client_update");
   const [style, setStyle] = useState<DeckStyle>("corporate");
   const [detail, setDetail] = useState<DeckDetail>("standard");
+  const [enhancements, setEnhancements] = useState<DeckEnhancements>({
+    diagrams: true,
+    charts: true,
+    images: false,
+    notes: true,
+  });
   const [audience, setAudience] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{
@@ -59,6 +72,7 @@ export default function Deck() {
           audience: audience.trim(),
           style,
           detail,
+          enhancements,
         }),
       );
     } catch (e) {
@@ -166,6 +180,43 @@ export default function Deck() {
             );
           })}
         </View>
+      </View>
+
+      <View style={{ gap: space.sm }}>
+        <T muted size={13} weight="600">
+          VISUAL ENHANCEMENTS
+        </T>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+          {ENHANCEMENTS.map((e) => {
+            const on = enhancements[e.id];
+            return (
+              <Pressable
+                key={e.id}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on }}
+                onPress={() =>
+                  setEnhancements((cur) => ({ ...cur, [e.id]: !cur[e.id] }))
+                }
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: on ? t.accent : t.border,
+                  backgroundColor: on ? t.accentSoft : "transparent",
+                }}
+              >
+                <T size={14} style={{ color: on ? t.accent : t.ink }}>
+                  {on ? "✓ " : ""}
+                  {e.label}
+                </T>
+              </Pressable>
+            );
+          })}
+        </View>
+        <T muted size={12}>
+          Images require a configured image provider and are skipped if none is set.
+        </T>
       </View>
 
       <View style={{ gap: space.sm }}>

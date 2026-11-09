@@ -54,14 +54,14 @@ export function resolveTheme(style: DeckStyle | undefined): DeckTheme {
 
 // ---------- Slide shapes ----------
 
-export type BulletSlide = { kind: 'bullets'; title: string; bullets: string[] };
-export type TwoColumnSlide = { kind: 'two_column'; title: string; left: { heading: string; bullets: string[] }; right: { heading: string; bullets: string[] } };
-export type ProcessSlide = { kind: 'process'; title: string; steps: { heading: string; detail: string }[] };
-export type TimelineSlide = { kind: 'timeline'; title: string; milestones: { label: string; note: string }[] };
-export type PillarsSlide = { kind: 'pillars'; title: string; pillars: { heading: string; detail: string }[] };
-export type ChartSlide = { kind: 'chart'; title: string; chartType: 'bar' | 'line' | 'doughnut'; categories: string[]; series: { name: string; values: number[] }[] };
-export type KpiSlide = { kind: 'kpi'; title: string; metrics: { label: string; value: string }[] };
-export type EditorialSlide = { kind: 'editorial'; title: string; statement: string };
+export type BulletSlide = { kind: 'bullets'; title: string; bullets: string[]; speakerNotes?: string };
+export type TwoColumnSlide = { kind: 'two_column'; title: string; left: { heading: string; bullets: string[] }; right: { heading: string; bullets: string[] }; speakerNotes?: string };
+export type ProcessSlide = { kind: 'process'; title: string; steps: { heading: string; detail: string }[]; speakerNotes?: string };
+export type TimelineSlide = { kind: 'timeline'; title: string; milestones: { label: string; note: string }[]; speakerNotes?: string };
+export type PillarsSlide = { kind: 'pillars'; title: string; pillars: { heading: string; detail: string }[]; speakerNotes?: string };
+export type ChartSlide = { kind: 'chart'; title: string; chartType: 'bar' | 'line' | 'doughnut'; categories: string[]; series: { name: string; values: number[] }[]; speakerNotes?: string };
+export type KpiSlide = { kind: 'kpi'; title: string; metrics: { label: string; value: string }[]; speakerNotes?: string };
+export type EditorialSlide = { kind: 'editorial'; title: string; statement: string; speakerNotes?: string };
 export type NarrativeSlide = BulletSlide | TwoColumnSlide | ProcessSlide | TimelineSlide | PillarsSlide | ChartSlide | KpiSlide | EditorialSlide;
 
 export type DeckData = {
@@ -117,6 +117,7 @@ export const DECK_TOOL = {
             series: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, values: { type: 'array', items: { type: 'number' } } } }, description: 'For chart: 1–3 series; every value must be a number stated in the material.' },
             metrics: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } } }, description: 'For kpi: 2–4 metrics, value as a short string (number or phrase) from the material.' },
             statement: { type: 'string', description: 'For editorial: one strong sentence, max 24 words.' },
+            notes: { type: 'string', description: 'Optional speaker notes for this slide, 1–2 sentences to say aloud (factual, from the material).' },
           },
           required: ['kind', 'title'],
         },
@@ -126,7 +127,32 @@ export const DECK_TOOL = {
   },
 } as const;
 
-export function deckSystemPrompt(kind: DeckKind, audience: string | null): string {
+export type DeckEnhancements = { images: boolean; diagrams: boolean; charts: boolean; notes: boolean };
+
+export function deckSystemPrompt(kind: DeckKind, audience: string | null, e?: DeckEnhancements): string {
+  const enh = e ?? { images: true, diagrams: true, charts: true, notes: true };
+  const visualRules = [
+    'Visual planning — choose the layout that matches the slide\'s meaning, not a random image:',
+    '- Use process for a sequence of steps or phases that were actually described.',
+    '- Use timeline for dated milestones or a roadmap actually stated.',
+    '- Use pillars for parallel themes, priorities or components that were named (exactly those, no invented ones).',
+    '- Use two_column for a comparison, trade-off or before/after.',
+    enh.charts
+      ? '- Use chart ONLY when the material states real numbers for the same categories; otherwise do not make a chart.'
+      : '- Do not make charts.',
+    enh.diagrams
+      ? '- Prefer native, editable diagrams over describing an image in words.'
+      : '- Use plain bullets, not diagrams.',
+    '- Use kpi for a few concrete figures (a count, a date, a budget) actually given.',
+    '- Use editorial for a single strong takeaway.',
+    '- Use bullets otherwise. Do not force a diagram onto content that is just a list.',
+  ];
+  const notesRule = enh.notes
+    ? 'For every slide, write a one-to-two sentence speaker note (the notes field) a presenter can say aloud; keep it factual.'
+    : 'Do not write speaker notes.';
+  const imagesRule = enh.images
+    ? 'If a slide would genuinely benefit from imagery, describe it in the notes field; do not invent images.'
+    : '';
   return [
     'You turn verified meeting notes into a clear, professional slide deck.',
     `Deck type: ${DECK_KINDS[kind].brief}`,
@@ -135,17 +161,10 @@ export function deckSystemPrompt(kind: DeckKind, audience: string | null): strin
     '- Use only facts in the material. Never invent numbers, dates, prices, names, statistics, budgets, progress levels or commitments. If something a deck like this would normally include is missing, leave it out.',
     '- Each slide title states the point ("Foundation pour moved to Oct 22"), not a topic ("Schedule").',
     '- Short, concrete wording. No filler, no marketing language.',
+    notesRule,
+    imagesRule,
     '',
-    'Visual planning — choose the layout that matches the slide\'s meaning, not a random image:',
-    '- Use process for a sequence of steps or phases that were actually described.',
-    '- Use timeline for dated milestones or a roadmap actually stated.',
-    '- Use pillars for parallel themes, priorities or components that were named (exactly those, no invented ones).',
-    '- Use two_column for a comparison, trade-off or before/after.',
-    '- Use chart ONLY when the material states real numbers for the same categories; otherwise do not make a chart.',
-    '- Use kpi for a few concrete figures (a count, a date, a budget) actually given.',
-    '- Use editorial for a single strong takeaway.',
-    '- Use bullets otherwise. Do not force a diagram onto content that is just a list.',
-    '- Prefer native, editable diagrams over describing an image in words.',
+    ...visualRules,
   ]
     .filter(Boolean)
     .join('\n');
@@ -172,19 +191,20 @@ export function sanitizeSlides(raw: unknown): NarrativeSlide[] {
     if (!title) continue;
     const clean = (b: unknown) => (Array.isArray(b) ? b.map((x) => String(x).trim()).filter(Boolean) : []);
     const kind = String(s.kind ?? 'bullets');
+    const speakerNotes = String(s?.notes ?? '').trim() || undefined;
     if (kind === 'two_column' && s.left && s.right) {
       const left = { heading: String(s.left.heading ?? '').trim(), bullets: clean(s.left.bullets).slice(0, 6) };
       const right = { heading: String(s.right.heading ?? '').trim(), bullets: clean(s.right.bullets).slice(0, 6) };
-      if (left.bullets.length || right.bullets.length) out.push({ kind: 'two_column', title, left, right });
+      if (left.bullets.length || right.bullets.length) out.push({ kind: 'two_column', title, left, right, speakerNotes });
     } else if (kind === 'process') {
       const steps = (Array.isArray(s.steps) ? s.steps : []).map((x: any) => ({ heading: String(x?.heading ?? '').trim(), detail: String(x?.detail ?? '').trim() })).filter((x: any) => x.heading).slice(0, 5);
-      if (steps.length >= 2) out.push({ kind: 'process', title, steps });
+      if (steps.length >= 2) out.push({ kind: 'process', title, steps, speakerNotes });
     } else if (kind === 'timeline') {
       const milestones = (Array.isArray(s.milestones) ? s.milestones : []).map((x: any) => ({ label: String(x?.label ?? '').trim(), note: String(x?.note ?? '').trim() })).filter((x: any) => x.label).slice(0, 6);
-      if (milestones.length >= 2) out.push({ kind: 'timeline', title, milestones });
+      if (milestones.length >= 2) out.push({ kind: 'timeline', title, milestones, speakerNotes });
     } else if (kind === 'pillars') {
       const pillars = (Array.isArray(s.pillars) ? s.pillars : []).map((x: any) => ({ heading: String(x?.heading ?? '').trim(), detail: String(x?.detail ?? '').trim() })).filter((x: any) => x.heading).slice(0, 4);
-      if (pillars.length >= 2) out.push({ kind: 'pillars', title, pillars });
+      if (pillars.length >= 2) out.push({ kind: 'pillars', title, pillars, speakerNotes });
     } else if (kind === 'chart') {
       const c: ChartSlide = {
         kind: 'chart',
@@ -192,17 +212,18 @@ export function sanitizeSlides(raw: unknown): NarrativeSlide[] {
         chartType: s.chartType === 'line' || s.chartType === 'doughnut' ? s.chartType : 'bar',
         categories: clean(s.categories).slice(0, 8),
         series: (Array.isArray(s.series) ? s.series : []).map((x: any) => ({ name: String(x?.name ?? '').trim(), values: (Array.isArray(x?.values) ? x.values : []).map((v: any) => Number(v)) })).slice(0, 3),
+        speakerNotes,
       };
       if (!validateChartData(c)) out.push(c);
     } else if (kind === 'kpi') {
       const metrics = (Array.isArray(s.metrics) ? s.metrics : []).map((x: any) => ({ label: String(x?.label ?? '').trim(), value: String(x?.value ?? '').trim() })).filter((x: any) => x.value).slice(0, 4);
-      if (metrics.length) out.push({ kind: 'kpi', title, metrics });
+      if (metrics.length) out.push({ kind: 'kpi', title, metrics, speakerNotes });
     } else if (kind === 'editorial') {
       const statement = String(s.statement ?? '').trim();
-      if (statement) out.push({ kind: 'editorial', title, statement: statement.slice(0, 180) });
+      if (statement) out.push({ kind: 'editorial', title, statement: statement.slice(0, 180), speakerNotes });
     } else {
       const bullets = clean(s.bullets);
-      if (bullets.length) out.push({ kind: 'bullets', title, bullets: bullets.slice(0, 7) });
+      if (bullets.length) out.push({ kind: 'bullets', title, bullets: bullets.slice(0, 7), speakerNotes });
     }
   }
   return out.slice(0, 12);

@@ -1220,6 +1220,12 @@ export type DeckStyle =
   | "dark"
   | "creative";
 export type DeckDetail = "concise" | "standard" | "detailed";
+export type DeckEnhancements = {
+  images: boolean;
+  diagrams: boolean;
+  charts: boolean;
+  notes: boolean;
+};
 export const DECK_LABELS: Record<DeckKind, string> = {
   client_update: "Client update",
   site_report: "Site report",
@@ -1234,6 +1240,7 @@ export function makeDeck(opts: {
   audience?: string;
   style?: DeckStyle;
   detail?: DeckDetail;
+  enhancements?: { images: boolean; diagrams: boolean; charts: boolean; notes: boolean };
 }) {
   return callFn<{ url: string; filename: string; slides: number }>(
     "make-deck",
@@ -1244,6 +1251,7 @@ export function makeDeck(opts: {
       audience: opts.audience || undefined,
       style: opts.style || undefined,
       detail: opts.detail || undefined,
+      enhancements: opts.enhancements || undefined,
     },
   );
 }
