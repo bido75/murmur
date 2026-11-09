@@ -67,11 +67,16 @@ export function LanguagePickerSheet({
   const [recent, setRecent] = useState<string[]>([]);
 
   useEffect(() => {
-    if (visible) {
-      setQuery("");
-      void loadRecent().then(setRecent);
-    }
+    if (visible) void loadRecent().then(setRecent);
   }, [visible]);
+
+  // Reset the search when the sheet closes, so it opens fresh next time. An effect
+  // cannot synchronously reset state (react-hooks/set-state-in-effect), so the reset
+  // lives on the close path instead.
+  const close = useCallback(() => {
+    setQuery("");
+    onClose();
+  }, [onClose]);
 
   const sections: PickerSection[] = useMemo(
     () => buildPickerSections(query, recent),
@@ -85,15 +90,15 @@ export function LanguagePickerSheet({
         void saveRecent(next);
         return next;
       });
-      onClose();
+      close();
       onPick(code);
     },
-    [onClose, onPick],
+    [close, onPick],
   );
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close language picker">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Close language picker">
         <Pressable style={[styles.sheet, { backgroundColor: t.surface }]} onPress={() => {}}>
           {title ? (
             <Text style={{ color: t.muted, fontSize: 13, padding: space.md, textAlign: "center" }}>
@@ -171,7 +176,7 @@ export function LanguagePickerSheet({
           </ScrollView>
           <Pressable
             accessibilityRole="button"
-            onPress={onClose}
+            onPress={close}
             style={[styles.item, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }]}
           >
             <Text style={{ color: t.muted, fontSize: 17, fontWeight: "600" }}>Cancel</Text>
