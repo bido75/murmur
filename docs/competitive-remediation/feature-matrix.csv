@@ -1,0 +1,36 @@
+phase,workstream,capability,status,key_files,test_coverage,deployment,risk
+1,recording,mic acquisition (getUserMedia-first),V,desktop/src/renderer/capture.ts; src/lib/mic.ts; shared/micFailure.ts,capture.test.ts + micFailure.test.ts,edge+client,low
+1,recording,mic error classification,V,shared/micFailure.ts,micFailure.test.ts,edge+client,low
+1,recording,electron permission handler,V,desktop/src/main/main.ts,reviewed,packaged,low
+1,recording,local queue + crash recovery,V,shared/queue.ts; renderer/sync.ts,recovery-restart.test.ts,packaged,low
+1,recording,build identifier (version+sha+time),V,desktop/build.mjs; main.ts; app.ts,manual,packaged,low
+1,recording,physical mic capture (Brio/RDP/mobile),Blk,capture.ts,physical-device,all clients,high
+1,recording,capture state machine,P,capture.ts,implicit,all clients,medium
+1,recording,recording manifest / chunk receipts,M,-,-,backend,medium
+2,notes,detailed sections + conclusions,V,prompts.ts; pipeline.ts,prompts.test.ts; pipeline,e2e recordings,backend,low
+2,notes,long-transcript chunking,V,prompts.ts (chunkTranscript),prompts.test.ts,backend,low
+2,notes,detail-level selector,V,prompts.ts; pipeline.ts; api.ts; settings,prompts.test.ts,backend+client,low
+2,notes,regenerate from transcript,V,process-recording/index.ts,manual,backend,low
+2,notes,semantic coverage + faithfulness eval,V,semantic.ts; faithfulness.ts; coverage.ts,3 test files + eval script,backend,low
+2,notes,transcript appendix,V,export_data.ts; src/lib/export.ts,company.test.ts,backend+client,low
+2,notes,note versioning / compare / restore,M,-,-,backend,medium
+3,live,live transcription plumbing,IU,live/; renderer/live.ts; stt.ts,-,backend+client,medium
+3,live,speaker rename / utterance edit,IU,api.ts (setSpeakerName/updateUtteranceText),- ,client,medium
+3,live,custom vocabulary / dictionary,IU,shared/dictionary.ts,dictionary.test.ts,client,low
+3,live,streaming reliability (reconnect/dedupe/diarization),IU,live/; live.ts,-,backend,high
+4,calendar,calendar OAuth + event sync,IU,calendar.ts; calendar_fetch.ts; calendar/; oauth/,-,backend,medium
+4,calendar,bot scheduling/timing,IU,bot_core.ts; bot_timing.ts; bot/,-,backend,medium
+4,calendar,meeting briefs / follow-up drafts,M,-,-,backend,medium
+4,calendar,live provider validation (Zoom/Teams/Meet),Blk,-,-,backend,high
+5,kg,retrieval / ask / MCP,P,ask/; mcp/; recall.ts; semantic.ts,-,backend,medium
+5,kg,semantic topic trackers,P,trackers.ts,-,backend,medium
+5,kg,knowledge graph model (entities/relations/assertions),M,-,-,backend,high
+5,kg,decision history lifecycle,M,-,-,backend,medium
+6,docs,visual planning engine,V,deck_plan.ts,deck_plan.test.ts (11),backend,low
+6,docs,native editable diagrams + charts + themes,V,deck.ts,deck_plan.test.ts,backend,low
+6,docs,evidence-grounded chart validation,V,deck_plan.ts (validateChartData),deck_plan.test.ts,backend,low
+6,docs,provider-aware image generation,V,deck_images.ts; make-deck,deck_images.test.ts + live,backend,medium
+6,docs,PPTX export verification,V,pptx_verify.ts; scripts/verify-pptx-media.mts,pptx_verify.test.ts,backend,low
+6,docs,speaker notes + enhancement toggles,V,deck.ts; make-deck; deck.tsx,deck_plan.test.ts,backend+client,low
+6,docs,DOCX/PDF export,P,docx.ts; src/lib/export.ts,-,backend+client,medium
+6,docs,outline preview + regeneration UI,P,deck.tsx,-,client,medium
