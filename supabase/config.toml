@@ -246,7 +246,7 @@ content_path = "./supabase/templates/email_otp.html"
 
 [auth.email.template.magic_link]
 subject = "Your Murmur sign-in code"
-content_path = "./supabase/templates/magiclink.html"
+content_path = "./supabase/templates/magic_link.html"
 
 # Production SMTP: the giscop.com mailbox (STARTTLS on 587). The password is
 # read from the environment (SMTP_PASSWORD) so it never lands in this file;
