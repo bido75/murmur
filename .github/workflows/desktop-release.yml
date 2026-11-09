@@ -106,31 +106,60 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: desktop
         run: npm version "$APP_VERSION" --no-git-tag-version --allow-same-version
-      # Signing stays honest: with no credentials the build says so; if credentials
-      # appear before the signing step is implemented, refuse rather than half-sign.
-      - name: Windows signing gate
+      # Code signing activates automatically when credentials are present. electron-builder
+      # signs via CSC_LINK + CSC_KEY_PASSWORD on both platforms; macOS notarization also
+      # needs the Apple account secrets. With no credentials the build stays honestly
+      # unsigned (pre-release only); a cert without its password is refused rather than
+      # half-signed.
+      - name: Set up Windows code signing
         if: runner.os == 'Windows'
         working-directory: desktop
+        shell: bash
         env:
-          CERT_CONFIGURED: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+          PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
         run: |
-          if [ "$CERT_CONFIGURED" != "true" ]; then
+          if [ -z "$PFX" ]; then
             echo "::notice::No Windows signing certificate configured - building UNSIGNED (test/pre-release only)."
-          else
-            echo "::error::Windows signing secrets exist but the signing step is not implemented yet. Refusing to publish a half-signed installer."
+            exit 0
+          fi
+          if [ -z "$PFX_PASSWORD" ]; then
+            echo "::error::WINDOWS_SIGNING_PFX is set but WINDOWS_SIGNING_PASSWORD is missing. Refusing to half-sign."
             exit 1
           fi
-      - name: macOS signing gate
+          printf '%s' "$PFX" | base64 --decode > "$RUNNER_TEMP/murmur.pfx"
+          echo "CSC_LINK=$RUNNER_TEMP/murmur.pfx" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$PFX_PASSWORD" >> "$GITHUB_ENV"
+          echo "::notice::Windows Authenticode signing enabled."
+      - name: Set up macOS signing and notarization
         if: runner.os == 'macOS'
         working-directory: desktop
+        shell: bash
         env:
-          CERT_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' }}
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ "$CERT_CONFIGURED" != "true" ]; then
+          if [ -z "$CERT" ]; then
             echo "::notice::No Apple Developer ID certificate configured - building UNSIGNED (test/pre-release only)."
-          else
-            echo "::error::macOS signing secrets exist but the signing/notarization step is not implemented yet. Refusing to publish a half-signed installer."
+            exit 0
+          fi
+          if [ -z "$CERT_PASSWORD" ]; then
+            echo "::error::APPLE_CERTIFICATE is set but APPLE_CERTIFICATE_PASSWORD is missing. Refusing to half-sign."
             exit 1
+          fi
+          printf '%s' "$CERT" | base64 --decode > "$RUNNER_TEMP/murmur.p12"
+          echo "CSC_LINK=$RUNNER_TEMP/murmur.p12" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+            echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            echo "::notice::macOS signing + notarization enabled."
+          else
+            echo "::warning::Apple certificate present but notarization credentials are incomplete - signed but NOT notarized (macOS auto-update requires notarization)."
           fi
       - name: Build the installer
         working-directory: desktop
@@ -173,6 +202,7 @@ jobs:
             desktop/release/*.dmg
             desktop/release/*.zip
             desktop/release/*.blockmap
+            desktop/release/latest*.yml
             desktop/release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -202,7 +232,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
-          files=$(find artifacts -type f ! -name "*.blockmap" | tr '\n' ' ')
+          # Include the blockmaps and latest*.yml feed metadata: electron-updater
+          # fetches them from the release for differential / auto updates.
+          files=$(find artifacts -type f | tr '\n' ' ')
           gh release create "desktop-v$VERSION" \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
