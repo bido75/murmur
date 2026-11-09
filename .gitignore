@@ -50,3 +50,7 @@ wear/build/
 wear/app/build/
 wear/local.properties
 watch/*.xcodeproj/
+
+# evaluation artifacts carrying private recording content
+evaluations/detailed-notes-*.md
+evaluations/*.headings.txt
