@@ -62,7 +62,8 @@ export type PillarsSlide = { kind: 'pillars'; title: string; pillars: { heading:
 export type ChartSlide = { kind: 'chart'; title: string; chartType: 'bar' | 'line' | 'doughnut'; categories: string[]; series: { name: string; values: number[] }[]; speakerNotes?: string };
 export type KpiSlide = { kind: 'kpi'; title: string; metrics: { label: string; value: string }[]; speakerNotes?: string };
 export type EditorialSlide = { kind: 'editorial'; title: string; statement: string; speakerNotes?: string };
-export type NarrativeSlide = BulletSlide | TwoColumnSlide | ProcessSlide | TimelineSlide | PillarsSlide | ChartSlide | KpiSlide | EditorialSlide;
+export type VisualSlide = { kind: 'visual'; title: string; caption: string; image?: { dataUri: string; illustrative: boolean }; speakerNotes?: string };
+export type NarrativeSlide = BulletSlide | TwoColumnSlide | ProcessSlide | TimelineSlide | PillarsSlide | ChartSlide | KpiSlide | EditorialSlide | VisualSlide;
 
 export type DeckData = {
   title: string;
@@ -104,7 +105,7 @@ export const DECK_TOOL = {
         items: {
           type: 'object',
           properties: {
-            kind: { type: 'string', enum: ['bullets', 'two_column', 'process', 'timeline', 'pillars', 'chart', 'kpi', 'editorial'], description: 'The visual layout. bullets/two_column are plain text; process/timeline/pillars draw native diagrams; chart draws a data chart; kpi draws metric cards; editorial is a single statement.' },
+            kind: { type: 'string', enum: ['bullets', 'two_column', 'process', 'timeline', 'pillars', 'chart', 'kpi', 'editorial', 'visual'], description: 'The visual layout. bullets/two_column are plain text; process/timeline/pillars draw native diagrams; chart draws a data chart; kpi draws metric cards; editorial is a single statement; visual is a hero/concept slide with an image.' },
             title: { type: 'string', description: 'Slide headline stating the point, max 10 words.' },
             bullets: { type: 'array', items: { type: 'string' }, description: 'For bullets: 2–6 bullets, each under 18 words.' },
             left: { type: 'object', properties: { heading: { type: 'string' }, bullets: { type: 'array', items: { type: 'string' } } } },
@@ -117,6 +118,7 @@ export const DECK_TOOL = {
             series: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, values: { type: 'array', items: { type: 'number' } } } }, description: 'For chart: 1–3 series; every value must be a number stated in the material.' },
             metrics: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } } }, description: 'For kpi: 2–4 metrics, value as a short string (number or phrase) from the material.' },
             statement: { type: 'string', description: 'For editorial: one strong sentence, max 24 words.' },
+            caption: { type: 'string', description: 'For visual: a short description of the illustration to generate (no text in the image).' },
             notes: { type: 'string', description: 'Optional speaker notes for this slide, 1–2 sentences to say aloud (factual, from the material).' },
           },
           required: ['kind', 'title'],
@@ -145,13 +147,14 @@ export function deckSystemPrompt(kind: DeckKind, audience: string | null, e?: De
       : '- Use plain bullets, not diagrams.',
     '- Use kpi for a few concrete figures (a count, a date, a budget) actually given.',
     '- Use editorial for a single strong takeaway.',
+    enh.images ? '- Use visual for a hero or concept slide that benefits from an illustration (at most 1–2 total).' : '- Do not use the visual layout.',
     '- Use bullets otherwise. Do not force a diagram onto content that is just a list.',
   ];
   const notesRule = enh.notes
     ? 'For every slide, write a one-to-two sentence speaker note (the notes field) a presenter can say aloud; keep it factual.'
     : 'Do not write speaker notes.';
   const imagesRule = enh.images
-    ? 'If a slide would genuinely benefit from imagery, describe it in the notes field; do not invent images.'
+    ? 'For a visual slide, write a short caption (caption field) describing the illustration; it must not contain words or depict a real place/product as if photographed.'
     : '';
   return [
     'You turn verified meeting notes into a clear, professional slide deck.',
@@ -221,6 +224,9 @@ export function sanitizeSlides(raw: unknown): NarrativeSlide[] {
     } else if (kind === 'editorial') {
       const statement = String(s.statement ?? '').trim();
       if (statement) out.push({ kind: 'editorial', title, statement: statement.slice(0, 180), speakerNotes });
+    } else if (kind === 'visual') {
+      const caption = String(s.caption ?? '').trim();
+      if (caption) out.push({ kind: 'visual', title, caption: caption.slice(0, 300), speakerNotes });
     } else {
       const bullets = clean(s.bullets);
       if (bullets.length) out.push({ kind: 'bullets', title, bullets: bullets.slice(0, 7), speakerNotes });

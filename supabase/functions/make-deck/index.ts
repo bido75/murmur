@@ -4,6 +4,7 @@ import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, resolveTheme, sanit
 import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
+import { DEFAULT_IMAGE_BUDGET, IMAGE_SIZE, imageBudget, imagePrompt, imageProviderConfig, type ImageProviderConfig } from '../_shared/deck_images.ts';
 
 type Rec = { id: string; title: string; created_at: string };
 type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; detailed_sections: { heading: string; paragraphs: string[] }[] | null; conclusions: string[] | null; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
@@ -97,6 +98,24 @@ Deno.serve(async (req) => {
       deck.photos = await deckPhotos(client, ids, logs, (tasks ?? []) as TaskRow[], Object.fromEntries(recs.map((r) => [r.id, r.title])));
     }
 
+    // Illustrative imagery: generated only for the "visual" slides, only when the user
+    // asked for images AND a provider is configured. Failures degrade to the editable
+    // text placeholder, never a broken deck.
+    if (enh.images) {
+      const cfg = imageProviderConfig(Deno.env.toObject());
+      if (cfg) {
+        const visuals = deck.slides.filter((s) => s.kind === 'visual');
+        const budget = imageBudget(visuals.length, Number(Deno.env.get('IMAGE_BUDGET') ?? '') || DEFAULT_IMAGE_BUDGET);
+        for (const v of visuals.slice(0, budget) as { kind: 'visual'; image?: { dataUri: string; illustrative: boolean }; caption: string }[]) {
+          try {
+            v.image = { ...(await generateImage(cfg, v.caption, theme.name)), illustrative: true };
+          } catch (e) {
+            console.warn('deck image generation failed; using placeholder', (e as Error).message.slice(0, 200));
+          }
+        }
+      }
+    }
+
     const bytes = await buildPptx(deck, { theme });
     const safe = deck.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'deck';
     const filename = `${safe}.pptx`;
@@ -153,4 +172,25 @@ function encodeBase64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
+}
+
+/** Generate one image from an OpenAI-compatible provider. Returns a PNG data URI. */
+async function generateImage(cfg: ImageProviderConfig, description: string, style: string): Promise<{ dataUri: string }> {
+  const res = await fetch(`${cfg.baseUrl}/images/generations`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: cfg.model,
+      prompt: imagePrompt({ description, style, illustrative: true }),
+      n: 1,
+      size: IMAGE_SIZE,
+      response_format: 'b64_json',
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`image provider ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const b64 = data?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('image provider returned no image');
+  return { dataUri: `data:image/png;base64,${b64}` };
 }

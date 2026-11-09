@@ -80,6 +80,13 @@ test('sanitizeSlides preserves speaker notes (from the model notes field)', () =
   assert.equal((out[0] as { speakerNotes?: string }).speakerNotes, 'Say this aloud.');
 });
 
+test('sanitizeSlides keeps a visual slide with a caption', () => {
+  const out = sanitizeSlides([{ kind: 'visual', title: 'Hero', caption: 'a city skyscraper' }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'visual');
+  assert.equal((out[0] as { caption: string }).caption, 'a city skyscraper');
+});
+
 test('the deck prompt steers diagrams and charts by the enhancement flags', () => {
   assert.match(deckSystemPrompt('pitch', null, { images: true, diagrams: false, charts: false, notes: true }), /Do not make charts/);
   assert.match(deckSystemPrompt('pitch', null, { images: true, diagrams: false, charts: true, notes: true }), /plain bullets, not diagrams/);

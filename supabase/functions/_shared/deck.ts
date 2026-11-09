@@ -15,6 +15,7 @@ import {
   type ProcessSlide,
   type TimelineSlide,
   type TwoColumnSlide,
+  type VisualSlide,
 } from './deck_plan.ts';
 
 export * from './deck_plan.ts';
@@ -106,6 +107,10 @@ export async function buildPptx(d: DeckData, opts: { theme?: DeckTheme } = {}): 
         break;
       case 'editorial':
         renderEditorial(s, sl, C, FONT);
+        break;
+      case 'visual':
+        heading(s, sl.title);
+        renderVisual(p, s, sl, C, FONT);
         break;
     }
     if (sl.speakerNotes) s.addNotes(sl.speakerNotes);
@@ -267,4 +272,17 @@ function renderChart(p: Pptx, s: Slide, sl: ChartSlide, C: DeckTheme, FONT: stri
 function renderEditorial(s: Slide, sl: EditorialSlide, C: DeckTheme, FONT: string) {
   s.addText(sl.statement, { x: 1.4, y: 2.3, w: W - 2.8, h: 2.0, fontFace: FONT, fontSize: 34, bold: true, color: C.ink, align: 'center', valign: 'middle', fit: 'shrink' });
   s.addText(sl.title, { x: 1.4, y: 4.6, w: W - 2.8, h: 0.6, fontFace: FONT, fontSize: 16, color: C.muted, align: 'center' });
+}
+
+function renderVisual(p: Pptx, s: Slide, sl: VisualSlide, C: DeckTheme, FONT: string) {
+  if (sl.image?.dataUri) {
+    const box = fitImage(16, 9, { x: 0.6, y: 1.5, w: W - 1.2, h: 5.2 });
+    s.addImage({ data: sl.image.dataUri, ...box });
+    s.addText(sl.caption, { x: 0.6, y: 6.85, w: W - 1.2, h: 0.4, fontFace: FONT, fontSize: 12, italic: true, color: C.muted, align: 'center', fit: 'shrink' });
+    if (sl.image.illustrative) s.addText('Illustrative image', { x: W - 2.4, y: 7.0, w: 1.8, h: 0.3, fontFace: FONT, fontSize: 9, color: C.muted, align: 'right' });
+  } else {
+    // No image provider configured: an editable placeholder instead of a skipped slide.
+    s.addShape(p.ShapeType.roundRect, { x: 0.6, y: 1.5, w: W - 1.2, h: 4.4, fill: { color: C.soft }, line: { color: C.line, width: 1 } });
+    s.addText(sl.caption, { x: 1.0, y: 2.2, w: W - 2.0, h: 3.0, fontFace: FONT, fontSize: 18, italic: true, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
+  }
 }
