@@ -61,6 +61,7 @@ import {
   listIntegrations,
   listProjects,
   renameRecording,
+  regenerateNotes,
   retryProcessing,
   sendSiteLogToProcore,
   setPhotoCaption,
@@ -584,6 +585,14 @@ export default function RecordingDetail() {
           label: "Re-run notes",
           onPress: guard(async () => {
             await retryProcessing(rec.id);
+            await load();
+          }),
+        },
+        {
+          section: "Organize",
+          label: "Regenerate as detailed notes",
+          onPress: guard(async () => {
+            await regenerateNotes(rec.id);
             await load();
           }),
         },
@@ -1162,6 +1171,56 @@ function Notes({
         </View>
       )}
       {!!s.overview && <T size={17}>{s.overview}</T>}
+      {s.detailed_sections && s.detailed_sections.length > 0 && (
+        <Section title="Detailed notes">
+          {s.detailed_sections.map((sec, i) => {
+            const ms = sec.verified ? sec.quote_ms : null;
+            return (
+              <View key={i} style={{ gap: space.sm }}>
+                <T weight="600" size={16}>
+                  {sec.heading}
+                </T>
+                {sec.paragraphs.map((p, j) => (
+                  <T key={j} size={14}>
+                    {p}
+                  </T>
+                ))}
+                {sec.quote ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "flex-start",
+                      gap: space.xs,
+                    }}
+                  >
+                    <Pressable
+                      disabled={sec.quote_ms == null}
+                      onPress={() =>
+                        sec.quote_ms != null && playAt(sec.quote_ms)
+                      }
+                      style={{ flex: 1 }}
+                    >
+                      <T muted size={13} style={{ fontStyle: "italic" }}>
+                        “{sec.quote}”
+                      </T>
+                    </Pressable>
+                    {ms != null ? (
+                      <TimestampChip ms={ms} onPress={() => playAt(ms)} />
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </Section>
+      )}
+      {s.conclusions && s.conclusions.length > 0 && (
+        <Section title="Conclusions">
+          {s.conclusions.map((c, i) => (
+            <T key={i}>• {c}</T>
+          ))}
+        </Section>
+      )}
       {!!data.recording?.user_notes && (
         <Section title="Your notes">
           <T size={15}>{data.recording.user_notes}</T>

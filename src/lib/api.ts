@@ -169,7 +169,7 @@ export async function getRecording(id: string) {
     supabase
       .from("summaries")
       .select(
-        "overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external",
+        "overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external, detailed_sections, conclusions, detail_level",
       )
       .eq("recording_id", id)
       .maybeSingle(),
@@ -748,6 +748,13 @@ export function draftFollowup(
 
 export async function retryProcessing(id: string) {
   await processRecording(id);
+}
+
+/** Regenerate the notes from the stored transcript, without re-transcribing the audio. */
+export async function regenerateNotes(id: string) {
+  return callFn<{ status: string }>("process-recording/regenerate", {
+    recording_id: id,
+  });
 }
 
 export async function renameRecording(id: string, title: string) {
