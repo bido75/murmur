@@ -5,6 +5,7 @@ import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, re
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
 import { DEFAULT_IMAGE_BUDGET, imageBudget, imageProviderConfig, imageRequest, type ImageProviderConfig } from '../_shared/deck_images.ts';
+import { inspectPptx } from '../_shared/pptx_verify.ts';
 
 type Rec = { id: string; title: string; created_at: string };
 type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; detailed_sections: { heading: string; paragraphs: string[] }[] | null; conclusions: string[] | null; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
@@ -129,6 +130,11 @@ Deno.serve(async (req) => {
     }
 
     const bytes = await buildPptx(deck, { theme });
+    const inspection = inspectPptx(bytes);
+    // Surfaced in the response so a missing image is never mistaken for success.
+    if (imageStatus.generated > 0 && inspection.media.length === 0) {
+      console.warn('deck images generated but not embedded in the pptx');
+    }
     const safe = deck.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'deck';
     const filename = `${safe}.pptx`;
     const path = `${userId}/${crypto.randomUUID()}/${filename}`;
@@ -139,7 +145,7 @@ Deno.serve(async (req) => {
     });
     if (upErr) throw new Error(upErr.message);
     const { data: signed } = await admin.storage.from('exports').createSignedUrl(path, 60 * 60, { download: filename });
-    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1, images: imageStatus });
+    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1, images: imageStatus, embeddedMedia: inspection.media.length });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     return json({ error: (e as Error).message }, status);
