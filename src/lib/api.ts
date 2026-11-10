@@ -810,6 +810,25 @@ export async function extractKnowledge(recordingId: string) {
   });
 }
 
+/** Proposed knowledge assertions awaiting review (subject/predicate/object + confidence). */
+export async function listKnowledgeAssertions() {
+  return callFn<{
+    assertions: {
+      id: string;
+      subject: string;
+      predicate: string;
+      object: string | null;
+      value: string | null;
+      confidence: number;
+    }[];
+  }>("knowledge/list", {});
+}
+
+/** Accept or reject a proposed assertion. */
+export async function reviewKnowledgeAssertion(id: string, status: "verified" | "rejected") {
+  return callFn<{ ok: true }>("knowledge/review", { assertion_id: id, status });
+}
+
 export async function renameRecording(id: string, title: string) {
   const { error } = await supabase
     .from("recordings")
