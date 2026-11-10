@@ -98,7 +98,9 @@ export type Phase = "idle" | "recording" | "paused" | "stopping";
 
 export function useSegmentedRecorder() {
   const recorder = useAudioRecorder(OPTIONS);
-  const state = useAudioRecorderState(recorder, 500);
+  // 1 s is enough for a minute:second timer and a coarse level meter; a faster poll
+  // re-rendered the whole record screen twice a second for no visible gain.
+  const state = useAudioRecorderState(recorder, 1000);
   const [phase, setPhase] = useState<Phase>("idle");
   const [warning, setWarning] = useState<string | null>(null);
   const [segmentsSaved, setSegmentsSaved] = useState(0);
