@@ -1,20 +1,10 @@
 // Live transcript in the desktop app: streams the mixed mic + computer audio to Deepgram with a
 // 60-second token from the server. Display only; the saved transcript comes from the pipeline.
 import { supabase } from "./supabase";
+import { mergeLive, type LiveLine } from "../shared/liveMerge";
 
-export type LiveLine = { text: string; final: boolean };
-
-export function mergeLive(
-  lines: LiveLine[],
-  text: string,
-  isFinal: boolean,
-  max = 8,
-): LiveLine[] {
-  if (!text.trim()) return lines;
-  const kept =
-    lines.length && !lines[lines.length - 1].final ? lines.slice(0, -1) : lines;
-  return [...kept, { text: text.trim(), final: isFinal }].slice(-max);
-}
+export type { LiveLine } from "../shared/liveMerge";
+export { mergeLive } from "../shared/liveMerge";
 
 export async function startLive(
   stream: MediaStream,

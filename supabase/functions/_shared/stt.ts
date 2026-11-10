@@ -27,7 +27,7 @@ export function deepgramParams(o: SttOptions, withKeyterms = true): URLSearchPar
 }
 
 /** Parameters for the live (streaming) transcript in the browser or desktop app. */
-export function liveParams(o: { language?: string | null; redact?: string[] }): URLSearchParams {
+export function liveParams(o: { language?: string | null; redact?: string[]; keyterms?: string[] }): URLSearchParams {
   const p = new URLSearchParams({ model: 'nova-3', smart_format: 'true', interim_results: 'true', punctuate: 'true' });
   const lang = o.language?.trim();
   if (lang === 'multi') {
@@ -35,6 +35,8 @@ export function liveParams(o: { language?: string | null; redact?: string[] }): 
     p.set('endpointing', '100');
   } else if (lang && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(lang)) p.set('language', lang);
   for (const r of o.redact ?? []) if (REDACT.has(r)) p.append('redact', r);
+  // nova-3 honours keyterm hints for names and project vocabulary.
+  for (const k of o.keyterms ?? []) p.append('keyterm', k);
   p.set('mip_opt_out', 'true');
   return p;
 }
