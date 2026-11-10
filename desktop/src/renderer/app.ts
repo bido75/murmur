@@ -19,6 +19,7 @@ import {
 } from "./onboarding";
 import { PROVIDER_LABELS, type ConnKey } from "../../../src/lib/types";
 import { pendingSegments } from "../shared/queue";
+import { buildMicDiagnostics, sanitizeDevices, type MicDiagnostics } from "../shared/micDiagnostics";
 import { MEETING_LABELS, type MeetingApp } from "../shared/meetings";
 import { Capture } from "./capture";
 import { h } from "./dom";
@@ -96,6 +97,9 @@ type State = {
     hidden: boolean;
   } | null;
   integrations: { label: string; account: string | null }[] | null;
+  /** Microphone diagnostics from the settings "Check microphone" action. */
+  micResult: MicDiagnostics | null;
+  micChecking: boolean;
 };
 
 const state: State = {
@@ -122,6 +126,8 @@ const state: State = {
   showDictation: false,
   onboarding: null,
   integrations: null,
+  micResult: null,
+  micChecking: false,
 };
 let capture: Capture | null = null;
 let recordingId: string | null = null;
@@ -136,6 +142,42 @@ let buildInfo: { version: string; sha: string; builtAt: string } = {
   sha: "",
   builtAt: "",
 };
+
+/** Enumerate devices and try the microphone, then show a sanitized diagnostic snapshot. */
+async function checkMic() {
+  if (state.micChecking) return;
+  state.micChecking = true;
+  state.micResult = null;
+  render();
+  try {
+    const devices = sanitizeDevices(
+      (await navigator.mediaDevices.enumerateDevices()).map((d) => ({
+        kind: d.kind,
+        label: d.label,
+      })),
+    );
+    let permission: MicDiagnostics["permission"] = "unknown";
+    let trackState: MicDiagnostics["trackState"] = "none";
+    let error: MicDiagnostics["error"] = null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const track = stream.getAudioTracks()[0];
+      permission = "granted";
+      trackState = track ? (track.readyState === "live" ? "live" : "ended") : "none";
+      stream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      const err = e as { name?: string; message?: string };
+      permission = err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "denied" : "unknown";
+      error = { name: err?.name ?? "Error", message: (err?.message ?? "").slice(0, 200) };
+    }
+    state.micResult = buildMicDiagnostics({ devices, permission, trackState, error });
+  } catch (e) {
+    state.error = (e as Error).message;
+  } finally {
+    state.micChecking = false;
+    render();
+  }
+}
 
 // ---------- tiny DOM helpers ----------
 
@@ -520,6 +562,30 @@ function settingsView(): Child[] {
         (v) => void changeSettings({ floatingControls: v }).then(render),
         "A small always-on-top stop button",
       ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("strong", {}, "Microphone"),
+      h(
+        "button",
+        { class: "ghost", onclick: () => void checkMic(), disabled: state.micChecking },
+        state.micChecking ? "Checking…" : "Check microphone",
+      ),
+      ...(state.micResult
+        ? [
+            h("div", { class: "muted" }, `Inputs: ${state.micResult.audioInputs.length || "none"}`),
+            ...state.micResult.audioInputs.map((d) => h("div", {}, `• ${d.label || "Unnamed input"}`)),
+            h("div", { class: "muted" }, `Permission: ${state.micResult.permission}`),
+            h("div", { class: "muted" }, `Track: ${state.micResult.trackState}`),
+            ...(state.micResult.remoteOnly
+              ? [h("div", { class: "banner" }, 'This looks like a Remote Desktop session — only playback devices are visible. In the RDP client, enable "Record from this computer", or plug in a microphone.')]
+              : []),
+            ...(state.micResult.error
+              ? [h("div", { class: "banner" }, `${state.micResult.error.name}: ${state.micResult.error.message}`)]
+              : []),
+          ]
+        : []),
     ),
     h(
       "div",
