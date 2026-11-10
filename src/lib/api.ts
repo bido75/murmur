@@ -21,6 +21,7 @@ import type {
   ConsentMethod,
   ConsentResponse,
   ConnKey,
+  DetailLevel,
   Integration,
   Invite,
   KeyPointDetail,
@@ -169,7 +170,7 @@ export async function getRecording(id: string) {
     supabase
       .from("summaries")
       .select(
-        "overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external",
+        "overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external, detailed_sections, conclusions, detail_level, edited_at",
       )
       .eq("recording_id", id)
       .maybeSingle(),
@@ -750,6 +751,84 @@ export async function retryProcessing(id: string) {
   await processRecording(id);
 }
 
+/** Regenerate the notes from the stored transcript, without re-transcribing the audio.
+ * The `detailLevel` (brief/standard/detailed) asks for a specific amount of substance;
+ * omit it to use the account default. */
+export async function regenerateNotes(id: string, detailLevel?: DetailLevel) {
+  return callFn<{ status: string }>("process-recording/regenerate", {
+    recording_id: id,
+    ...(detailLevel ? { detail_level: detailLevel } : {}),
+  });
+}
+
+/** Prior note snapshots for a recording (newest first). */
+export async function listNoteVersions(recordingId: string) {
+  const { data, error } = await supabase
+    .from("note_versions")
+    .select("id, version, detail_level, reason, created_at")
+    .eq("recording_id", recordingId)
+    .order("version", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as {
+    id: string;
+    version: number;
+    detail_level: string;
+    reason: string;
+    created_at: string;
+  }[];
+}
+
+/** Retrieve one prior snapshot in full (its note fields), for viewing/comparing. */
+export async function getNoteVersion(id: string) {
+  const { data, error } = await supabase
+    .from("note_versions")
+    .select("id, version, detail_level, reason, created_at, summary")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as {
+    id: string;
+    version: number;
+    detail_level: string;
+    reason: string;
+    created_at: string;
+    summary: Summary;
+  } | null;
+}
+
+/** Restore a prior note snapshot back onto the recording's summary (owner only). */
+export async function restoreNoteVersion(versionId: string) {
+  return callFn<{ ok: true }>("process-recording/restore-version", {
+    version_id: versionId,
+  });
+}
+
+/** Extract the knowledge graph (entities + assertions) from a recording's notes. */
+export async function extractKnowledge(recordingId: string) {
+  return callFn<{ entities: number; assertions: number }>("knowledge/extract", {
+    recording_id: recordingId,
+  });
+}
+
+/** Proposed knowledge assertions awaiting review (subject/predicate/object + confidence). */
+export async function listKnowledgeAssertions() {
+  return callFn<{
+    assertions: {
+      id: string;
+      subject: string;
+      predicate: string;
+      object: string | null;
+      value: string | null;
+      confidence: number;
+    }[];
+  }>("knowledge/list", {});
+}
+
+/** Accept or reject a proposed assertion. */
+export async function reviewKnowledgeAssertion(id: string, status: "verified" | "rejected") {
+  return callFn<{ ok: true }>("knowledge/review", { assertion_id: id, status });
+}
+
 export async function renameRecording(id: string, title: string) {
   const { error } = await supabase
     .from("recordings")
@@ -852,6 +931,8 @@ export type Settings = {
   localOnly: boolean;
   /** Prefer the device when both the device and the cloud would work. */
   preferLocal: boolean;
+  /** How much substance the notes engine should keep (account-wide default). */
+  notesDetailLevel: DetailLevel;
 };
 const SETTINGS_KEY = "settings.v1";
 const DEFAULT_SETTINGS: Settings = {
@@ -863,6 +944,7 @@ const DEFAULT_SETTINGS: Settings = {
   transcriptionMode: "auto",
   localOnly: false,
   preferLocal: false,
+  notesDetailLevel: "detailed",
 };
 
 /**
@@ -874,7 +956,7 @@ async function readUserPrefs(): Promise<Partial<Settings>> {
   try {
     const { data } = await supabase
       .from("user_settings")
-      .select("consent_reminder, field_mode, default_template, my_state")
+      .select("consent_reminder, field_mode, default_template, my_state, notes_detail_level")
       .maybeSingle();
     if (!data) return {};
     return {
@@ -882,6 +964,10 @@ async function readUserPrefs(): Promise<Partial<Settings>> {
       fieldMode: data.field_mode as boolean | undefined,
       defaultTemplate: data.default_template as Template | undefined,
       myState: (data.my_state as string | null | undefined) ?? undefined,
+      notesDetailLevel:
+        data.notes_detail_level === "brief" || data.notes_detail_level === "standard" || data.notes_detail_level === "detailed"
+          ? (data.notes_detail_level as DetailLevel)
+          : undefined,
     };
   } catch {
     return {};
@@ -921,6 +1007,7 @@ export async function saveSettings(s: Settings) {
       field_mode: s.fieldMode,
       default_template: s.defaultTemplate,
       my_state: s.myState,
+      notes_detail_level: s.notesDetailLevel,
     },
     { onConflict: "user_id" },
   );
@@ -1075,8 +1162,22 @@ async function callFn<T>(
         const j = await ctx.json();
         if (j?.error) throw new Error(j.error);
       } catch (inner) {
+        // A JSON parse error here means the server returned non-JSON (timeout,
+        // crash, gateway error). Give the user something useful instead of the
+        // raw parser message.
+        if (inner instanceof Error && /JSON Parse error|Unexpected/i.test(inner.message)) {
+          throw new Error(
+            `The ${name} service returned an unexpected response. Please try again.`,
+          );
+        }
         if (inner instanceof Error && inner.message) throw inner;
       }
+    }
+    // The supabase-js error message may also carry a raw parse error.
+    if (/JSON Parse error|Unexpected/i.test(error.message)) {
+      throw new Error(
+        `The ${name} service returned an unexpected response. Please try again.`,
+      );
     }
     throw new Error(error.message);
   }
@@ -1178,6 +1279,21 @@ export async function sendSiteLogToProcore(
 // ---------- Decks ----------
 
 export type DeckKind = "client_update" | "site_report" | "pitch" | "proposal";
+export type DeckStyle =
+  | "corporate"
+  | "minimal"
+  | "tech"
+  | "research"
+  | "construction"
+  | "dark"
+  | "creative";
+export type DeckDetail = "concise" | "standard" | "detailed";
+export type DeckEnhancements = {
+  images: boolean;
+  diagrams: boolean;
+  charts: boolean;
+  notes: boolean;
+};
 export const DECK_LABELS: Record<DeckKind, string> = {
   client_update: "Client update",
   site_report: "Site report",
@@ -1190,14 +1306,32 @@ export function makeDeck(opts: {
   recordingId?: string;
   projectId?: string;
   audience?: string;
+  style?: DeckStyle;
+  detail?: DeckDetail;
+  enhancements?: { images: boolean; diagrams: boolean; charts: boolean; notes: boolean };
 }) {
-  return callFn<{ url: string; filename: string; slides: number }>(
+  return callFn<{
+    url: string;
+    filename: string;
+    slides: number;
+    images?: {
+      requested: boolean;
+      providerConfigured: boolean;
+      requestedCount: number;
+      generated: number;
+      failed: number;
+      reason: string | null;
+    };
+  }>(
     "make-deck",
     {
       kind: opts.kind,
       recording_id: opts.recordingId,
       project_id: opts.projectId,
       audience: opts.audience || undefined,
+      style: opts.style || undefined,
+      detail: opts.detail || undefined,
+      enhancements: opts.enhancements || undefined,
     },
   );
 }
@@ -1471,6 +1605,11 @@ export async function getBrief(projectId: string) {
   };
 }
 
+/** A suggested meeting agenda synthesized from the project's open work. */
+export async function getBriefAgenda(projectId: string) {
+  return callFn<{ agenda: string[] }>("brief/agenda", { project_id: projectId });
+}
+
 // ---------- Sign-in connections (Slack, Salesforce, Google Docs, OneNote) ----------
 
 export type OAuthConn = "slack" | "salesforce" | "google_docs" | "onenote";
@@ -1517,11 +1656,13 @@ export function exportNotes(
   recordingId: string,
   destination: Destination,
   emails: string[] = [],
+  lang?: string,
 ) {
   return callFn<ExportResult>("export", {
     recording_id: recordingId,
     destination,
     emails,
+    ...(lang ? { lang } : {}),
   });
 }
 

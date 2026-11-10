@@ -246,7 +246,7 @@ content_path = "./supabase/templates/email_otp.html"
 
 [auth.email.template.magic_link]
 subject = "Your Murmur sign-in code"
-content_path = "./supabase/templates/magiclink.html"
+content_path = "./supabase/templates/magic_link.html"
 
 # Production SMTP: the giscop.com mailbox (STARTTLS on 587). The password is
 # read from the environment (SMTP_PASSWORD) so it never lands in this file;
@@ -349,6 +349,14 @@ url = ""
 # If enabled, the nonce check will be skipped. Required for local sign in with Google auth.
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
+email_optional = false
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+redirect_uri = ""
+skip_nonce_check = false
 email_optional = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.

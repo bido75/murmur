@@ -13,6 +13,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { securityHeaders } = require("./securityHeaders.cjs");
 
 const ROOT = path.resolve(process.argv[2] || "dist-web");
 const PORT = Number(process.argv[3] || 8090);
@@ -101,11 +102,10 @@ const server = http.createServer((req, res) => {
     "content-type": MIME[ext] || "application/octet-stream",
     "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
     // Security headers (found missing by the 2026-10-29 whitehat pass).
-    "strict-transport-security": "max-age=31536000; includeSubDomains",
-    "x-content-type-options": "nosniff",
-    "x-frame-options": "DENY",
-    "referrer-policy": "strict-origin-when-cross-origin",
-    "permissions-policy": "camera=(), microphone=(), geolocation=(self), payment=()",
+    // microphone=(self): this app's whole purpose is same-origin microphone
+    // recording; a deny-all policy (shipped briefly in the first hardening pass)
+    // makes the browser refuse getUserMedia before the user is ever asked.
+    "permissions-policy": securityHeaders().permissionsPolicy,
     // Report-only until the app's inline/style sources are audited, then enforce.
     "content-security-policy-report-only":
       "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co https://api.openai.com https://api.anthropic.com https://openrouter.ai https://api.deepgram.com; frame-ancestors 'none'; report-uri /csp-report",

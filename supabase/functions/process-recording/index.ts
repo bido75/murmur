@@ -20,6 +20,8 @@ Deno.serve(async (req) => {
   try {
     const { id: userId, client } = await requireUser(req);
     if (new URL(req.url).pathname.endsWith('/relink-photos')) return await relinkPhotos(userId, client, await req.json());
+    if (new URL(req.url).pathname.endsWith('/regenerate')) return await regenerateNotes(userId, client, await req.json());
+    if (new URL(req.url).pathname.endsWith('/restore-version')) return await restoreVersion(userId, await req.json());
     const { recording_id } = await req.json();
     if (!recording_id) throw new HttpError(400, 'recording_id is required');
 
@@ -50,6 +52,59 @@ Deno.serve(async (req) => {
   }
 });
 
+
+/** Regenerate notes from the stored transcript — no re-transcription or re-upload.
+ * Uses the existing transcript, so it is fast and does not re-run speech-to-text. */
+// deno-lint-ignore no-explicit-any
+async function regenerateNotes(userId: string, client: any, body: { recording_id?: string; detail_level?: string }) {
+  const recording_id = String(body.recording_id ?? '');
+  if (!recording_id) throw new HttpError(400, 'recording_id is required');
+  const { data: rec } = await client.from('recordings').select('id, user_id, status').eq('id', recording_id).maybeSingle();
+  if (!rec) throw new HttpError(404, 'Recording not found');
+  if (rec.user_id !== userId) throw new HttpError(403, 'Only the person who made this recording can regenerate its notes');
+  const admin = adminClient();
+  const { data: t } = await admin.from('transcripts').select('id').eq('recording_id', recording_id).maybeSingle();
+  if (!t) throw new HttpError(409, 'No transcript to regenerate from');
+  // Prevent duplicate concurrent regeneration jobs.
+  if (rec.status === 'recording' || rec.status === 'transcribing' || rec.status === 'summarizing') {
+    return json({ status: rec.status }, 202);
+  }
+  const level = body.detail_level;
+  const detailLevel = level === 'brief' || level === 'standard' || level === 'detailed' ? level : undefined;
+  await admin.from('recordings').update({ status: 'transcribing', error: null, notes_queued_at: null, process_attempts: 0 }).eq('id', recording_id);
+  EdgeRuntime.waitUntil(runPipeline(recording_id, { skipLimit: true, reuseTranscript: true, detailLevel }));
+  return json({ status: 'regenerating' }, 202);
+}
+
+/** Restore a prior note snapshot back onto the summary (note fields only, never the
+ * identity columns). Owner-only. */
+// deno-lint-ignore no-explicit-any
+async function restoreVersion(userId: string, body: { version_id?: string }) {
+  const version_id = String(body.version_id ?? '');
+  if (!version_id) throw new HttpError(400, 'version_id is required');
+  const admin = adminClient();
+  const { data: v } = await admin.from('note_versions').select('recording_id, user_id, summary').eq('id', version_id).maybeSingle();
+  if (!v) throw new HttpError(404, 'Version not found');
+  if (v.user_id !== userId) throw new HttpError(403, 'Only the person who made this recording can restore its notes');
+  const s = v.summary as Record<string, unknown>;
+  const patch = {
+    overview: (s.overview as string) ?? '',
+    key_points: (s.key_points as unknown[]) ?? [],
+    key_point_details: (s.key_point_details as unknown[]) ?? [],
+    decisions: (s.decisions as unknown[]) ?? [],
+    open_questions: (s.open_questions as unknown[]) ?? [],
+    task_updates: (s.task_updates as unknown[]) ?? [],
+    site_log: (s.site_log as unknown) ?? null,
+    site_log_external: (s.site_log_external as unknown) ?? null,
+    detailed_sections: (s.detailed_sections as unknown) ?? null,
+    conclusions: (s.conclusions as unknown[]) ?? [],
+    detail_level: (s.detail_level as string) ?? 'detailed',
+    notes_schema_version: (s.notes_schema_version as number) ?? 1,
+  };
+  const { error } = await admin.from('summaries').update(patch).eq('recording_id', v.recording_id);
+  if (error) throw new Error(error.message);
+  return json({ ok: true });
+}
 
 /** A photo added after the notes were made: re-match photos to tasks and the site log (no AI). */
 // deno-lint-ignore no-explicit-any

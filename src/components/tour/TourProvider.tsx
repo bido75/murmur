@@ -20,7 +20,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   autoTour,
   stepsForUser,
-  tipsForScreen,
   TOUR_VERSION,
   tourSteps,
   type Tip,

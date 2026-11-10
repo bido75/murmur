@@ -1,7 +1,24 @@
-// Builds a .pptx from a deck spec. Narrative slides come from the model; the
-// decisions and action-item slides are filled straight from verified data, so the
-// facts that matter most are never paraphrased.
+// Renders a .pptx from a deck spec using pptxgenjs. The pure planning logic (types,
+// themes, tool schema, prompt, chart validation, slide sanitization) lives in
+// deck_plan.ts and is re-exported here for callers that import from deck.ts.
 import pptxgenModule from 'npm:pptxgenjs@3';
+import {
+  fitImage,
+  THEMES,
+  type BulletSlide,
+  type ChartSlide,
+  type DeckData,
+  type DeckTheme,
+  type EditorialSlide,
+  type KpiSlide,
+  type PillarsSlide,
+  type ProcessSlide,
+  type TimelineSlide,
+  type TwoColumnSlide,
+  type VisualSlide,
+} from './deck_plan.ts';
+
+export * from './deck_plan.ts';
 
 // pptxgenjs ships CommonJS types that Deno can't see as a constructor; the runtime
 // default export is the class. Typed loosely here, exercised by the render check.
@@ -11,122 +28,6 @@ type Pptx = any;
 type Slide = any;
 const PptxGen = pptxgenModule as unknown as new () => Pptx;
 
-export type DeckKind = 'client_update' | 'site_report' | 'pitch' | 'proposal';
-
-export const DECK_KINDS: Record<DeckKind, { label: string; brief: string }> = {
-  client_update: {
-    label: 'Client update',
-    brief: 'A status update for a client: where things stand, what was decided, what happens next and what is needed from them.',
-  },
-  site_report: {
-    label: 'Site report',
-    brief: 'A construction/field site report: observations and issues by location, safety items, progress, and required actions.',
-  },
-  pitch: {
-    label: 'Pitch deck',
-    brief: 'A short persuasive deck: the problem, the proposed approach, why it works, and the ask, using only what was said.',
-  },
-  proposal: {
-    label: 'Proposal',
-    brief: 'A proposal: the need as discussed, the proposed scope, timeline and responsibilities as stated, open questions, next steps.',
-  },
-};
-
-export type BulletSlide = { kind: 'bullets'; title: string; bullets: string[] };
-export type TwoColumnSlide = { kind: 'two_column'; title: string; left: { heading: string; bullets: string[] }; right: { heading: string; bullets: string[] } };
-export type NarrativeSlide = BulletSlide | TwoColumnSlide;
-
-export type DeckData = {
-  title: string;
-  subtitle: string;
-  footer: string;
-  slides: NarrativeSlide[];
-  decisions: { text: string; quote: string | null }[];
-  tasks: { text: string; owner: string | null; due: string | null; status: 'open' | 'done' }[];
-  questions: string[];
-  /** Site reports: safety items from the verified site log, shown on their own slide. */
-  safety?: { text: string; location: string | null }[];
-  /** Site reports: photos with what was said when they were taken. */
-  photos?: DeckPhoto[];
-};
-
-export type DeckPhoto = { dataUri: string; width: number | null; height: number | null; caption: string; detail: string | null; quote: string | null };
-
-/** Fit an image of w×h inside a box, keeping its shape, centered. */
-export function fitImage(w: number | null, h: number | null, box: { x: number; y: number; w: number; h: number }) {
-  const ratio = w && h && w > 0 && h > 0 ? w / h : 4 / 3;
-  let iw = box.w;
-  let ih = iw / ratio;
-  if (ih > box.h) {
-    ih = box.h;
-    iw = ih * ratio;
-  }
-  return { x: box.x + (box.w - iw) / 2, y: box.y + (box.h - ih) / 2, w: iw, h: ih };
-}
-
-export const DECK_TOOL = {
-  name: 'write_deck',
-  description: 'Write the narrative slides of the deck.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      title: { type: 'string', description: 'Deck title, max 8 words.' },
-      subtitle: { type: 'string', description: 'One line, e.g. who it is for and the date range.' },
-      slides: {
-        type: 'array',
-        description: '3 to 7 slides. Do NOT include a title slide, a decisions slide or an action-items slide; those are added automatically.',
-        items: {
-          type: 'object',
-          properties: {
-            kind: { type: 'string', enum: ['bullets', 'two_column'] },
-            title: { type: 'string', description: 'Slide headline stating the point, max 10 words.' },
-            bullets: { type: 'array', items: { type: 'string' }, description: 'For bullets slides: 2–6 bullets, each under 18 words.' },
-            left: { type: 'object', properties: { heading: { type: 'string' }, bullets: { type: 'array', items: { type: 'string' } } } },
-            right: { type: 'object', properties: { heading: { type: 'string' }, bullets: { type: 'array', items: { type: 'string' } } } },
-          },
-          required: ['kind', 'title'],
-        },
-      },
-    },
-    required: ['title', 'subtitle', 'slides'],
-  },
-} as const;
-
-export function deckSystemPrompt(kind: DeckKind, audience: string | null): string {
-  return [
-    'You turn verified meeting notes into a clear slide deck.',
-    `Deck type: ${DECK_KINDS[kind].brief}`,
-    audience ? `Audience: ${audience}` : '',
-    'Rules:',
-    '- Use only facts in the material. Never invent numbers, dates, prices, names or commitments. If something a deck like this would normally include is missing, leave it out.',
-    '- Each slide title states the point ("Foundation pour moved to Oct 22"), not a topic ("Schedule").',
-    '- Short, concrete bullets. No filler, no marketing language.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/** Clean model output: drop empty slides, trim overly long lists. */
-export function sanitizeSlides(raw: unknown): NarrativeSlide[] {
-  const out: NarrativeSlide[] = [];
-  for (const s of Array.isArray(raw) ? raw : []) {
-    const title = String(s?.title ?? '').trim();
-    if (!title) continue;
-    const clean = (b: unknown) => (Array.isArray(b) ? b.map((x) => String(x).trim()).filter(Boolean) : []);
-    if (s.kind === 'two_column' && s.left && s.right) {
-      const left = { heading: String(s.left.heading ?? '').trim(), bullets: clean(s.left.bullets).slice(0, 6) };
-      const right = { heading: String(s.right.heading ?? '').trim(), bullets: clean(s.right.bullets).slice(0, 6) };
-      if (left.bullets.length || right.bullets.length) out.push({ kind: 'two_column', title, left, right });
-    } else {
-      const bullets = clean(s.bullets);
-      if (bullets.length) out.push({ kind: 'bullets', title, bullets: bullets.slice(0, 7) });
-    }
-  }
-  return out.slice(0, 8);
-}
-
-const C = { ink: '1A1C1A', muted: '6B6F6A', accent: '1F6F5C', soft: 'E3EFEB', line: 'E4E1DA', bg: 'FFFFFF' };
-const FONT = 'Calibri';
 const W = 13.333;
 
 function chunk<T>(arr: T[], n: number): T[][] {
@@ -135,7 +36,11 @@ function chunk<T>(arr: T[], n: number): T[][] {
   return out;
 }
 
-export async function buildPptx(d: DeckData): Promise<Uint8Array> {
+const CHART_TYPES = { bar: 'bar', line: 'line', doughnut: 'doughnut' } as const;
+
+export async function buildPptx(d: DeckData, opts: { theme?: DeckTheme } = {}): Promise<Uint8Array> {
+  const C = opts.theme ?? THEMES.corporate;
+  const FONT = C.font;
   const p = new PptxGen();
   p.layout = 'LAYOUT_WIDE'; // 13.333 x 7.5 in
   p.title = d.title;
@@ -151,35 +56,73 @@ export async function buildPptx(d: DeckData): Promise<Uint8Array> {
     slideNumber: { x: W - 1.2, y: 7.0, w: 0.6, h: 0.35, fontFace: FONT, fontSize: 10, color: C.muted, align: 'right' },
   });
 
-  const heading = (s: Slide, text: string) =>
-    s.addText(text, { x: 0.6, y: 0.45, w: W - 1.2, h: 0.9, fontFace: FONT, fontSize: 28, bold: true, color: C.ink, valign: 'top', fit: 'shrink' });
+  const heading = (s: Slide, text: string, w = W - 1.2) =>
+    s.addText(text, { x: 0.6, y: 0.45, w, h: 0.9, fontFace: FONT, fontSize: 28, bold: true, color: C.ink, valign: 'top', fit: 'shrink' });
+
+  const sideImage = (s: Slide, img: { dataUri: string; illustrative: boolean }) => {
+    const box = fitImage(16, 9, { x: 8.05, y: 1.6, w: 4.7, h: 4.4 });
+    s.addImage({ data: img.dataUri, ...box });
+    if (img.illustrative) s.addText('Illustrative image', { x: 8.05, y: 6.1, w: 4.7, h: 0.3, fontFace: FONT, fontSize: 9, color: C.muted, align: 'center' });
+  };
 
   const bullets = (s: Slide, items: string[], x: number, y: number, w: number, h: number, size = 20) =>
     s.addText(
-      items.map((b) => ({ text: b, options: { bullet: { code: '25A0' }, paraSpaceAfter: 10 } })),
+      items.map((b) => ({ text: b, options: { bullet: { code: '25A0', color: C.accent }, paraSpaceAfter: 10 } })),
       { x, y, w, h, fontFace: FONT, fontSize: size, color: C.ink, valign: 'top', fit: 'shrink' },
     );
+
+  const bodyTop = 1.55;
+  const bodyH = 5.2;
 
   // Title slide
   const title = p.addSlide();
   title.background = { color: C.accent };
-  title.addText(d.title, { x: 0.8, y: 2.3, w: W - 1.6, h: 1.4, fontFace: FONT, fontSize: 44, bold: true, color: 'FFFFFF', valign: 'bottom', fit: 'shrink' });
-  title.addText(d.subtitle, { x: 0.8, y: 3.8, w: W - 1.6, h: 0.8, fontFace: FONT, fontSize: 20, color: C.soft, valign: 'top' });
+  title.addText(d.title, { x: 0.8, y: 2.3, w: W - 1.6, h: 1.4, fontFace: FONT, fontSize: 44, bold: true, color: C.onAccent, valign: 'bottom', fit: 'shrink' });
+  title.addText(d.subtitle, { x: 0.8, y: 3.8, w: W - 1.6, h: 0.8, fontFace: FONT, fontSize: 20, color: C.onAccent, valign: 'top' });
 
   for (const sl of d.slides) {
     const s = p.addSlide({ masterName: 'BODY' });
-    heading(s, sl.title);
-    if (sl.kind === 'bullets') {
-      bullets(s, sl.bullets, 0.6, 1.55, W - 1.2, 5.2);
-    } else {
-      const colW = (W - 1.2 - 0.5) / 2;
-      [sl.left, sl.right].forEach((col, i) => {
-        const x = 0.6 + i * (colW + 0.5);
-        s.addShape(p.ShapeType.rect, { x, y: 1.55, w: colW, h: 0.55, fill: { color: C.soft }, line: { color: C.soft } });
-        s.addText(col.heading, { x: x + 0.15, y: 1.55, w: colW - 0.3, h: 0.55, fontFace: FONT, fontSize: 16, bold: true, color: C.accent, valign: 'middle' });
-        bullets(s, col.bullets, x, 2.25, colW, 4.5, 18);
-      });
+    const side = sl.kind !== 'visual' && sl.image?.dataUri ? sl.image : null;
+    const cw = side ? 6.9 : W - 1.2;
+    if (side) sideImage(s, side);
+    switch (sl.kind) {
+      case 'bullets':
+        heading(s, sl.title, cw);
+        bullets(s, sl.bullets, 0.6, bodyTop, cw, bodyH);
+        break;
+      case 'two_column':
+        heading(s, sl.title, cw);
+        renderTwoColumn(p, s, sl, C, FONT, bodyTop, cw);
+        break;
+      case 'process':
+        heading(s, sl.title, cw);
+        renderProcess(p, s, sl, C, FONT, cw);
+        break;
+      case 'timeline':
+        heading(s, sl.title, cw);
+        renderTimeline(p, s, sl, C, FONT, cw);
+        break;
+      case 'pillars':
+        heading(s, sl.title, cw);
+        renderPillars(p, s, sl, C, FONT, cw);
+        break;
+      case 'chart':
+        heading(s, sl.title, cw);
+        renderChart(p, s, sl, C, FONT, cw);
+        break;
+      case 'kpi':
+        heading(s, sl.title, cw);
+        renderKpi(p, s, sl, C, FONT, cw);
+        break;
+      case 'editorial':
+        renderEditorial(s, sl, C, FONT, cw);
+        break;
+      case 'visual':
+        heading(s, sl.title);
+        renderVisual(p, s, sl, C, FONT);
+        break;
     }
+    if (sl.speakerNotes) s.addNotes(sl.speakerNotes);
   }
 
   // Safety, straight from the verified site log
@@ -220,7 +163,7 @@ export async function buildPptx(d: DeckData): Promise<Uint8Array> {
   // Action items, straight from the verified tasks
   const header = ['Action', 'Owner', 'Due', 'Status'].map((h) => ({
     text: h,
-    options: { bold: true, color: 'FFFFFF', fill: { color: C.accent }, fontSize: 16 },
+    options: { bold: true, color: C.onAccent, fill: { color: C.accent }, fontSize: 16 },
   }));
   for (const [i, page] of chunk(d.tasks, 7).entries()) {
     const s = p.addSlide({ masterName: 'BODY' });
@@ -244,4 +187,113 @@ export async function buildPptx(d: DeckData): Promise<Uint8Array> {
   }
 
   return (await p.write({ outputType: 'uint8array' })) as Uint8Array;
+}
+
+// ---------- Native diagram renderers (all editable shapes, no flattened images) ----------
+
+function renderTwoColumn(p: Pptx, s: Slide, sl: TwoColumnSlide, C: DeckTheme, FONT: string, top: number, cw = W - 1.2) {
+  const colW = (cw - 0.5) / 2;
+  [sl.left, sl.right].forEach((col, i) => {
+    const x = 0.6 + i * (colW + 0.5);
+    s.addShape(p.ShapeType.rect, { x, y: top, w: colW, h: 0.55, fill: { color: C.soft }, line: { color: C.soft } });
+    s.addText(col.heading, { x: x + 0.15, y: top, w: colW - 0.3, h: 0.55, fontFace: FONT, fontSize: 16, bold: true, color: C.accent, valign: 'middle' });
+    s.addText(
+      col.bullets.map((b) => ({ text: b, options: { bullet: { code: '25A0', color: C.accent }, paraSpaceAfter: 8 } })),
+      { x, y: top + 0.75, w: colW, h: 4.4, fontFace: FONT, fontSize: 17, color: C.ink, valign: 'top', fit: 'shrink' },
+    );
+  });
+}
+
+function renderProcess(p: Pptx, s: Slide, sl: ProcessSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const n = sl.steps.length;
+  const gap = 0.35;
+  const boxW = (cw - gap * (n - 1)) / n;
+  sl.steps.forEach((step, i) => {
+    const x = 0.6 + i * (boxW + gap);
+    const y = 2.0;
+    const boxH = 3.2;
+    s.addShape(p.ShapeType.roundRect, { x, y, w: boxW, h: boxH, fill: { color: i % 2 ? C.soft : 'FFFFFF' }, line: { color: C.accent, width: 1 } });
+    s.addText(String(i + 1), { x, y: y + 0.25, w: boxW, h: 0.5, fontFace: FONT, fontSize: 26, bold: true, color: C.accent, align: 'center' });
+    s.addText(step.heading, { x: x + 0.15, y: y + 0.85, w: boxW - 0.3, h: 1.0, fontFace: FONT, fontSize: 17, bold: true, color: C.ink, align: 'center', valign: 'top', fit: 'shrink' });
+    if (step.detail) s.addText(step.detail, { x: x + 0.15, y: y + 1.95, w: boxW - 0.3, h: 1.1, fontFace: FONT, fontSize: 13, color: C.muted, align: 'center', valign: 'top', fit: 'shrink' });
+    if (i < n - 1) s.addText('→', { x: x + boxW, y: y + 1.3, w: gap, h: 0.6, fontFace: FONT, fontSize: 22, bold: true, color: C.accent, align: 'center' });
+  });
+}
+
+function renderTimeline(p: Pptx, s: Slide, sl: TimelineSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const y = 3.4;
+  const lineW = cw - 0.6;
+  s.addShape(p.ShapeType.line, { x: 0.9, y, w: lineW, h: 0, line: { color: C.accent, width: 2 } });
+  const n = sl.milestones.length;
+  const step = lineW / (n - 1);
+  sl.milestones.forEach((m, i) => {
+    const x = 0.9 + i * step;
+    s.addShape(p.ShapeType.ellipse, { x: x - 0.12, y: y - 0.12, w: 0.24, h: 0.24, fill: { color: C.accent }, line: { color: C.accent } });
+    const above = i % 2 === 0;
+    const ly = above ? y - 1.7 : y + 0.35;
+    s.addText(m.label, { x: x - 0.85, y: ly, w: 1.7, h: 0.5, fontFace: FONT, fontSize: 15, bold: true, color: C.ink, align: 'center', fit: 'shrink' });
+    if (m.note) s.addText(m.note, { x: x - 1.0, y: ly + 0.5, w: 2.0, h: 0.9, fontFace: FONT, fontSize: 12, color: C.muted, align: 'center', valign: 'top', fit: 'shrink' });
+  });
+}
+
+function renderPillars(p: Pptx, s: Slide, sl: PillarsSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const n = sl.pillars.length;
+  const gap = 0.4;
+  const boxW = (cw - gap * (n - 1)) / n;
+  sl.pillars.forEach((pill, i) => {
+    const x = 0.6 + i * (boxW + gap);
+    const y = 1.8;
+    const boxH = 4.4;
+    s.addShape(p.ShapeType.rect, { x, y, w: boxW, h: 0.18, fill: { color: C.accent }, line: { color: C.accent } });
+    s.addShape(p.ShapeType.rect, { x, y: y + 0.18, w: boxW, h: boxH - 0.18, fill: { color: C.soft }, line: { color: C.line, width: 0.75 } });
+    s.addText(pill.heading, { x: x + 0.2, y: y + 0.45, w: boxW - 0.4, h: 1.0, fontFace: FONT, fontSize: 17, bold: true, color: C.ink, align: 'center', valign: 'top', fit: 'shrink' });
+    if (pill.detail) s.addText(pill.detail, { x: x + 0.2, y: y + 1.6, w: boxW - 0.4, h: 2.6, fontFace: FONT, fontSize: 13, color: C.muted, align: 'center', valign: 'top', fit: 'shrink' });
+  });
+}
+
+function renderKpi(p: Pptx, s: Slide, sl: KpiSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const n = sl.metrics.length;
+  const gap = 0.4;
+  const boxW = (cw - gap * (n - 1)) / n;
+  sl.metrics.forEach((m, i) => {
+    const x = 0.6 + i * (boxW + gap);
+    const y = 2.0;
+    s.addShape(p.ShapeType.roundRect, { x, y, w: boxW, h: 3.0, fill: { color: C.soft }, line: { color: C.line, width: 0.75 } });
+    s.addText(m.value, { x: x + 0.2, y: y + 0.4, w: boxW - 0.4, h: 1.2, fontFace: FONT, fontSize: 34, bold: true, color: C.accent, align: 'center', valign: 'middle', fit: 'shrink' });
+    s.addText(m.label, { x: x + 0.2, y: y + 1.75, w: boxW - 0.4, h: 1.0, fontFace: FONT, fontSize: 14, color: C.ink, align: 'center', valign: 'top', fit: 'shrink' });
+  });
+}
+
+function renderChart(p: Pptx, s: Slide, sl: ChartSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const type = CHART_TYPES[sl.chartType];
+  const series = (type === 'doughnut' ? sl.series.slice(0, 1) : sl.series).map((sr) => ({ name: sr.name, labels: sl.categories, values: sr.values }));
+  if (!series.length) return;
+  s.addChart(p.ChartType[type], series, {
+    x: 0.8, y: 1.5, w: cw - 0.4, h: 5.0,
+    chartColors: [C.accent, C.muted, C.soft],
+    showTitle: false, showLegend: type !== 'doughnut', legendPos: 'b', legendFontFace: FONT, legendFontSize: 12, legendColor: C.muted,
+    catAxisLabelColor: C.muted, catAxisLabelFontFace: FONT, catAxisLabelFontSize: 11,
+    valAxisLabelColor: C.muted, valAxisLabelFontFace: FONT, valAxisLabelFontSize: 11, valGridLine: { color: C.line },
+    dataLabelColor: C.ink, dataLabelFontFace: FONT, dataLabelFontSize: 11, showValue: type !== 'line',
+    barGapWidthPct: 40,
+  });
+}
+
+function renderEditorial(s: Slide, sl: EditorialSlide, C: DeckTheme, FONT: string, cw = W - 1.2) {
+  const w = cw - 1.6;
+  s.addText(sl.statement, { x: 1.4, y: 2.3, w, h: 2.0, fontFace: FONT, fontSize: 34, bold: true, color: C.ink, align: 'center', valign: 'middle', fit: 'shrink' });
+  s.addText(sl.title, { x: 1.4, y: 4.6, w, h: 0.6, fontFace: FONT, fontSize: 16, color: C.muted, align: 'center' });
+}
+
+function renderVisual(p: Pptx, s: Slide, sl: VisualSlide, C: DeckTheme, FONT: string) {
+  if (sl.image?.dataUri) {
+    const box = fitImage(16, 9, { x: 0.6, y: 1.5, w: W - 1.2, h: 5.2 });
+    s.addImage({ data: sl.image.dataUri, ...box });
+    s.addText(sl.caption, { x: 0.6, y: 6.85, w: W - 1.2, h: 0.4, fontFace: FONT, fontSize: 12, italic: true, color: C.muted, align: 'center', fit: 'shrink' });
+    if (sl.image.illustrative) s.addText('Illustrative image', { x: W - 2.4, y: 7.0, w: 1.8, h: 0.3, fontFace: FONT, fontSize: 9, color: C.muted, align: 'right' });
+  } else {
+    // No image provider configured: an editable placeholder instead of a skipped slide.
+    s.addShape(p.ShapeType.roundRect, { x: 0.6, y: 1.5, w: W - 1.2, h: 4.4, fill: { color: C.soft }, line: { color: C.line, width: 1 } });
+    s.addText(sl.caption, { x: 1.0, y: 2.2, w: W - 2.0, h: 3.0, fontFace: FONT, fontSize: 18, italic: true, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
+  }
 }

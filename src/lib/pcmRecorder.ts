@@ -3,20 +3,30 @@
 // write the WAV ourselves. A small foreground service (modules/murmur-foreground) keeps it running
 // with the screen off. Audio is appended to disk as it arrives, so a crash loses at most a
 // fraction of a second; repairWav() fixes the header of a file cut off mid-recording.
-import { Buffer } from 'buffer';
-import { File, FileMode } from 'expo-file-system';
-import { Platform } from 'react-native';
-import { startForegroundRecording, stopForegroundRecording } from '../../modules/murmur-foreground';
-import { pcmLevelDb, wavHeader } from './shared';
+import { Buffer } from "buffer";
+import { File, FileMode } from "expo-file-system";
+import { Platform } from "react-native";
+import {
+  startForegroundRecording,
+  stopForegroundRecording,
+} from "../../modules/murmur-foreground";
+import { pcmLevelDb, wavHeader } from "./shared";
 
 const RATE = 16000;
 const BYTES_PER_SEC = RATE * 2;
 
 type Stream = {
-  init(o: { sampleRate: number; channels: number; bitsPerSample: number; audioSource?: number; bufferSize?: number; wavFile: string }): void;
+  init(o: {
+    sampleRate: number;
+    channels: number;
+    bitsPerSample: number;
+    audioSource?: number;
+    bufferSize?: number;
+    wavFile: string;
+  }): void;
   start(): void;
   stop(): Promise<string>;
-  on(event: 'data', cb: (b64: string) => void): { remove(): void } | void;
+  on(event: "data", cb: (b64: string) => void): { remove(): void } | void;
 };
 let stream: Stream | null | undefined;
 
@@ -24,7 +34,7 @@ function pcmStream(): Stream | null {
   if (stream !== undefined) return stream;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const m = require('@fugood/react-native-audio-pcm-stream');
+    const m = require("@fugood/react-native-audio-pcm-stream");
     stream = ((m.default ?? m) as Stream) ?? null;
   } catch {
     stream = null; // Expo Go or a build without the native module
@@ -33,7 +43,7 @@ function pcmStream(): Stream | null {
 }
 
 export function pcmRecorderAvailable(): boolean {
-  return Platform.OS === 'android' && pcmStream() !== null;
+  return Platform.OS === "android" && pcmStream() !== null;
 }
 
 function writeSizes(file: File, dataBytes: number) {
@@ -69,7 +79,8 @@ export class PcmWavRecorder {
   /** Begin a new WAV file at `uri` (the mic keeps running across files). */
   start(uri: string) {
     const s = pcmStream();
-    if (!s) throw new Error('On-device transcription isn’t available in this build.');
+    if (!s)
+      throw new Error("On-device transcription isn’t available in this build.");
     const f = new File(uri);
     if (f.exists) f.delete();
     f.create();
@@ -79,16 +90,26 @@ export class PcmWavRecorder {
     this.paused = false;
     if (!this.sub) {
       // Keeps the mic running with the screen off or the app in the background.
-      startForegroundRecording('Recording', 'Transcribing on this phone. Tap to open.');
-      s.init({ sampleRate: RATE, channels: 1, bitsPerSample: 16, audioSource: 6, bufferSize: 8192, wavFile: '' });
-      this.sub = s.on('data', (b64) => this.onData(b64));
+      startForegroundRecording(
+        "Recording",
+        "Transcribing on this phone. Tap to open.",
+      );
+      s.init({
+        sampleRate: RATE,
+        channels: 1,
+        bitsPerSample: 16,
+        audioSource: 6,
+        bufferSize: 8192,
+        wavFile: "",
+      });
+      this.sub = s.on("data", (b64) => this.onData(b64));
       s.start();
     }
   }
 
   private onData(b64: string) {
     if (this.paused || !this.file) return;
-    const chunk = new Uint8Array(Buffer.from(b64, 'base64'));
+    const chunk = new Uint8Array(Buffer.from(b64, "base64"));
     this.level = pcmLevelDb(chunk);
     const h = this.file.open(FileMode.Append);
     try {
@@ -120,7 +141,9 @@ export class PcmWavRecorder {
     this.finishFile();
     this.sub?.remove();
     this.sub = undefined;
-    await pcmStream()?.stop().catch(() => '');
+    await pcmStream()
+      ?.stop()
+      .catch(() => "");
     stopForegroundRecording();
   }
 }

@@ -3,12 +3,13 @@
 import { adminClient, llmStructured, transcribe } from './services.ts';
 import { userFacingError } from './errors.ts';
 import { deferNotes, notesAllowed } from './billing_store.ts';
-import { notesTool, systemPrompt, userMessage, type NotesOutput } from './prompts.ts';
+import { chunkTranscript, notesTool, systemPrompt, userMessage, type DetailLevel, type NotesOutput } from './prompts.ts';
 import { boundaryExcerpt, joinParts, mapLimited, mergeChannels, parseSpeakerMap, speakersIn, sttCacheKey } from './parts.ts';
 import { normalizeMediaLink } from './links.ts';
 import { notifyUser } from './push.ts';
 import { runAfterReady, runFailedHooks } from './after_ready.ts';
 import { assignPhotos, attachPhotosToLog, buildKeyterms, siteLogIsEmpty, verifySiteLog, type PhotoMark } from './field.ts';
+import { supersedesPrior } from './decisionLifecycle.ts';
 import {
   dropRepeats,
   findQuote,
@@ -21,7 +22,7 @@ import {
   type Utterance,
 } from './verify.ts';
 
-export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean } = {}) {
+export async function runPipeline(recordingId: string, opts: { skipLimit?: boolean; reuseTranscript?: boolean; detailLevel?: DetailLevel } = {}) {
   const admin = adminClient();
   const { data: rec } = await admin
     .from('recordings')
@@ -48,17 +49,82 @@ export async function runPipeline(recordingId: string, opts: { skipLimit?: boole
     const { data: t } = await admin.from('summary_templates').select('instructions').eq('id', rec.custom_template_id).maybeSingle();
     custom = (t?.instructions as string | undefined) ?? null;
   }
-  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2);
+  await run(recordingId, userId, template, currentTitle, projectId, custom, Boolean(rec.audio_deleted_at || rec.transcribed_on_device), (rec.user_notes as string | null) ?? null, Number(rec.channels ?? 1) === 2, Boolean(opts.reuseTranscript), opts.detailLevel ?? await readUserDetailLevel(userId));
 }
 
-async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false) {
+async function readUserDetailLevel(userId: string): Promise<DetailLevel> {
+  try {
+    const { data } = await adminClient().from('user_settings').select('notes_detail_level').eq('user_id', userId).maybeSingle();
+    const v = data?.notes_detail_level;
+    return v === 'brief' || v === 'standard' || v === 'detailed' ? v : 'detailed';
+  } catch {
+    return 'detailed'; // column not migrated yet (older deploy): keep the comprehensive default
+  }
+}
+
+/** Before overwriting a summary, preserve the current one as a note_versions row so a
+ * user can compare and restore prior notes. A no-op when there is nothing to preserve,
+ * and never allowed to break generation (e.g. migration not yet applied). */
+async function snapshotNoteVersion(recordingId: string, userId: string, reason: string) {
+  try {
+    const admin = adminClient();
+    const { data: existing } = await admin.from('summaries').select('*').eq('recording_id', recordingId).maybeSingle();
+    if (!existing || !existing.overview) return; // first generation: nothing to preserve
+    const { data: last } = await admin.from('note_versions').select('version').eq('recording_id', recordingId).order('version', { ascending: false }).limit(1).maybeSingle();
+    const version = ((last?.version as number | undefined) ?? 0) + 1;
+    await admin.from('note_versions').insert({
+      recording_id: recordingId,
+      user_id: userId,
+      version,
+      summary: existing,
+      detail_level: (existing.detail_level as string | undefined) ?? 'detailed',
+      reason,
+    });
+  } catch (e) {
+    console.warn('note versioning skipped', recordingId, (e as Error).message.slice(0, 160));
+  }
+}
+
+/** Record which meeting introduced each verified decision, and mark an earlier decision
+ * superseded when a later one clearly revises it. Conservative + best-effort. */
+async function recordDecisionHistory(recordingId: string, userId: string, projectId: string, decisionTexts: string[]) {
+  try {
+    const admin = adminClient();
+    const { data: active } = await admin.from('decision_history')
+      .select('id, text')
+      .eq('project_id', projectId)
+      .eq('user_id', userId)
+      .eq('status', 'accepted')
+      .is('supersedes_id', null);
+    const priors = (active ?? []) as { id: string; text: string }[];
+    for (const text of decisionTexts) {
+      const superseded = supersedesPrior(text, priors.map((p) => p.text));
+      const prior = priors.find((p) => p.text === superseded);
+      if (prior) {
+        await admin.from('decision_history').update({ status: 'superseded' }).eq('id', prior.id);
+        await admin.from('decision_history').insert({ user_id: userId, recording_id: recordingId, project_id: projectId, text, status: 'accepted', supersedes_id: prior.id });
+        priors.splice(priors.indexOf(prior), 1);
+        priors.push({ id: '', text });
+      } else {
+        await admin.from('decision_history').insert({ user_id: userId, recording_id: recordingId, project_id: projectId, text, status: 'accepted' });
+        priors.push({ id: '', text });
+      }
+    }
+  } catch (e) {
+    console.warn('decision history skipped', recordingId, (e as Error).message.slice(0, 160));
+  }
+}
+
+async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false, reuseTranscript = false, detailLevel: DetailLevel = 'detailed') {
   const admin = adminClient();
   const startedAt = Date.now();
   try {
     // Corrected transcripts (and ones whose audio retention removed, or made on the phone) are reused, not re-transcribed.
     const { data: existing } = await admin.from('transcripts').select('utterances, speaker_names, edited_at').eq('recording_id', recordingId).maybeSingle();
     const speakerNames = ((existing?.speaker_names as Record<string, string> | null) ?? {}) as Record<string, string>;
-    const reuse = Boolean((existing?.edited_at || audioDeleted) && (existing?.utterances as Utterance[] | null)?.length);
+    // Regenerating notes reuses the stored transcript (no re-transcription); otherwise
+    // only edited/deleted/local transcripts are reused.
+    const reuse = Boolean(((reuseTranscript || existing?.edited_at || audioDeleted) && (existing?.utterances as Utterance[] | null)?.length));
 
     let offset = 0;
     let language: string | null = null;
@@ -161,12 +227,35 @@ async function run(recordingId: string, userId: string, template: string, curren
     const openTasks = projectId ? await openProjectTasks(projectId, recordingId) : [];
     const refs = makeRefs(openTasks);
 
-    // 3. Structured notes from Claude.
-    const notes = await llmStructured<NotesOutput>(
-      systemPrompt(template, custom),
-      [{ role: 'user', content: userMessage(formatTranscript(all, speakerNames), refs, userNotes) }],
-      notesTool(template),
-    );
+    // 3. Structured notes from Claude. Long transcripts are processed in overlapping
+    // chunks so the end is not silently dropped: the summary comes from the first
+    // chunk and detailed_sections are merged across every chunk.
+    const formatted = formatTranscript(all, speakerNames);
+    const chunks = chunkTranscript(formatted);
+    let notes: NotesOutput;
+    if (chunks.length === 1) {
+      notes = await llmStructured<NotesOutput>(
+        systemPrompt(template, custom, detailLevel),
+        [{ role: 'user', content: userMessage(chunks[0], refs, userNotes) }],
+        notesTool(template),
+      );
+    } else {
+      const first = await llmStructured<NotesOutput>(
+        systemPrompt(template, custom, detailLevel),
+        [{ role: 'user', content: userMessage(chunks[0], refs, userNotes) }],
+        notesTool(template),
+      );
+      const sections: NonNullable<NotesOutput['detailed_sections']> = [...(first.detailed_sections ?? [])];
+      for (const c of chunks.slice(1)) {
+        const n = await llmStructured<NotesOutput>(
+          systemPrompt(template, custom, detailLevel),
+          [{ role: 'user', content: userMessage(c, [], null) }],
+          notesTool(template),
+        );
+        sections.push(...(n.detailed_sections ?? []));
+      }
+      notes = { ...first, detailed_sections: sections };
+    }
 
     // 4. Check every task, decision and update against the transcript before saving.
     const tasks = dropRepeats(verifyActionItems(notes.action_items ?? [], all, speakerNames), openTasks.map((t) => t.text));
@@ -194,7 +283,20 @@ async function run(recordingId: string, userId: string, template: string, curren
     // Key points keep their text for sharing, search and export; the details carry the
     // quote and the time so the app can show where a point came from.
     const keyPoints = verifyKeyPoints(notes.key_points ?? [], all);
+    // Comprehensive topic-by-topic notes: each section is anchored to the transcript
+    // by its quote (found -> quote_ms + verified), the same way key points are.
+    const detailedSections = (notes.detailed_sections ?? []).map((s) => {
+      const m = s.quote ? findQuote(s.quote, all) : { start_ms: null, found: false };
+      return {
+        heading: s.heading,
+        paragraphs: s.paragraphs ?? [],
+        quote: s.quote ?? null,
+        quote_ms: m.start_ms,
+        verified: s.quote ? m.found : true,
+      };
+    });
 
+    await snapshotNoteVersion(recordingId, userId, reuseTranscript ? 'regenerate' : 'generate');
     await admin.from('summaries').upsert({
       recording_id: recordingId,
       user_id: userId,
@@ -205,8 +307,19 @@ async function run(recordingId: string, userId: string, template: string, curren
       open_questions: notes.open_questions ?? [],
       task_updates: updates,
       site_log: siteLog,
+      detailed_sections: detailedSections.length ? detailedSections : null,
+      conclusions: notes.conclusions ?? [],
+      detail_level: detailLevel,
+      notes_schema_version: 2,
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });
+
+    // Decision lifecycle: which meeting introduced each verified decision, and which
+    // earlier one a later decision supersedes.
+    const verifiedDecisions = decisions.filter((d) => d.verified).map((d) => d.text);
+    if (projectId && verifiedDecisions.length) {
+      await recordDecisionHistory(recordingId, userId, projectId, verifiedDecisions);
+    }
 
     // Reprocessing replaces this recording's AI tasks.
     await admin.from('tasks').delete().eq('recording_id', recordingId);

@@ -39,14 +39,34 @@ export async function requestMic(): Promise<void> {
     const reason = micUnavailableReason();
     throw new Error(reason || noBrowserSupportMessage());
   }
+  // Ask the browser directly. Device enumeration is unreliable here (Safari lists no
+  // inputs before permission; an RDP session shows only Remote Audio playback; a camera
+  // may have no mic), so it is never used to pre-empt the request — the browser gives
+  // the real answer, and its error name tells us what to say.
   try {
     const stream = await devices.getUserMedia({ audio: true });
     // Let go straight away: the recorder opens its own stream when it starts, and a
     // microphone that is held open shows the recording light for nothing.
     for (const track of stream.getTracks()) track.stop();
   } catch (e) {
+    const problem = micProblem((e as { name?: string })?.name);
     throw new Error(
-      micMessage(micProblem((e as { name?: string })?.name), "web"),
+      problem === "no-device"
+        ? micMessage("no-device", "web") + " " + osMicGuidance()
+        : micMessage(problem, "web"),
     );
   }
+}
+
+/** OS-level microphone guidance for desktop browsers. */
+function osMicGuidance(): string {
+  if (typeof navigator === "undefined") return "";
+  const ua = navigator.userAgent;
+  if (ua.includes("Windows")) {
+    return "Check Windows Settings → Privacy → Microphone → allow apps to access your microphone, and make sure your browser is allowed too.";
+  }
+  if (ua.includes("Mac")) {
+    return "Check System Settings → Privacy & Security → Microphone → make sure your browser is allowed.";
+  }
+  return "Check your operating system's microphone privacy settings.";
 }

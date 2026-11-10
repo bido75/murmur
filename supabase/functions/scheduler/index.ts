@@ -1,12 +1,16 @@
 // Scheduled jobs. Deploy with --no-verify-jwt; called by pg_cron with `x-cron-secret`.
-//   POST /scheduler?job=autobot  (every 10 minutes) send notetakers to upcoming calendar meetings
-//   POST /scheduler?job=digest   (hourly) weekly digest emails at Monday 8am in each user's time zone
+//   POST /scheduler?job=autobot       (every 10 minutes) send notetakers to upcoming calendar meetings
+//   POST /scheduler?job=digest        (hourly) weekly digest emails at Monday 8am in each user's time zone
+//   POST /scheduler?job=recover-stuck (every 5 minutes) re-run recordings stranded in a transcribing state
 import { adminClient, json } from '../_shared/services.ts';
 import { fetchEvents } from '../_shared/calendar_fetch.ts';
 import { createBot } from '../_shared/bot_core.ts';
 import { digestEmail, meetingsToJoin, type DigestData } from '../_shared/connect.ts';
 import { meetingPlatform } from '../_shared/recall.ts';
 import { isDigestTime } from '../_shared/digest_time.ts';
+import { runPipeline } from '../_shared/pipeline.ts';
+
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
 Deno.serve(async (req) => {
   const secret = Deno.env.get('CRON_SECRET');
@@ -15,6 +19,7 @@ Deno.serve(async (req) => {
   try {
     if (job === 'autobot') return json(await autobot());
     if (job === 'digest') return json(await digest());
+    if (job === 'recover-stuck') return json(await recoverStuck());
     return json({ error: 'Unknown job' }, 400);
   } catch (e) {
     console.error('scheduler failed', job, e);
@@ -101,4 +106,49 @@ async function digest() {
     }
   }
   return { sent };
+}
+
+/**
+ * Recover recordings stranded in a non-terminal state: a backend outage or an
+ * edge-runtime crash can kill a run mid-pipeline and leave the row stuck forever,
+ * since process-recording short-circuits when it sees the status is already
+ * "transcribing". A row left untouched for STUCK_RECORDING_MIN minutes in
+ * "uploading" (finalize reached the server but process-recording was never
+ * started) or "transcribing"/"summarizing" (a run died mid-pipeline) is reset and
+ * its pipeline re-run; after PROCESS_MAX_ATTEMPTS runs it is marked failed rather
+ * than retried forever.
+ */
+async function recoverStuck() {
+  const admin = adminClient();
+  const staleMs = Number(Deno.env.get('STUCK_RECORDING_MIN') ?? '15') * 60_000;
+  const maxAttempts = Number(Deno.env.get('PROCESS_MAX_ATTEMPTS') ?? '4');
+  const cutoff = new Date(Date.now() - staleMs).toISOString();
+  const { data: stuck, error } = await admin
+    .from('recordings')
+    .select('id, process_attempts')
+    .in('status', ['uploading', 'transcribing', 'summarizing'])
+    .lte('updated_at', cutoff)
+    .limit(100);
+  if (error) throw new Error(error.message);
+
+  let recovered = 0;
+  let gaveUp = 0;
+  for (const r of (stuck ?? []) as { id: string; process_attempts: number | null }[]) {
+    const attempts = Number(r.process_attempts ?? 0);
+    if (attempts >= maxAttempts) {
+      await admin
+        .from('recordings')
+        .update({ status: 'failed', error: 'Processing did not complete after several attempts.', updated_at: new Date().toISOString() })
+        .eq('id', r.id);
+      gaveUp++;
+      continue;
+    }
+    await admin
+      .from('recordings')
+      .update({ status: 'uploading', error: null, notes_queued_at: null, process_attempts: attempts + 1, updated_at: new Date().toISOString() })
+      .eq('id', r.id);
+    EdgeRuntime.waitUntil(runPipeline(r.id));
+    recovered++;
+  }
+  return { recovered, gaveUp };
 }

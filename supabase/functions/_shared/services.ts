@@ -354,6 +354,7 @@ function readJson(text: string): unknown {
     const part = from(candidate.slice(start, end + 1));
     if (part !== undefined) return part;
   }
+  console.error('readJson failed; raw model output (first 800 chars):', text.slice(0, 800));
   throw new Error('The model did not return the JSON that was asked for');
 }
 
@@ -376,7 +377,8 @@ async function callOpenRouter(
   const body: Record<string, unknown> = {
     model: env('OPENROUTER_MODEL', 'anthropic/claude-sonnet-4.5'),
     messages: [{ role: 'system', content: prompt }, ...messages],
-    max_tokens: 4000,
+    // Detailed notes need room for several sections; a small cap truncates the JSON.
+    max_tokens: Number(Deno.env.get('LLM_MAX_TOKENS') ?? 12000),
   };
   const headers = {
     Authorization: `Bearer ${env('OPENROUTER_API_KEY')}`,
