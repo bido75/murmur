@@ -778,6 +778,24 @@ export async function listNoteVersions(recordingId: string) {
   }[];
 }
 
+/** Retrieve one prior snapshot in full (its note fields), for viewing/comparing. */
+export async function getNoteVersion(id: string) {
+  const { data, error } = await supabase
+    .from("note_versions")
+    .select("id, version, detail_level, reason, created_at, summary")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as {
+    id: string;
+    version: number;
+    detail_level: string;
+    reason: string;
+    created_at: string;
+    summary: Summary;
+  } | null;
+}
+
 /** Restore a prior note snapshot back onto the recording's summary (owner only). */
 export async function restoreNoteVersion(versionId: string) {
   return callFn<{ ok: true }>("process-recording/restore-version", {
