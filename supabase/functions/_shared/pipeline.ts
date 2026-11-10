@@ -61,6 +61,29 @@ async function readUserDetailLevel(userId: string): Promise<DetailLevel> {
   }
 }
 
+/** Before overwriting a summary, preserve the current one as a note_versions row so a
+ * user can compare and restore prior notes. A no-op when there is nothing to preserve,
+ * and never allowed to break generation (e.g. migration not yet applied). */
+async function snapshotNoteVersion(recordingId: string, userId: string, reason: string) {
+  try {
+    const admin = adminClient();
+    const { data: existing } = await admin.from('summaries').select('*').eq('recording_id', recordingId).maybeSingle();
+    if (!existing || !existing.overview) return; // first generation: nothing to preserve
+    const { data: last } = await admin.from('note_versions').select('version').eq('recording_id', recordingId).order('version', { ascending: false }).limit(1).maybeSingle();
+    const version = ((last?.version as number | undefined) ?? 0) + 1;
+    await admin.from('note_versions').insert({
+      recording_id: recordingId,
+      user_id: userId,
+      version,
+      summary: existing,
+      detail_level: (existing.detail_level as string | undefined) ?? 'detailed',
+      reason,
+    });
+  } catch (e) {
+    console.warn('note versioning skipped', recordingId, (e as Error).message.slice(0, 160));
+  }
+}
+
 async function run(recordingId: string, userId: string, template: string, currentTitle: string, projectId: string | null, custom: string | null, audioDeleted: boolean, userNotes: string | null, twoChannel = false, reuseTranscript = false, detailLevel: DetailLevel = 'detailed') {
   const admin = adminClient();
   const startedAt = Date.now();
@@ -242,6 +265,7 @@ async function run(recordingId: string, userId: string, template: string, curren
       };
     });
 
+    await snapshotNoteVersion(recordingId, userId, reuseTranscript ? 'regenerate' : 'generate');
     await admin.from('summaries').upsert({
       recording_id: recordingId,
       user_id: userId,
