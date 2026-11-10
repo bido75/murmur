@@ -16,7 +16,7 @@ import {
 import { File, Paths } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config";
+import { SEGMENT_MS } from "./config";
 import { isWeb } from "./dialog";
 import { requestMic } from "./mic";
 import { AppState, Platform } from "react-native";
@@ -106,7 +106,6 @@ export function useSegmentedRecorder() {
   const busy = useRef(false);
   // The work in flight (a part being rotated), so stopping can wait for it.
   const busyWork = useRef<Promise<void> | null>(null);
-  const silenceSince = useRef<number | null>(null);
   const lastProgress = useRef({ ms: 0, at: 0 });
   const [doneMs, setDoneMs] = useState(0);
   const [inputs, setInputs] = useState<RecordingInput[]>([]);
@@ -263,7 +262,6 @@ export function useSegmentedRecorder() {
       setSegmentsSaved(0);
       setDoneMs(0);
       setWarning(null);
-      silenceSince.current = null;
       await beginSegment();
       // Keeping the screen on is a nice-to-have; browsers may refuse it (hidden tab, no permission).
       await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
@@ -342,7 +340,12 @@ export function useSegmentedRecorder() {
       const now = Date.now();
       if (pcm.current) {
         setPcmMs(st.durationMillis);
-        setPcmLevel(st.metering ?? null);
+        // Round to a whole dB and skip no-op updates so the meter does not re-render
+        // the screen on every 500 ms tick for sub-dB float noise.
+        setPcmLevel((prev) => {
+          const next = st.metering == null ? null : Math.round(st.metering);
+          return next === (prev == null ? null : Math.round(prev)) ? prev : next;
+        });
       }
 
       if (
@@ -363,18 +366,6 @@ export function useSegmentedRecorder() {
           'Recording stopped by the system (a call or another app may have the mic). Tap "Restart mic".',
         );
         return;
-      }
-
-      if (typeof st.metering === "number" && st.metering < SILENCE_DB) {
-        silenceSince.current ??= now;
-        if (now - silenceSince.current > SILENCE_WARN_MS) {
-          setWarning(
-            "Not hearing anything yet — tap to make sure the mic is picking you up.",
-          );
-        }
-      } else {
-        silenceSince.current = null;
-        setWarning((w) => (w?.startsWith("Not hearing anything") ? null : w));
       }
     }, 500);
     return () => clearInterval(timer);
