@@ -761,6 +761,30 @@ export async function regenerateNotes(id: string, detailLevel?: DetailLevel) {
   });
 }
 
+/** Prior note snapshots for a recording (newest first). */
+export async function listNoteVersions(recordingId: string) {
+  const { data, error } = await supabase
+    .from("note_versions")
+    .select("id, version, detail_level, reason, created_at")
+    .eq("recording_id", recordingId)
+    .order("version", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as {
+    id: string;
+    version: number;
+    detail_level: string;
+    reason: string;
+    created_at: string;
+  }[];
+}
+
+/** Restore a prior note snapshot back onto the recording's summary (owner only). */
+export async function restoreNoteVersion(versionId: string) {
+  return callFn<{ ok: true }>("process-recording/restore-version", {
+    version_id: versionId,
+  });
+}
+
 export async function renameRecording(id: string, title: string) {
   const { error } = await supabase
     .from("recordings")

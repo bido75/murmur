@@ -60,8 +60,10 @@ import {
   getRecording,
   listIntegrations,
   listProjects,
+  listNoteVersions,
   renameRecording,
   regenerateNotes,
+  restoreNoteVersion,
   retryProcessing,
   sendSiteLogToProcore,
   setPhotoCaption,
@@ -609,6 +611,28 @@ export default function RecordingDetail() {
           label: "Regenerate notes — brief",
           onPress: guard(async () => {
             await regenerateNotes(rec.id, "brief");
+            await load();
+          }),
+        },
+        {
+          section: "Organize",
+          label: "Restore previous notes",
+          onPress: guard(async () => {
+            const versions = await listNoteVersions(rec.id);
+            if (!versions.length) {
+              notify("No previous notes", "There are no earlier versions to restore.");
+              return;
+            }
+            const latest = versions[0];
+            const when = new Date(latest.created_at).toLocaleDateString();
+            const ok = await confirm(
+              "Restore previous notes?",
+              `Restore the ${latest.detail_level} notes from ${when}? This replaces the current notes.`,
+              "Restore",
+              true,
+            );
+            if (!ok) return;
+            await restoreNoteVersion(latest.id);
             await load();
           }),
         },
