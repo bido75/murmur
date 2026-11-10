@@ -1579,6 +1579,11 @@ export async function getBrief(projectId: string) {
   };
 }
 
+/** A suggested meeting agenda synthesized from the project's open work. */
+export async function getBriefAgenda(projectId: string) {
+  return callFn<{ agenda: string[] }>("brief/agenda", { project_id: projectId });
+}
+
 // ---------- Sign-in connections (Slack, Salesforce, Google Docs, OneNote) ----------
 
 export type OAuthConn = "slack" | "salesforce" | "google_docs" | "onenote";

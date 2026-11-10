@@ -7,6 +7,7 @@ import {
   botAvailable,
   createConsentRequest,
   getBrief,
+  getBriefAgenda,
   linkEventToProject,
 } from "@/lib/api";
 import { dayLabel, timeRange } from "@/lib/calendarUi";
@@ -34,6 +35,7 @@ export default function BriefScreen() {
   const [brief, setBrief] = useState<{ projectId: string; data: Brief } | null>(
     null,
   );
+  const [agenda, setAgenda] = useState<string[] | null>(null);
   const [hasBot, setHasBot] = useState(false);
   useEffect(() => {
     botAvailable().then(setHasBot);
@@ -62,6 +64,9 @@ export default function BriefScreen() {
     getBrief(projectId)
       .then((data) => setBrief({ projectId, data }))
       .catch((e) => notify("Couldn't load the brief", (e as Error).message));
+    getBriefAgenda(projectId)
+      .then((a) => setAgenda(a.agenda))
+      .catch(() => setAgenda(null));
   }, [projectId]);
 
   async function choose(id: string | null) {
@@ -180,6 +185,17 @@ export default function BriefScreen() {
               ))
             )}
           </View>
+
+          {agenda && agenda.length > 0 && (
+            <View style={{ gap: space.sm }}>
+              <T muted size={13} weight="600">
+                SUGGESTED AGENDA
+              </T>
+              {agenda.map((item, i) => (
+                <T key={i}>• {item}</T>
+              ))}
+            </View>
+          )}
 
           {data.last && (
             <Card style={{ gap: space.sm }}>
