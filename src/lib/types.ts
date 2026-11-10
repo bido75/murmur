@@ -136,6 +136,8 @@ export type Summary = {
   conclusions?: string[] | null;
   /** The detail level this summary was generated at. */
   detail_level?: DetailLevel | null;
+  /** Set when the user manually edited the notes (never set by the AI pipeline). */
+  edited_at?: string | null;
 };
 
 /** One comprehensive topic section in the detailed notes. */

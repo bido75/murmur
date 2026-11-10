@@ -170,7 +170,7 @@ export async function getRecording(id: string) {
     supabase
       .from("summaries")
       .select(
-        "overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external, detailed_sections, conclusions, detail_level",
+        "overview, key_points, key_point_details, decisions, open_questions, task_updates, site_log, site_log_external, detailed_sections, conclusions, detail_level, edited_at",
       )
       .eq("recording_id", id)
       .maybeSingle(),

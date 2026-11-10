@@ -212,6 +212,17 @@ export default function RecordingDetail() {
     }
   };
 
+  // Confirm before regeneration replaces notes the user has manually edited.
+  async function regenConfirmation(): Promise<boolean> {
+    if (!data?.summary?.edited_at) return true;
+    return confirm(
+      "Replace your edits?",
+      "You've edited these notes. Regenerating replaces your edits with new AI notes.",
+      "Regenerate",
+      true,
+    );
+  }
+
   async function chooseProject() {
     const rec = data?.recording;
     if (!rec) return;
@@ -594,6 +605,7 @@ export default function RecordingDetail() {
           section: "Organize",
           label: "Regenerate notes — detailed",
           onPress: guard(async () => {
+            if (!(await regenConfirmation())) return;
             await regenerateNotes(rec.id, "detailed");
             await load();
           }),
@@ -602,6 +614,7 @@ export default function RecordingDetail() {
           section: "Organize",
           label: "Regenerate notes — standard",
           onPress: guard(async () => {
+            if (!(await regenConfirmation())) return;
             await regenerateNotes(rec.id, "standard");
             await load();
           }),
@@ -610,6 +623,7 @@ export default function RecordingDetail() {
           section: "Organize",
           label: "Regenerate notes — brief",
           onPress: guard(async () => {
+            if (!(await regenConfirmation())) return;
             await regenerateNotes(rec.id, "brief");
             await load();
           }),
