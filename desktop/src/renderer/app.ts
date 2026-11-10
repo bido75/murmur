@@ -20,6 +20,7 @@ import {
 import { PROVIDER_LABELS, type ConnKey } from "../../../src/lib/types";
 import { pendingSegments } from "../shared/queue";
 import { buildMicDiagnostics, sanitizeDevices, type MicDiagnostics } from "../shared/micDiagnostics";
+import { dbfs } from "../shared/level";
 import { MEETING_LABELS, type MeetingApp } from "../shared/meetings";
 import { Capture } from "./capture";
 import { h } from "./dom";
@@ -149,6 +150,8 @@ async function checkMic() {
   state.micChecking = true;
   state.micResult = null;
   render();
+  let stream: MediaStream | null = null;
+  let ctx: AudioContext | null = null;
   try {
     const devices = sanitizeDevices(
       (await navigator.mediaDevices.enumerateDevices()).map((d) => ({
@@ -159,21 +162,36 @@ async function checkMic() {
     let permission: MicDiagnostics["permission"] = "unknown";
     let trackState: MicDiagnostics["trackState"] = "none";
     let error: MicDiagnostics["error"] = null;
+    let peakLevel: number | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const track = stream.getAudioTracks()[0];
       permission = "granted";
       trackState = track ? (track.readyState === "live" ? "live" : "ended") : "none";
-      stream.getTracks().forEach((t) => t.stop());
+      // Measure the input level for a short window so the user can see the mic is live.
+      ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Float32Array(analyser.fftSize);
+      const started = Date.now();
+      while (Date.now() - started < 2000) {
+        analyser.getFloatTimeDomainData(data);
+        const db = dbfs(data);
+        if (peakLevel === null || db > peakLevel) peakLevel = db;
+        await new Promise((r) => setTimeout(r, 100));
+      }
     } catch (e) {
       const err = e as { name?: string; message?: string };
       permission = err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "denied" : "unknown";
       error = { name: err?.name ?? "Error", message: (err?.message ?? "").slice(0, 200) };
     }
-    state.micResult = buildMicDiagnostics({ devices, permission, trackState, error });
+    state.micResult = buildMicDiagnostics({ devices, permission, trackState, level: peakLevel, error });
   } catch (e) {
     state.error = (e as Error).message;
   } finally {
+    stream?.getTracks().forEach((t) => t.stop());
+    if (ctx) void ctx.close().catch(() => {});
     state.micChecking = false;
     render();
   }
@@ -578,6 +596,7 @@ function settingsView(): Child[] {
             ...state.micResult.audioInputs.map((d) => h("div", {}, `• ${d.label || "Unnamed input"}`)),
             h("div", { class: "muted" }, `Permission: ${state.micResult.permission}`),
             h("div", { class: "muted" }, `Track: ${state.micResult.trackState}`),
+            h("div", { class: "muted" }, `Level: ${state.micResult.level == null ? "—" : `${state.micResult.level.toFixed(0)} dBFS`}`),
             ...(state.micResult.remoteOnly
               ? [h("div", { class: "banner" }, 'This looks like a Remote Desktop session — only playback devices are visible. In the RDP client, enable "Record from this computer", or plug in a microphone.')]
               : []),
