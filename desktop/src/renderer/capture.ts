@@ -5,6 +5,7 @@
 import type { Bridge } from "../shared/bridge";
 import { SilenceGuard, dbfs, keepSegment } from "../shared/level.ts";
 import { micFailureMessage, type MicDeviceInfo } from "../shared/micFailure.ts";
+import { transition, type CapturePhase } from "../shared/captureState.ts";
 import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config.ts";
 
 declare const window: Window & { murmur: Bridge };
@@ -47,6 +48,8 @@ export class Capture {
   private recordingId: string;
   private events: CaptureEvents;
   private local: boolean;
+  /** Explicit recording state (idle → … → locally_saved); sync.ts owns the later phases. */
+  phase: CapturePhase = 'idle';
   doneMs = 0;
   systemAudio: "on" | "unavailable" | "denied" = "unavailable";
 
@@ -90,11 +93,13 @@ export class Capture {
     const trace = (stage: string) =>
       console.debug("murmur-capture", this.recordingId, stage);
     trace("start");
+    this.phase = transition(this.phase, 'start');
     if (!(await this.bounded("Microphone permission check", 5_000, bridge().micPermission())))
       throw new Error(
         "Microphone access is off. Allow it in your system settings.",
       );
     trace("permission-ok");
+    this.phase = transition(this.phase, 'permission_granted');
     this.ctx = new AudioContext({ sampleRate: 48000 });
     trace("context-created");
     this.dest = this.ctx.createMediaStreamDestination();
@@ -154,6 +159,7 @@ export class Capture {
         }),
       );
     } catch (e) {
+      this.phase = transition(this.phase, 'mic_failed');
       const name = (e as { name?: string }).name ?? "";
       throw new Error(
         micFailureMessage(
@@ -186,6 +192,7 @@ export class Capture {
 
     await this.openSegment();
     trace("segment-open");
+    this.phase = transition(this.phase, 'recording_started');
     this.timers.push(window.setInterval(() => this.tick(), 500));
   }
 
@@ -436,16 +443,19 @@ export class Capture {
     if (this.recorder?.state !== "recording") return;
     this.segActiveMs += Date.now() - this.segResumedAt;
     this.recorder.pause();
+    this.phase = transition(this.phase, 'paused');
   }
 
   resume() {
     if (this.recorder?.state !== "paused") return;
     this.segResumedAt = Date.now();
     this.recorder.resume();
+    this.phase = transition(this.phase, 'resumed');
   }
 
   /** Stop everything; returns total recorded milliseconds. */
   async stop(): Promise<number> {
+    this.phase = transition(this.phase, 'stop_requested');
     this.timers.forEach((t) => clearInterval(t));
     this.timers = [];
     await this.closeSegment();
@@ -457,6 +467,7 @@ export class Capture {
         () => {},
       );
     await bridge().activeSet(null).catch(() => {});
+    this.phase = transition(this.phase, 'finalized');
     return this.doneMs;
   }
 }
