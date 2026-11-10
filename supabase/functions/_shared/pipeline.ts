@@ -9,6 +9,7 @@ import { normalizeMediaLink } from './links.ts';
 import { notifyUser } from './push.ts';
 import { runAfterReady, runFailedHooks } from './after_ready.ts';
 import { assignPhotos, attachPhotosToLog, buildKeyterms, siteLogIsEmpty, verifySiteLog, type PhotoMark } from './field.ts';
+import { supersedesPrior } from './decisionLifecycle.ts';
 import {
   dropRepeats,
   findQuote,
@@ -81,6 +82,36 @@ async function snapshotNoteVersion(recordingId: string, userId: string, reason: 
     });
   } catch (e) {
     console.warn('note versioning skipped', recordingId, (e as Error).message.slice(0, 160));
+  }
+}
+
+/** Record which meeting introduced each verified decision, and mark an earlier decision
+ * superseded when a later one clearly revises it. Conservative + best-effort. */
+async function recordDecisionHistory(recordingId: string, userId: string, projectId: string, decisionTexts: string[]) {
+  try {
+    const admin = adminClient();
+    const { data: active } = await admin.from('decision_history')
+      .select('id, text')
+      .eq('project_id', projectId)
+      .eq('user_id', userId)
+      .eq('status', 'accepted')
+      .is('supersedes_id', null);
+    const priors = (active ?? []) as { id: string; text: string }[];
+    for (const text of decisionTexts) {
+      const superseded = supersedesPrior(text, priors.map((p) => p.text));
+      const prior = priors.find((p) => p.text === superseded);
+      if (prior) {
+        await admin.from('decision_history').update({ status: 'superseded' }).eq('id', prior.id);
+        await admin.from('decision_history').insert({ user_id: userId, recording_id: recordingId, project_id: projectId, text, status: 'accepted', supersedes_id: prior.id });
+        priors.splice(priors.indexOf(prior), 1);
+        priors.push({ id: '', text });
+      } else {
+        await admin.from('decision_history').insert({ user_id: userId, recording_id: recordingId, project_id: projectId, text, status: 'accepted' });
+        priors.push({ id: '', text });
+      }
+    }
+  } catch (e) {
+    console.warn('decision history skipped', recordingId, (e as Error).message.slice(0, 160));
   }
 }
 
@@ -282,6 +313,13 @@ async function run(recordingId: string, userId: string, template: string, curren
       notes_schema_version: 2,
       model: Deno.env.get('CLAUDE_MODEL') ?? 'claude-sonnet-5-5',
     });
+
+    // Decision lifecycle: which meeting introduced each verified decision, and which
+    // earlier one a later decision supersedes.
+    const verifiedDecisions = decisions.filter((d) => d.verified).map((d) => d.text);
+    if (projectId && verifiedDecisions.length) {
+      await recordDecisionHistory(recordingId, userId, projectId, verifiedDecisions);
+    }
 
     // Reprocessing replaces this recording's AI tasks.
     await admin.from('tasks').delete().eq('recording_id', recordingId);
