@@ -10,6 +10,7 @@ export async function startLive(
   stream: MediaStream,
   onLines: (l: LiveLine[]) => void,
   onError: (m: string) => void,
+  recordingId?: string | null,
 ): Promise<() => void> {
   let stopped = false;
   let lines: LiveLine[] = [];
@@ -32,7 +33,7 @@ export async function startLive(
   };
   try {
     const { data, error } = await supabase.functions.invoke("live/token", {
-      body: {},
+      body: { recording_id: recordingId ?? undefined },
     });
     if (error || !data?.token)
       throw new Error("Live transcript is unavailable right now.");

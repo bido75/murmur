@@ -1080,6 +1080,7 @@ async function toggleLive() {
       stopLive = null;
       render();
     },
+    recordingId,
   );
 }
 
