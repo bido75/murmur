@@ -57,6 +57,7 @@ import {
   deletePhoto,
   getBot,
   deleteRecording,
+  extractKnowledge,
   getRecording,
   listIntegrations,
   listProjects,
@@ -648,6 +649,17 @@ export default function RecordingDetail() {
             if (!ok) return;
             await restoreNoteVersion(latest.id);
             await load();
+          }),
+        },
+        {
+          section: "Organize",
+          label: "Build knowledge graph",
+          onPress: guard(async () => {
+            const r = await extractKnowledge(rec.id);
+            notify(
+              "Knowledge graph updated",
+              `${r.entities} entities, ${r.assertions} connections extracted for review.`,
+            );
           }),
         },
         {

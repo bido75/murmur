@@ -803,6 +803,13 @@ export async function restoreNoteVersion(versionId: string) {
   });
 }
 
+/** Extract the knowledge graph (entities + assertions) from a recording's notes. */
+export async function extractKnowledge(recordingId: string) {
+  return callFn<{ entities: number; assertions: number }>("knowledge/extract", {
+    recording_id: recordingId,
+  });
+}
+
 export async function renameRecording(id: string, title: string) {
   const { error } = await supabase
     .from("recordings")
