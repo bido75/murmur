@@ -66,7 +66,8 @@ Status legend: **V** verified · **IU** implemented-unverified · **P** partial 
 |---|---|---|
 | Calendar OAuth + event sync | IU | `calendar.ts`, `calendar_fetch.ts`, `calendar/`, `oauth/` |
 | Bot scheduling/timing | IU | `bot_core.ts`, `bot_timing.ts`, `bot/` |
-| Meeting briefs / follow-up drafts | M | no `meeting_briefs`/`meeting_followup_drafts` |
+| Meeting briefs | P | `src/app/brief.tsx`, `api.ts getBrief` — open tasks + last meeting decisions/questions; no agenda/purpose synthesis, no persisted table |
+| Follow-up email draft | P | `_shared/followup.ts` + `share/` |
 | **Live provider validation (Zoom/Teams/Meet)** | Blk | PROJECT_RULES rule 10: integrations untested against live accounts |
 
 ### Workstream 5 — Cross-meeting AI & Knowledge Graph (P1)

@@ -20,7 +20,9 @@ phase,workstream,capability,status,key_files,test_coverage,deployment,risk
 3,live,streaming reliability (reconnect/dedupe/diarization),IU,live/; live.ts,-,backend,high
 4,calendar,calendar OAuth + event sync,IU,calendar.ts; calendar_fetch.ts; calendar/; oauth/,-,backend,medium
 4,calendar,bot scheduling/timing,IU,bot_core.ts; bot_timing.ts; bot/,-,backend,medium
-4,calendar,meeting briefs / follow-up drafts,M,-,-,backend,medium
+4,calendar,meeting briefs (open tasks + last decisions/questions),P,src/app/brief.tsx; api.ts getBrief,-,client,low
+4,calendar,follow-up email draft,P,share/ + _shared/followup.ts,sharing.test.ts,backend,low
+4,calendar,suggested agenda / purpose synthesis (LLM),M,-,-,backend+client,medium
 4,calendar,live provider validation (Zoom/Teams/Meet),Blk,-,-,backend,high
 5,kg,retrieval / ask / MCP,P,ask/; mcp/; recall.ts; semantic.ts,-,backend,medium
 5,kg,semantic topic trackers,P,trackers.ts,-,backend,medium
