@@ -2,6 +2,7 @@
 // from a recording's verified notes and persist it as proposed, human-reviewable rows.
 // Owner-only; the writes go through the service role after an ownership check.
 import { adminClient, corsHeaders, HttpError, json, llmStructured, requireUser } from '../_shared/services.ts';
+import { groundAssertion, resolveEntity, withVerificationStatus, type EntityIndexEntry } from '../_shared/agent_knowledge.ts';
 
 const KINDS = ['person', 'organization', 'project', 'topic', 'product', 'location', 'event', 'risk', 'other'];
 
@@ -88,21 +89,35 @@ async function extract(userId: string, client: any, body: { recording_id?: strin
     }>(EXTRACT_SYSTEM, [{ role: 'user', content: material || 'No notes.' }], EXTRACT_TOOL);
 
     const admin = adminClient();
+    // Cross-run entity resolution: reuse an existing node when a name or a recorded
+    // alias matches, so the graph keeps one node per real-world thing.
+    const index = await loadEntityIndex(admin, userId);
     const ids = new Map<string, string>();
     for (const e of out.entities ?? []) {
       const name = String(e.name ?? '').trim();
       if (!name) continue;
       const kind = KINDS.includes(e.kind) ? e.kind : 'other';
-      const { data: ent } = await admin.from('knowledge_entities').upsert({ user_id: userId, kind, name }, { onConflict: 'user_id,kind,name' }).select('id').single();
-      if (!ent?.id) continue;
-      ids.set(name.toLowerCase(), ent.id as string);
+      const resolved = resolveEntity(name, index);
+      let entityId: string | null = resolved.id;
+      if (!entityId) {
+        const { data: ent } = await admin.from('knowledge_entities').upsert({ user_id: userId, kind, name }, { onConflict: 'user_id,kind,name' }).select('id').single();
+        entityId = (ent?.id as string | undefined) ?? null;
+      }
+      if (!entityId) continue;
+      ids.set(name.toLowerCase(), entityId);
+      if (!resolved.id) index.push({ id: entityId, name, aliases: [] });
       for (const a of e.aliases ?? []) {
         const alias = String(a).trim();
         if (alias && alias.toLowerCase() !== name.toLowerCase()) {
-          await admin.from('knowledge_aliases').upsert({ entity_id: ent.id, alias }, { onConflict: 'entity_id,alias' }).select('id');
+          await admin.from('knowledge_aliases').upsert({ entity_id: entityId, alias }, { onConflict: 'entity_id,alias' }).select('id');
         }
       }
     }
+
+    // Ground each assertion in the transcript so source_refs carry a timestamp and
+    // excerpt, not just the recording id (closes the documented KG gap).
+    const { data: tr } = await admin.from('transcripts').select('utterances').eq('recording_id', recording_id).maybeSingle();
+    const utterances = (tr?.utterances ?? []) as { start_ms: number; end_ms: number; speaker?: number; text: string }[];
 
     let inserted = 0;
     for (const a of out.assertions ?? []) {
@@ -112,13 +127,14 @@ async function extract(userId: string, client: any, body: { recording_id?: strin
       const objName = a.object ? String(a.object).trim() : '';
       const objectId = objName ? ids.get(objName.toLowerCase()) ?? null : null;
       const confidence = Math.max(0, Math.min(1, typeof a.confidence === 'number' ? a.confidence : 0));
+      const ref = groundAssertion(recording_id, { subject, object: objName || null, value: a.value ? String(a.value) : null }, utterances);
       const { error } = await admin.from('knowledge_assertions').insert({
         user_id: userId,
         subject_id: subjectId,
         predicate: String(a.predicate ?? '').trim(),
         object_id: objectId,
         value: a.value ? String(a.value).trim() : null,
-        source_refs: [{ recordingId: recording_id, verificationStatus: 'unverified' }],
+        source_refs: [ref],
         confidence,
         review_status: 'proposed',
       });
@@ -167,5 +183,34 @@ async function reviewAssertion(client: any, body: { assertion_id?: string; statu
   if (status !== 'verified' && status !== 'rejected') throw new HttpError(400, 'status must be verified or rejected');
   const { error } = await client.from('knowledge_assertions').update({ review_status: status }).eq('id', id);
   if (error) throw new Error(error.message);
+  // Keep the source evidence consistent with the decision: accepting/rejecting flips
+  // every source_ref's verificationStatus too (best-effort).
+  const { data: a } = await client.from('knowledge_assertions').select('source_refs').eq('id', id).maybeSingle();
+  const refs = Array.isArray(a?.source_refs) ? (a.source_refs as { recordingId?: string }[]) : [];
+  if (refs.length) {
+    const next = withVerificationStatus(refs, status as 'verified' | 'rejected');
+    await client.from('knowledge_assertions').update({ source_refs: next }).eq('id', id);
+  }
   return json({ ok: true });
+}
+
+/** Existing entities + their aliases, so a new extraction reuses nodes across runs. */
+// deno-lint-ignore no-explicit-any
+async function loadEntityIndex(admin: any, userId: string): Promise<EntityIndexEntry[]> {
+  try {
+    const { data: ents } = await admin.from('knowledge_entities').select('id, name').eq('user_id', userId);
+    const rows = (ents ?? []) as { id: string; name: string }[];
+    const aliases = new Map<string, string[]>();
+    if (rows.length) {
+      const ids = rows.map((r) => r.id);
+      const { data: al } = await admin.from('knowledge_aliases').select('entity_id, alias').in('entity_id', ids);
+      for (const a of (al ?? []) as { entity_id: string; alias: string }[]) {
+        if (!aliases.has(a.entity_id)) aliases.set(a.entity_id, []);
+        aliases.get(a.entity_id)!.push(a.alias);
+      }
+    }
+    return rows.map((r) => ({ id: r.id, name: r.name, aliases: aliases.get(r.id) ?? [] }));
+  } catch {
+    return []; // resolution is best-effort; a failure falls back to exact-name upsert
+  }
 }
