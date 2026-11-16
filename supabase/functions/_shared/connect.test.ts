@@ -22,6 +22,8 @@ const n: PublicNotes = {
   ],
   open_questions: ['Who pays?'],
   site_log: [{ title: 'Safety', items: ['Loose guardrail (East stair)'] }],
+  detailed_sections: [],
+  conclusions: [],
   transcript: null,
 };
 

@@ -11,6 +11,8 @@ export type Destination = 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesfor
 export type AgentActions = {
   sendFollowup?: (input: { recording_id: string; to: string[] }) => Promise<{ subject: string; recipients: number }>;
   exportNotes?: (recording_id: string, destination: Destination) => Promise<{ destination: string; url: string | null }>;
+  presentationsGenerate?: (args: { recording_id?: string; project_id?: string; kind: string; audience?: string; detail?: 'concise' | 'detailed'; enhancements?: { images?: boolean; diagrams?: boolean; charts?: boolean; notes?: boolean } }) => Promise<{ url: string | null; filename: string; slides: number; embeddedMedia: number }>;
+  documentsGenerate?: (recording_id: string) => Promise<{ url: string | null; filename: string }>;
 };
 
 export type AgentToolContext = {

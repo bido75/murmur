@@ -26,15 +26,17 @@ const ctx = {
   actions: {
     sendFollowup: async (input: { recording_id: string; to: string[] }) => ({ subject: 'Recap', recipients: input.to.length }),
     exportNotes: async (_rid: string, destination: string) => ({ destination, url: null }),
+    presentationsGenerate: async (args: { recording_id?: string; project_id?: string; kind: string }) => ({ url: null, filename: `${args.kind}.pptx`, slides: 5, embeddedMedia: 0 }),
+    documentsGenerate: async (recording_id: string) => ({ url: null, filename: 'notes.docx' }),
   },
 };
 
-test('registry exposes eight read, two write, two external tools', () => {
+test('registry exposes eight read, four write, two external tools', () => {
   const reads = AGENT_TOOLS.filter((t) => t.riskLevel === 'read');
   const writes = AGENT_TOOLS.filter((t) => t.riskLevel === 'write');
   const ext = AGENT_TOOLS.filter((t) => t.riskLevel === 'external');
   assert.equal(reads.length, 8);
-  assert.deepEqual(writes.map((t) => t.name).sort(), ['tasks.create', 'tasks.update']);
+  assert.deepEqual(writes.map((t) => t.name).sort(), ['documents.generate', 'presentations.generate', 'tasks.create', 'tasks.update']);
   assert.deepEqual(ext.map((t) => t.name).sort(), ['followups.send', 'integrations.export']);
 });
 
@@ -106,4 +108,16 @@ test('integrations.export rejects unknown destinations', async () => {
   await assert.rejects(() => resolveTool('integrations.export')!.run({ recording_id: RID, destination: 'ftp' }, ctx), /unknown destination/);
   const out = await resolveTool('integrations.export')!.run({ recording_id: RID, destination: 'notion' }, ctx) as { destination: string };
   assert.equal(out.destination, 'notion');
+});
+
+test('presentations.generate requires a source and a kind', async () => {
+  await assert.rejects(() => resolveTool('presentations.generate')!.run({ kind: 'client_update' }, ctx), /recording_id or project_id/);
+  await assert.rejects(() => resolveTool('presentations.generate')!.run({ recording_id: RID }, ctx), /kind is required/);
+  const out = await resolveTool('presentations.generate')!.run({ recording_id: RID, kind: 'client_update' }, ctx) as { filename: string };
+  assert.equal(out.filename, 'client_update.pptx');
+});
+
+test('documents.generate builds through the source adapter', async () => {
+  const out = await resolveTool('documents.generate')!.run({ recording_id: RID }, ctx) as { filename: string };
+  assert.equal(out.filename, 'notes.docx');
 });

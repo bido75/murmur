@@ -23,6 +23,7 @@ import {
 } from '../_shared/services.ts';
 import { makeSource } from '../_shared/mcp_source.ts';
 import { sendFollowup, exportNotes } from '../_shared/agent_io.ts';
+import { generatePresentation, generateDocument } from '../_shared/agent_docs.ts';
 import { resolveTool, toolNames } from '../_shared/agent_registry.ts';
 import { PLAN_TOOL, planMessages, planSystem, validatePlan } from '../_shared/agent_planner.ts';
 import { newBudget } from '../_shared/agent_budgets.ts';
@@ -91,7 +92,7 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
   const steps = validatePlan(rawPlan, newBudget().maxSteps);
   await client.from('agent_runs').update({ plan: steps }).eq('id', runId);
 
-  return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, userId), steps, key });
+  return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, client, userId), steps, key });
 }
 
 async function resumeRun(client: Supa, userId: string, runId: string) {
@@ -123,14 +124,16 @@ async function resumeRun(client: Supa, userId: string, runId: string) {
 
   const remaining = remainingSteps(plan, done, pending);
   const source = await makeSource(admin, userId);
-  return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, userId), steps: remaining, key: null });
+  return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, client, userId), steps: remaining, key: null });
 }
 
 // deno-lint-ignore no-explicit-any
-function buildActions(admin: Supa, userId: string) {
+function buildActions(admin: Supa, client: Supa, userId: string) {
   return {
     sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
     exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
+    presentationsGenerate: (args: { recording_id?: string; project_id?: string; kind: string; audience?: string; detail?: 'concise' | 'detailed'; enhancements?: { images?: boolean; diagrams?: boolean; charts?: boolean; notes?: boolean } }) => generatePresentation(client, admin, userId, args),
+    documentsGenerate: (recording_id: string) => generateDocument(admin, userId, recording_id),
   };
 }
 
@@ -213,7 +216,7 @@ async function decideApproval(client: Supa, userId: string, approvalId: string, 
 
   const source = await makeSource(admin, userId);
   try {
-    const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source, actions: buildActions(admin, userId) });
+    const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source, actions: buildActions(admin, client, userId) });
     await admin.from('agent_tool_calls').update({ status: 'succeeded', result }).eq('id', ap.tool_call_id);
     await admin.from('agent_approvals').update({ status: 'approved', decided_at: new Date().toISOString() }).eq('id', approvalId);
     // The run may have more steps after this one; leave it runnable (resume continues).

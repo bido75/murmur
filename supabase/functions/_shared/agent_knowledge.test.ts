@@ -27,14 +27,14 @@ const utts: Utterance[] = [
 ];
 
 test('groundAssertion attaches the matching utterance', () => {
-  const ref = groundAssertion('rec1', { subject: 'Maya', predicate: 'works_on', object: 'Riverside' }, utts);
+  const ref = groundAssertion('rec1', { subject: 'Maya', object: 'Riverside' }, utts);
   assert.equal(ref.recordingId, 'rec1');
   assert.equal(ref.startMs, 1000);
   assert.equal(ref.excerpt, 'Maya works on the Riverside project.');
 });
 
 test('groundAssertion is null when nothing matches', () => {
-  const ref = groundAssertion('rec1', { subject: 'Zeus', predicate: 'works_on', object: 'Olympus' }, utts);
+  const ref = groundAssertion('rec1', { subject: 'Zeus', object: 'Olympus' }, utts);
   assert.equal(ref.startMs, null);
   assert.equal(ref.excerpt, null);
 });

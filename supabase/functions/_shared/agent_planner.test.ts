@@ -37,5 +37,5 @@ test('planSystem lists the tools the model may use', () => {
 
 test('PLAN_TOOL asks for an array of steps', () => {
   assert.equal(PLAN_TOOL.name, 'propose_plan');
-  assert.equal((PLAN_TOOL.input_schema as { required: string[] }).required[0], 'steps');
+  assert.equal((PLAN_TOOL.input_schema as { required: readonly string[] }).required[0], 'steps');
 });

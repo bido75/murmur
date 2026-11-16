@@ -226,6 +226,54 @@ export const AGENT_TOOLS: AgentTool[] = [
       return ctx.actions.exportNotes(needId(args.recording_id, 'recording_id'), destination as Destination);
     },
   },
+  {
+    name: 'presentations.generate',
+    description: 'Build a .pptx from a recording or project\'s verified notes (image generation off by default).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        recording_id: { type: 'string' },
+        project_id: { type: 'string' },
+        kind: { type: 'string', description: 'deck type, e.g. client_update, project_review, research_report, executive_briefing' },
+        audience: { type: 'string' },
+        detail: { type: 'string', enum: ['concise', 'detailed'] },
+      },
+      additionalProperties: false,
+    },
+    permissionScope: 'documents',
+    riskLevel: 'write',
+    requiresApproval: true,
+    run: async (args, ctx) => {
+      if (!ctx.actions?.presentationsGenerate) throw new Error('presentation generation is not available');
+      if (!args.recording_id && !args.project_id) throw new Error('recording_id or project_id is required');
+      const kind = str(args.kind, 50) ?? '';
+      if (!kind) throw new Error('kind is required');
+      return ctx.actions.presentationsGenerate({
+        recording_id: args.recording_id ? needId(args.recording_id, 'recording_id') : undefined,
+        project_id: args.project_id ? needId(args.project_id, 'project_id') : undefined,
+        kind,
+        audience: args.audience ? str(args.audience, 300) ?? undefined : undefined,
+        detail: args.detail === 'concise' || args.detail === 'detailed' ? args.detail : undefined,
+      });
+    },
+  },
+  {
+    name: 'documents.generate',
+    description: 'Generate a .docx from a recording\'s verified notes.',
+    inputSchema: {
+      type: 'object',
+      properties: { recording_id: { type: 'string' } },
+      required: ['recording_id'],
+      additionalProperties: false,
+    },
+    permissionScope: 'documents',
+    riskLevel: 'write',
+    requiresApproval: true,
+    run: async (args, ctx) => {
+      if (!ctx.actions?.documentsGenerate) throw new Error('document generation is not available');
+      return ctx.actions.documentsGenerate(needId(args.recording_id, 'recording_id'));
+    },
+  },
 ];
 
 const byName = new Map(AGENT_TOOLS.map((t) => [t.name, t]));
