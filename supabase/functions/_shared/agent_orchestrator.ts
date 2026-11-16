@@ -39,7 +39,7 @@ export async function runAgent(objective: string, deps: AgentDeps): Promise<RunS
 
     const decision = policyFor(def);
     if (decision.requiresApproval) {
-      const o: StepOutcome = { stepIndex: i, tool: step.tool, status: 'awaiting_approval' };
+      const o: StepOutcome = { stepIndex: i, tool: step.tool, args: step.args, status: 'awaiting_approval' };
       outcomes.push(o);
       await deps.onStep?.(o);
       return { status: 'awaiting_approval', steps: outcomes };

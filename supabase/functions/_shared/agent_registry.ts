@@ -139,6 +139,54 @@ export const AGENT_TOOLS: AgentTool[] = [
           })
         : [],
   },
+  {
+    name: 'tasks.update',
+    description: 'Mark one action item done, or reopen it.',
+    inputSchema: {
+      type: 'object',
+      properties: { task_id: { type: 'string' }, status: { type: 'string', enum: ['done', 'open'] } },
+      required: ['task_id', 'status'],
+      additionalProperties: false,
+    },
+    permissionScope: 'tasks',
+    riskLevel: 'write',
+    requiresApproval: true,
+    run: async (args, ctx) => {
+      if (args.status !== 'done' && args.status !== 'open') throw new Error('status must be "done" or "open"');
+      const ok = await ctx.source.setTaskStatus(needId(args.task_id, 'task_id'), args.status);
+      if (!ok) throw new Error('Not found, or you do not have access');
+      return { task_id: args.task_id, status: args.status };
+    },
+  },
+  {
+    name: 'tasks.create',
+    description: 'Create an action item from a commitment, grounded by a verbatim quote from that recording.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        recording_id: { type: 'string' },
+        text: { type: 'string' },
+        owner: { type: 'string' },
+        due_text: { type: 'string' },
+        quote: { type: 'string' },
+      },
+      required: ['recording_id', 'text', 'quote'],
+      additionalProperties: false,
+    },
+    permissionScope: 'tasks',
+    riskLevel: 'write',
+    requiresApproval: true,
+    run: async (args, ctx) => {
+      if (!ctx.source.createTask) throw new Error('task creation is not available');
+      return ctx.source.createTask({
+        recording_id: needId(args.recording_id, 'recording_id'),
+        text: str(args.text, 1000) ?? '',
+        owner: args.owner ? str(args.owner, 200) ?? null : null,
+        due_text: args.due_text ? str(args.due_text, 200) ?? null : null,
+        quote: str(args.quote, 1000) ?? '',
+      });
+    },
+  },
 ];
 
 const byName = new Map(AGENT_TOOLS.map((t) => [t.name, t]));

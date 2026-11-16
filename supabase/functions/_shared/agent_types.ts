@@ -27,6 +27,8 @@ export type StepOutcome = {
   tool: string;
   status: 'succeeded' | 'failed' | 'awaiting_approval';
   result?: unknown;
+  /** Set when the step is paused for approval, so the approval can bind to the args. */
+  args?: Record<string, unknown>;
   error?: { code: string; message: string };
 };
 

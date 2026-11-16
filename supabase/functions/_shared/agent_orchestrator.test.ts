@@ -59,3 +59,22 @@ test('an invalid plan (unknown tool) surfaces a typed error', async () => {
     /not registered/,
   );
 });
+
+test('a write tool pauses for approval and is never executed', async () => {
+  const called: string[] = [];
+  const summary = await runAgent('x', {
+    plan: async () => ({
+      steps: [{ tool: 'projects.list' }, { tool: 'tasks.update', args: { task_id: '20000000-0000-0000-0000-000000000001', status: 'done' as const } }],
+    }),
+    runTool: async (tool) => {
+      called.push(tool);
+      return { ok: true };
+    },
+    budget: newBudget(),
+  });
+  assert.equal(summary.status, 'awaiting_approval');
+  assert.deepEqual(called, ['projects.list']);
+  const pending = summary.steps.find((s) => s.status === 'awaiting_approval')!;
+  assert.equal(pending.tool, 'tasks.update');
+  assert.deepEqual(pending.args, { task_id: '20000000-0000-0000-0000-000000000001', status: 'done' });
+});

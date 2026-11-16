@@ -4,6 +4,7 @@ import { AGENT_TOOLS, resolveTool, toolNames } from './agent_registry.ts';
 import type { Source, RecordingInfo, TaskInfo } from './mcp.ts';
 
 const RID = '10000000-0000-0000-0000-000000000001';
+const TID = '20000000-0000-0000-0000-000000000001';
 const src: Source = {
   listProjects: async () => [{ id: 'p1', name: 'Riverside', team: 'Acme' }],
   listRecordings: async () => [{ id: RID, title: 'Site walk', date: '2026-10-15', project: null, status: 'ready', minutes: 12 } as RecordingInfo],
@@ -11,26 +12,30 @@ const src: Source = {
   getNotes: async (id) => (id === RID ? { overview: 'ok' } : null),
   getTranscript: async (_id, _o, maxChars) => ({ text: '[0:00] Speaker 1: hi', next_offset: null }),
   listTasks: async (o) => [{ id: 't1', text: 'do it', owner: null, due: null, status: o.status, needs_review: false, recording: null, recording_id: RID, quote: null } as TaskInfo],
-  setTaskStatus: async () => false,
+  setTaskStatus: async (id) => id === TID,
   searchKnowledge: async (q, limit) =>
     [{ id: 'a1', subject: 'Maya', predicate: 'works_on', object: 'Riverside', value: null, confidence: 0.9, source_refs: [{ recordingId: RID, startMs: 0, excerpt: 'x', verificationStatus: 'verified' }] }]
       .filter((k) => k.predicate.includes(q))
       .slice(0, limit),
   listDecisionHistory: async () => [{ id: 'd1', text: 'Use Hilti', status: 'accepted', recording_id: RID, project_id: null, supersedes_id: null, created_at: '2026-11-15T00:00:00Z' }],
+  createTask: async (input) => ({ id: 't-new', text: input.text, owner: input.owner ?? null, owner_basis: input.owner ? 'named' : 'unassigned', due_text: input.due_text ?? null, quote: input.quote, quote_ms: 0, kind: 'commitment', verified: true, needs_review: false }),
 };
 const ctx = { userId: '00000000-0000-0000-0000-0000000000a1', source: src };
 
-test('registry exposes the eight read-only tools (Phase 1 + KG memory)', () => {
+test('registry exposes eight read tools and two approval-gated write tools', () => {
+  const reads = AGENT_TOOLS.filter((t) => t.riskLevel === 'read');
+  const writes = AGENT_TOOLS.filter((t) => t.riskLevel === 'write');
+  assert.equal(reads.length, 8);
   assert.deepEqual(
-    toolNames().sort(),
-    ['knowledge.decision_history', 'knowledge.search', 'notes.retrieve', 'projects.list', 'recordings.list', 'recordings.search', 'tasks.list', 'transcripts.retrieve'].sort(),
+    writes.map((t) => t.name).sort(),
+    ['tasks.create', 'tasks.update'],
   );
 });
 
-test('every registered tool is read-only and requires no approval', () => {
+test('read tools need no approval; write tools require it', () => {
   for (const t of AGENT_TOOLS) {
-    assert.equal(t.riskLevel, 'read');
-    assert.equal(t.requiresApproval, false);
+    if (t.riskLevel === 'read') assert.equal(t.requiresApproval, false);
+    else assert.equal(t.requiresApproval, true);
   }
 });
 
@@ -72,4 +77,16 @@ test('knowledge.decision_history returns decisions in order', async () => {
   const out = await resolveTool('knowledge.decision_history')!.run({}, ctx) as { id: string; status: string }[];
   assert.equal(out[0].id, 'd1');
   assert.equal(out[0].status, 'accepted');
+});
+
+test('tasks.update only accepts done/open and reaches the scoped source', async () => {
+  await assert.rejects(() => resolveTool('tasks.update')!.run({ task_id: TID, status: 'dismissed' }, ctx), /done.*open/);
+  const ok = await resolveTool('tasks.update')!.run({ task_id: TID, status: 'done' }, ctx) as { status: string };
+  assert.equal(ok.status, 'done');
+});
+
+test('tasks.create builds a grounded task through the source adapter', async () => {
+  const out = await resolveTool('tasks.create')!.run({ recording_id: RID, text: 'Ship', owner: 'Sam', quote: 'ship it' }, ctx) as { owner: string; verified: boolean };
+  assert.equal(out.owner, 'Sam');
+  assert.equal(out.verified, true);
 });

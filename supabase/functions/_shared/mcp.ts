@@ -23,6 +23,13 @@ export type DecisionHistoryRow = {
   supersedes_id: string | null;
   created_at: string;
 };
+export type TaskCreateInput = {
+  recording_id: string;
+  text: string;
+  owner?: string | null;
+  due_text?: string | null;
+  quote: string;
+};
 
 export interface Source {
   listProjects(): Promise<{ id: string; name: string; team: string | null }[]>;
@@ -39,6 +46,8 @@ export interface Source {
   searchKnowledge?(query: string, limit: number): Promise<KnowledgeHit[]>;
   /** Agent memory: the decision lifecycle, chronological (accepted and superseded). */
   listDecisionHistory?(opts: { project_id?: string; limit: number }): Promise<DecisionHistoryRow[]>;
+  /** Agent action: create a quote-grounded task on a recording the user owns. */
+  createTask?(input: TaskCreateInput): Promise<{ id: string; text: string; owner: string | null; owner_basis: string; due_text: string | null; quote: string; quote_ms: number | null; kind: string; verified: boolean; needs_review: boolean }>;
 }
 
 type Json = Record<string, unknown>;
