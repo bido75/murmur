@@ -4,9 +4,19 @@ import type { Source } from './mcp.ts';
 
 export type AgentToolRisk = 'read' | 'write' | 'external';
 
+export type Destination = 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce';
+
+/** External actions injected by the endpoint; kept off the read `Source` so the pure
+ * registry (node-tested) never pulls in the export/email stack. */
+export type AgentActions = {
+  sendFollowup?: (input: { recording_id: string; to: string[] }) => Promise<{ subject: string; recipients: number }>;
+  exportNotes?: (recording_id: string, destination: Destination) => Promise<{ destination: string; url: string | null }>;
+};
+
 export type AgentToolContext = {
   userId: string;
   source: Source;
+  actions?: AgentActions;
 };
 
 export type AgentTool = {

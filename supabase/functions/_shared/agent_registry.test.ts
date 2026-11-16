@@ -20,22 +20,27 @@ const src: Source = {
   listDecisionHistory: async () => [{ id: 'd1', text: 'Use Hilti', status: 'accepted', recording_id: RID, project_id: null, supersedes_id: null, created_at: '2026-11-15T00:00:00Z' }],
   createTask: async (input) => ({ id: 't-new', text: input.text, owner: input.owner ?? null, owner_basis: input.owner ? 'named' : 'unassigned', due_text: input.due_text ?? null, quote: input.quote, quote_ms: 0, kind: 'commitment', verified: true, needs_review: false }),
 };
-const ctx = { userId: '00000000-0000-0000-0000-0000000000a1', source: src };
+const ctx = {
+  userId: '00000000-0000-0000-0000-0000000000a1',
+  source: src,
+  actions: {
+    sendFollowup: async (input: { recording_id: string; to: string[] }) => ({ subject: 'Recap', recipients: input.to.length }),
+    exportNotes: async (_rid: string, destination: string) => ({ destination, url: null }),
+  },
+};
 
-test('registry exposes eight read tools and two approval-gated write tools', () => {
+test('registry exposes eight read, two write, two external tools', () => {
   const reads = AGENT_TOOLS.filter((t) => t.riskLevel === 'read');
   const writes = AGENT_TOOLS.filter((t) => t.riskLevel === 'write');
+  const ext = AGENT_TOOLS.filter((t) => t.riskLevel === 'external');
   assert.equal(reads.length, 8);
-  assert.deepEqual(
-    writes.map((t) => t.name).sort(),
-    ['tasks.create', 'tasks.update'],
-  );
+  assert.deepEqual(writes.map((t) => t.name).sort(), ['tasks.create', 'tasks.update']);
+  assert.deepEqual(ext.map((t) => t.name).sort(), ['followups.send', 'integrations.export']);
 });
 
-test('read tools need no approval; write tools require it', () => {
+test('only read tools run without approval', () => {
   for (const t of AGENT_TOOLS) {
-    if (t.riskLevel === 'read') assert.equal(t.requiresApproval, false);
-    else assert.equal(t.requiresApproval, true);
+    assert.equal(t.requiresApproval, t.riskLevel !== 'read');
   }
 });
 
@@ -89,4 +94,16 @@ test('tasks.create builds a grounded task through the source adapter', async () 
   const out = await resolveTool('tasks.create')!.run({ recording_id: RID, text: 'Ship', owner: 'Sam', quote: 'ship it' }, ctx) as { owner: string; verified: boolean };
   assert.equal(out.owner, 'Sam');
   assert.equal(out.verified, true);
+});
+
+test('followups.send passes recipients through the source adapter', async () => {
+  const out = await resolveTool('followups.send')!.run({ recording_id: RID, to: ['a@x.com', 'b@y.com'] }, ctx) as { subject: string; recipients: number };
+  assert.equal(out.subject, 'Recap');
+  assert.equal(out.recipients, 2);
+});
+
+test('integrations.export rejects unknown destinations', async () => {
+  await assert.rejects(() => resolveTool('integrations.export')!.run({ recording_id: RID, destination: 'ftp' }, ctx), /unknown destination/);
+  const out = await resolveTool('integrations.export')!.run({ recording_id: RID, destination: 'notion' }, ctx) as { destination: string };
+  assert.equal(out.destination, 'notion');
 });

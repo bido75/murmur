@@ -2,7 +2,7 @@
 // (_shared/mcp.ts TOOLS[]) and reads through the same permission-aware Source, but is
 // owned by the agent runtime. Phase 1 registers read-only tools only; mutation tools
 // are added in Phase 4 once idempotency and approval gating exist.
-import type { AgentTool } from './agent_types.ts';
+import type { AgentTool, Destination } from './agent_types.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -185,6 +185,45 @@ export const AGENT_TOOLS: AgentTool[] = [
         due_text: args.due_text ? str(args.due_text, 200) ?? null : null,
         quote: str(args.quote, 1000) ?? '',
       });
+    },
+  },
+  {
+    name: 'followups.send',
+    description: 'Email the recording recap (bcc to the listed addresses). Owner-only; the user is always a recipient.',
+    inputSchema: {
+      type: 'object',
+      properties: { recording_id: { type: 'string' }, to: { type: 'array', items: { type: 'string' } } },
+      required: ['recording_id'],
+      additionalProperties: false,
+    },
+    permissionScope: 'recordings',
+    riskLevel: 'external',
+    requiresApproval: true,
+    run: async (args, ctx) => {
+      if (!ctx.actions?.sendFollowup) throw new Error('follow-up sending is not available');
+      const to = Array.isArray(args.to) ? args.to.map((e) => str(e, 200)).filter((e): e is string => Boolean(e)) : [];
+      return ctx.actions.sendFollowup({ recording_id: needId(args.recording_id, 'recording_id'), to });
+    },
+  },
+  {
+    name: 'integrations.export',
+    description: 'Export a recording\'s notes to a connected destination (slack, notion, onenote, hubspot, salesforce).',
+    inputSchema: {
+      type: 'object',
+      properties: { recording_id: { type: 'string' }, destination: { type: 'string', enum: ['slack', 'notion', 'onenote', 'hubspot', 'salesforce'] } },
+      required: ['recording_id', 'destination'],
+      additionalProperties: false,
+    },
+    permissionScope: 'integrations',
+    riskLevel: 'external',
+    requiresApproval: true,
+    run: async (args, ctx) => {
+      if (!ctx.actions?.exportNotes) throw new Error('export is not available');
+      const destination = args.destination;
+      if (typeof destination !== 'string' || !['slack', 'notion', 'onenote', 'hubspot', 'salesforce'].includes(destination)) {
+        throw new Error('unknown destination');
+      }
+      return ctx.actions.exportNotes(needId(args.recording_id, 'recording_id'), destination as Destination);
     },
   },
 ];

@@ -21,6 +21,7 @@ import {
   requireUser,
 } from '../_shared/services.ts';
 import { makeSource } from '../_shared/mcp_source.ts';
+import { sendFollowup, exportNotes } from '../_shared/agent_io.ts';
 import { resolveTool, toolNames } from '../_shared/agent_registry.ts';
 import { PLAN_TOOL, planMessages, planSystem } from '../_shared/agent_planner.ts';
 import { newBudget } from '../_shared/agent_budgets.ts';
@@ -77,7 +78,12 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
   await client.from('agent_runs').insert({ id: runId, user_id: userId, intent: 'general', status: 'running', plan: [], idempotency_key: key });
   await client.from('agent_messages').insert({ run_id: runId, user_id: userId, role: 'user', content: objective });
 
-  const source = await makeSource(adminClient(), userId);
+  const admin = adminClient();
+  const source = await makeSource(admin, userId);
+  const actions = {
+    sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
+    exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
+  };
   const names = toolNames();
 
   const deps: AgentDeps = {
@@ -90,7 +96,7 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
     runTool: (tool: string, args: Record<string, unknown>) => {
       const def = resolveTool(tool);
       if (!def) throw new UnknownToolError(tool);
-      return def.run(args, { userId, source });
+      return def.run(args, { userId, source, actions });
     },
     budget: newBudget(),
   };
@@ -178,8 +184,12 @@ async function decideApproval(client: Supa, userId: string, approvalId: string, 
   if (actionKeyFor(tc.tool, (tc.args ?? {}) as Record<string, unknown>) !== ap.action_hash) throw new HttpError(409, 'Approval does not match the proposed action');
 
   const source = await makeSource(admin, userId);
+  const actions = {
+    sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
+    exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
+  };
   try {
-    const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source });
+    const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source, actions });
     await admin.from('agent_tool_calls').update({ status: 'succeeded', result }).eq('id', ap.tool_call_id);
     await admin.from('agent_approvals').update({ status: 'approved', decided_at: new Date().toISOString() }).eq('id', approvalId);
     await admin.from('agent_runs').update({ status: 'completed' }).eq('id', ap.run_id);
