@@ -1,10 +1,11 @@
 // Native agent entry point. Phase 1 (read-only plan-and-execute) + Phase 4 (approval
-// gating for mutation tools).
+// gating for mutation tools, now resumable across multiple approvals).
 //
 //   POST /runs                        { objective, idempotency_key?, run_id? } -> run
 //   GET  /runs/{id}                  -> persisted run + steps (RLS owner-only)
 //   POST /runs/{id}/cancel           -> mark a non-terminal run cancelled
-//   POST /runs/{id}/resume           -> 501 (sequential multi-approval is a later slice)
+//   POST /runs/{id}/resume           -> continue from the persisted plan, skipping
+//                                       decided actions (idempotent replay)
 //   POST /approvals/{id}/approve     -> execute the bound tool (idempotent, single-use)
 //   POST /approvals/{id}/reject      -> deny the bound tool
 //
@@ -23,13 +24,14 @@ import {
 import { makeSource } from '../_shared/mcp_source.ts';
 import { sendFollowup, exportNotes } from '../_shared/agent_io.ts';
 import { resolveTool, toolNames } from '../_shared/agent_registry.ts';
-import { PLAN_TOOL, planMessages, planSystem } from '../_shared/agent_planner.ts';
+import { PLAN_TOOL, planMessages, planSystem, validatePlan } from '../_shared/agent_planner.ts';
 import { newBudget } from '../_shared/agent_budgets.ts';
 import { runAgent, type AgentDeps } from '../_shared/agent_orchestrator.ts';
 import { policyFor } from '../_shared/agent_policies.ts';
 import { actionKeyFor } from '../_shared/agent_approvals.ts';
+import { remainingSteps } from '../_shared/agent_resume.ts';
 import { AgentError, toAgentError, UnknownToolError } from '../_shared/agent_errors.ts';
-import type { StepOutcome } from '../_shared/agent_types.ts';
+import type { PlanStep, StepOutcome } from '../_shared/agent_types.ts';
 
 // deno-lint-ignore no-explicit-any
 type Supa = any;
@@ -46,7 +48,7 @@ Deno.serve(async (req) => {
     if (req.method === 'POST' && /\/runs$/.test(path)) return await createRun(client, userId, await req.json());
     if (req.method === 'GET' && /\/runs\/[0-9a-fA-F-]{36}$/.test(path)) return await getRun(client, idFrom(path, /\/runs\/([0-9a-fA-F-]{36})/));
     if (req.method === 'POST' && /\/runs\/[0-9a-fA-F-]{36}\/cancel$/.test(path)) return await cancelRun(client, idFrom(path, /\/runs\/([0-9a-fA-F-]{36})/));
-    if (req.method === 'POST' && /\/runs\/[0-9a-fA-F-]{36}\/resume$/.test(path)) return json({ error: 'resume is added with sequential multi-approval (later Phase 4 slice)' }, 501);
+    if (req.method === 'POST' && /\/runs\/[0-9a-fA-F-]{36}\/resume$/.test(path)) return await resumeRun(client, userId, idFrom(path, /\/runs\/([0-9a-fA-F-]{36})/));
     if (req.method === 'POST' && /\/approvals\/[0-9a-fA-F-]{36}\/approve$/.test(path)) return await decideApproval(client, userId, idFrom(path, /\/approvals\/([0-9a-fA-F-]{36})/), 'approved');
     if (req.method === 'POST' && /\/approvals\/[0-9a-fA-F-]{36}\/reject$/.test(path)) return await decideApproval(client, userId, idFrom(path, /\/approvals\/([0-9a-fA-F-]{36})/), 'rejected');
     return json({ error: 'Not found' }, 404);
@@ -80,65 +82,94 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
 
   const admin = adminClient();
   const source = await makeSource(admin, userId);
-  const actions = {
+  const names = toolNames();
+  const rawPlan = await llmStructured<{ steps?: unknown }>(
+    planSystem(names),
+    planMessages(objective),
+    PLAN_TOOL as unknown as { name: string; input_schema: Record<string, unknown> },
+  );
+  const steps = validatePlan(rawPlan, newBudget().maxSteps);
+  await client.from('agent_runs').update({ plan: steps }).eq('id', runId);
+
+  return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, userId), steps, key });
+}
+
+async function resumeRun(client: Supa, userId: string, runId: string) {
+  const admin = adminClient();
+  const { data: run } = await client.from('agent_runs').select('status, plan').eq('id', runId).maybeSingle();
+  if (!run) throw new HttpError(404, 'Run not found');
+  if (['completed', 'failed', 'cancelled'].includes(run.status)) throw new HttpError(409, 'This run is not resumable');
+  const plan = Array.isArray(run.plan) ? (run.plan as PlanStep[]) : [];
+  if (!plan.length) throw new HttpError(409, 'Nothing to resume');
+
+  const { data: stepRows } = await admin.from('agent_steps').select('id').eq('run_id', runId);
+  const stepIds = (stepRows ?? []).map((s: { id: string }) => s.id);
+  const done = new Set<string>();
+  const pending = new Set<string>();
+  if (stepIds.length) {
+    const { data: tcs } = await admin.from('agent_tool_calls').select('tool, args, status').in('step_id', stepIds);
+    for (const tc of (tcs ?? []) as { tool: string; args: Record<string, unknown> | null; status: string }[]) {
+      const k = actionKeyFor(tc.tool, (tc.args ?? {}) as Record<string, unknown>);
+      if (tc.status === 'succeeded' || tc.status === 'denied') done.add(k);
+      else if (tc.status === 'pending') pending.add(k);
+    }
+  }
+
+  // An unanswered approval is returned as-is; never raise a duplicate.
+  if (pending.size) {
+    const { data: ap } = await client.from('agent_approvals').select('id, action_hash, expires_at, run_id, tool_call_id').eq('run_id', runId).eq('status', 'pending').order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (ap) return json({ run_id: runId, status: 'awaiting_approval', approvals: [{ id: ap.id, action_hash: ap.action_hash, expires_at: ap.expires_at }] });
+  }
+
+  const remaining = remainingSteps(plan, done, pending);
+  const source = await makeSource(admin, userId);
+  return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, userId), steps: remaining, key: null });
+}
+
+// deno-lint-ignore no-explicit-any
+function buildActions(admin: Supa, userId: string) {
+  return {
     sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
     exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
   };
-  const names = toolNames();
+}
 
+async function executeSteps(ctx: { client: Supa; userId: string; runId: string; source: Awaited<ReturnType<typeof makeSource>>; actions: ReturnType<typeof buildActions>; steps: PlanStep[]; key: string | null }) {
+  const { client, userId, runId, source, actions, steps, key } = ctx;
+  const outcomes: StepOutcome[] = [];
   const deps: AgentDeps = {
-    plan: (objective: string) =>
-      llmStructured<{ steps?: unknown }>(
-        planSystem(names),
-        planMessages(objective),
-        PLAN_TOOL as unknown as { name: string; input_schema: Record<string, unknown> },
-      ),
+    steps,
     runTool: (tool: string, args: Record<string, unknown>) => {
       const def = resolveTool(tool);
       if (!def) throw new UnknownToolError(tool);
       return def.run(args, { userId, source, actions });
     },
     budget: newBudget(),
+    onStep: (o) => void outcomes.push(o),
   };
 
-  const outcomes: StepOutcome[] = [];
-  deps.onStep = (o) => void outcomes.push(o);
+  const summary = await runAgent('', deps);
+  const stepRows = await persistSteps(client, runId, outcomes);
 
-  try {
-    const summary = await runAgent(objective, deps);
-    const stepRows = await persistSteps(client, runId, outcomes);
-
-    if (summary.status === 'awaiting_approval') {
-      const pending = outcomes.find((o) => o.status === 'awaiting_approval');
-      const pendingRow = stepRows.find((s) => s.status === 'awaiting_approval');
-      const actionKey = actionKeyFor(pending!.tool, pending!.args ?? {});
-      const { data: tc } = await client
-        .from('agent_tool_calls')
-        .insert({ step_id: pendingRow!.stepId, tool: pending!.tool, args: pending!.args ?? {}, args_sha256: actionKey, status: 'pending', idempotency_key: key })
-        .select('id')
-        .single();
-      const { data: ap } = await client
-        .from('agent_approvals')
-        .insert({ run_id: runId, tool_call_id: tc.id, user_id: userId, action_hash: actionKey, status: 'pending', expires_at: new Date(Date.now() + APPROVAL_TTL_MS).toISOString() })
-        .select('id')
-        .single();
-
-      await client.from('agent_runs').update({ status: 'awaiting_approval' }).eq('id', runId);
-      return json({
-        run_id: runId,
-        status: 'awaiting_approval',
-        approvals: [{ id: ap.id, tool: pending!.tool, args: pending!.args ?? {}, action_hash: actionKey, expires_at: new Date(Date.now() + APPROVAL_TTL_MS).toISOString() }],
-        steps: outcomes.map(stepSummary),
-      });
-    }
-
-    await client.from('agent_runs').update({ status: summary.status === 'completed' ? 'completed' : 'failed' }).eq('id', runId);
-    return json({ run_id: runId, status: summary.status === 'completed' ? 'completed' : 'failed', steps: outcomes.map(stepSummary) });
-  } catch (e) {
-    const err: AgentError = toAgentError(e);
-    await client.from('agent_runs').update({ status: 'failed' }).eq('id', runId);
-    return json({ run_id: runId, status: 'failed', error: { code: err.code, message: err.message } }, 400);
+  if (summary.status === 'awaiting_approval') {
+    const pending = outcomes.find((o) => o.status === 'awaiting_approval');
+    const pendingRow = stepRows.find((s) => s.status === 'awaiting_approval');
+    const approval = await createApproval(client, runId, userId, pendingRow!.stepId, pending!.tool, pending!.args ?? {}, key);
+    await client.from('agent_runs').update({ status: 'awaiting_approval' }).eq('id', runId);
+    return json({ run_id: runId, status: 'awaiting_approval', approvals: [approval], steps: outcomes.map(stepSummary) });
   }
+
+  const status = summary.status === 'completed' ? 'completed' : 'failed';
+  await client.from('agent_runs').update({ status }).eq('id', runId);
+  return json({ run_id: runId, status, steps: outcomes.map(stepSummary) });
+}
+
+async function createApproval(client: Supa, runId: string, userId: string, stepId: string, tool: string, args: Record<string, unknown>, idempotencyKey: string | null) {
+  const actionKey = actionKeyFor(tool, args);
+  const { data: tc } = await client.from('agent_tool_calls').insert({ step_id: stepId, tool, args, args_sha256: actionKey, status: 'pending', idempotency_key: idempotencyKey }).select('id').single();
+  const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS).toISOString();
+  const { data: ap } = await client.from('agent_approvals').insert({ run_id: runId, tool_call_id: tc.id, user_id: userId, action_hash: actionKey, status: 'pending', expires_at: expiresAt }).select('id').single();
+  return { id: ap.id, tool, args, action_hash: actionKey, expires_at: expiresAt };
 }
 
 function stepSummary(o: StepOutcome) {
@@ -172,9 +203,6 @@ async function decideApproval(client: Supa, userId: string, approvalId: string, 
     return json({ ok: true, status: 'rejected' });
   }
 
-  // Execute the exact bound tool. Load through the service client after confirming
-  // ownership, then re-check the policy + action hash so a changed approval can't run
-  // something else.
   const admin = adminClient();
   const { data: tc } = await admin.from('agent_tool_calls').select('tool, args, status').eq('id', ap.tool_call_id).maybeSingle();
   if (!tc || tc.status !== 'pending') throw new HttpError(409, 'Tool call is not pending');
@@ -184,15 +212,12 @@ async function decideApproval(client: Supa, userId: string, approvalId: string, 
   if (actionKeyFor(tc.tool, (tc.args ?? {}) as Record<string, unknown>) !== ap.action_hash) throw new HttpError(409, 'Approval does not match the proposed action');
 
   const source = await makeSource(admin, userId);
-  const actions = {
-    sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
-    exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
-  };
   try {
-    const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source, actions });
+    const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source, actions: buildActions(admin, userId) });
     await admin.from('agent_tool_calls').update({ status: 'succeeded', result }).eq('id', ap.tool_call_id);
     await admin.from('agent_approvals').update({ status: 'approved', decided_at: new Date().toISOString() }).eq('id', approvalId);
-    await admin.from('agent_runs').update({ status: 'completed' }).eq('id', ap.run_id);
+    // The run may have more steps after this one; leave it runnable (resume continues).
+    await admin.from('agent_runs').update({ status: 'awaiting_approval' }).eq('id', ap.run_id);
     return json({ ok: true, status: 'approved', result });
   } catch (e) {
     await ignoreWrite(() => admin.from('agent_tool_calls').update({ status: 'failed', result: null }).eq('id', ap.tool_call_id));

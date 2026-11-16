@@ -12,7 +12,9 @@ import { AgentError, toAgentError } from './agent_errors.ts';
 
 export type AgentDeps = {
   /** Produce a raw (untrusted) plan for the objective. In production this is llmStructured. */
-  plan: (objective: string) => Promise<unknown>;
+  plan?: (objective: string) => Promise<unknown>;
+  /** Pre-validated steps (resume path): when set, planning + validation are skipped. */
+  steps?: PlanStep[];
   /** Execute a validated tool by name against the current user's scoped source. */
   runTool: (tool: string, args: Record<string, unknown>) => Promise<unknown>;
   budget: RunBudget;
@@ -21,8 +23,7 @@ export type AgentDeps = {
 };
 
 export async function runAgent(objective: string, deps: AgentDeps): Promise<RunSummary> {
-  const raw = await deps.plan(objective);
-  const steps: PlanStep[] = validatePlan(raw, deps.budget.maxSteps);
+  const steps: PlanStep[] = deps.steps ?? validatePlan(await deps.plan!(objective), deps.budget.maxSteps);
 
   const outcomes: StepOutcome[] = [];
   for (let i = 0; i < steps.length; i++) {

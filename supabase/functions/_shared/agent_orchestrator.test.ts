@@ -78,3 +78,17 @@ test('a write tool pauses for approval and is never executed', async () => {
   assert.equal(pending.tool, 'tasks.update');
   assert.deepEqual(pending.args, { task_id: '20000000-0000-0000-0000-000000000001', status: 'done' });
 });
+
+test('pre-validated steps (resume path) skip planning and run them', async () => {
+  const called: string[] = [];
+  const summary = await runAgent('x', {
+    steps: [{ tool: 'projects.list', args: {} }],
+    runTool: async (t) => {
+      called.push(t);
+      return { ok: true };
+    },
+    budget: newBudget(),
+  });
+  assert.equal(summary.status, 'completed');
+  assert.deepEqual(called, ['projects.list']);
+});
