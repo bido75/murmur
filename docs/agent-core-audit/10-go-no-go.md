@@ -1,5 +1,7 @@
 # 10. Go/No-Go Recommendation
 
+> **Updated in Phase 6** — the implementation-level Go/No-Go and gate status now live in [`11-phase6-gates.md`](11-phase6-gates.md). This document remains the Phase 0 recommendation.
+
 **Verdict: GO (conditional).** Murmur's existing infrastructure is ready for native agent orchestration — the work is additive, not a rewrite.
 
 ## Why GO
