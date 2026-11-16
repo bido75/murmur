@@ -193,12 +193,17 @@ function stepSummary(o: StepOutcome) {
 }
 
 async function persistSteps(client: Supa, runId: string, outcomes: StepOutcome[]): Promise<{ stepId: string; tool: string; status: string }[]> {
+  // step_index is a monotonic execution counter, not the plan position: a resumed run
+  // appends more steps, and (run_id, step_index) is unique, so continue past the last.
+  const { data: last } = await client.from('agent_steps').select('step_index').eq('run_id', runId).order('step_index', { ascending: false }).limit(1).maybeSingle();
+  let next = ((last?.step_index as number | undefined) ?? -1) + 1;
   const rows: { stepId: string; tool: string; status: string }[] = [];
-  for (const [i, o] of outcomes.entries()) {
+  for (const o of outcomes) {
     const stepId = crypto.randomUUID();
     const status = o.status === 'succeeded' ? 'succeeded' : o.status === 'awaiting_approval' ? 'awaiting_approval' : 'failed';
-    await client.from('agent_steps').insert({ id: stepId, run_id: runId, step_index: i, tool: o.tool, status, output: o.result ?? null, error: o.error?.message ?? null });
+    await client.from('agent_steps').insert({ id: stepId, run_id: runId, step_index: next, tool: o.tool, status, output: o.result ?? null, error: o.error?.message ?? null });
     rows.push({ stepId, tool: o.tool, status });
+    next++;
   }
   return rows;
 }
