@@ -111,6 +111,34 @@ export const AGENT_TOOLS: AgentTool[] = [
       });
     },
   },
+  {
+    name: 'knowledge.search',
+    description: 'Search verified knowledge-graph facts (entities + assertions with source evidence).',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'], additionalProperties: false },
+    permissionScope: 'knowledge',
+    riskLevel: 'read',
+    requiresApproval: false,
+    run: async (args, ctx) => {
+      const q = str(args.query, 200)?.trim();
+      if (!q) throw new Error('query is required');
+      return ctx.source.searchKnowledge ? ctx.source.searchKnowledge(q, num(args.limit, 20, 1, 100)) : [];
+    },
+  },
+  {
+    name: 'knowledge.decision_history',
+    description: 'List recorded decisions in order (accepted and superseded) for chronological conflict review.',
+    inputSchema: { type: 'object', properties: { project_id: { type: 'string' }, limit: { type: 'number' } }, additionalProperties: false },
+    permissionScope: 'knowledge',
+    riskLevel: 'read',
+    requiresApproval: false,
+    run: async (args, ctx) =>
+      ctx.source.listDecisionHistory
+        ? ctx.source.listDecisionHistory({
+            project_id: args.project_id ? needId(args.project_id, 'project_id') : undefined,
+            limit: num(args.limit, 50, 1, 200),
+          })
+        : [],
+  },
 ];
 
 const byName = new Map(AGENT_TOOLS.map((t) => [t.name, t]));

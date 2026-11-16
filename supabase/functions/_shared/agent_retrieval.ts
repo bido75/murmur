@@ -101,7 +101,6 @@ export type SearchHit = {
 };
 
 export type RankedHit = SearchHit & { score: number };
-
 /** Deterministic rerank of keyword recall by title+snippet overlap (0..1, ties keep order). */
 export function rankSearchHits(hits: SearchHit[], queryTerms: string[]): RankedHit[] {
   const terms = queryTerms.filter((t) => t.length >= 2);
@@ -115,6 +114,22 @@ export function rankSearchHits(hits: SearchHit[], queryTerms: string[]): RankedH
     })
     .sort((a, b) => b.score - a.score || a.__order - b.__order)
     .map(({ __order: _o, ...rest }) => rest as RankedHit);
+}
+
+/** Generic term-match filter/rank: keep items whose text mentions a query term, rank
+ * by covered-term fraction, cap. Pure and reusable by the knowledge search source. */
+export function filterAndRankByTerms<T>(items: T[], queryTerms: string[], textOf: (item: T) => string, limit: number): T[] {
+  const terms = queryTerms.filter((t) => t.length >= 2);
+  if (!terms.length) return [];
+  const scored: (T & { __score: number; __i: number })[] = [];
+  items.forEach((item, i) => {
+    const toks = new Set(tokens(textOf(item)));
+    let hits = 0;
+    for (const t of terms) if (toks.has(t)) hits++;
+    if (hits) scored.push(Object.assign({}, item, { __score: hits / terms.length, __i: i }));
+  });
+  scored.sort((a, b) => b.__score - a.__score || a.__i - b.__i);
+  return scored.slice(0, limit).map(({ __score: _s, __i: _i, ...rest }) => rest as T);
 }
 
 /** True when no citation clears the minimum relevance bar — the agent must then say so. */

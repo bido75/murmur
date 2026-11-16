@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decomposeQuery, utteranceCitations, rankSearchHits, insufficientEvidence, contradicts, sourceRef, contentTerms } from './agent_retrieval.ts';
+import { decomposeQuery, utteranceCitations, rankSearchHits, insufficientEvidence, contradicts, sourceRef, contentTerms, filterAndRankByTerms } from './agent_retrieval.ts';
 import type { Utterance } from './verify.ts';
 
 const utts: Utterance[] = [
@@ -61,4 +61,15 @@ test('contradicts is conservative and negation-aware', () => {
 test('sourceRef carries recording, timestamp and excerpt', () => {
   const ref = sourceRef('rec1', { start_ms: 5000, end_ms: 9000, excerpt: 'The crane…', speaker: 'Ava', score: 1 });
   assert.deepEqual(ref, { recordingId: 'rec1', startMs: 5000, endMs: 9000, excerpt: 'The crane…', verificationStatus: 'unverified' });
+});
+
+test('filterAndRankByTerms keeps matching items, ranks by coverage, caps', () => {
+  const items = [
+    { subject: 'Maya', predicate: 'works_on', object: 'Riverside' },
+    { subject: 'Crane', predicate: 'arrives', object: 'Monday' },
+  ];
+  const out = filterAndRankByTerms(items, ['crane', 'monday'], (i) => `${i.subject} ${i.predicate} ${i.object}`, 10);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].subject, 'Crane');
+  assert.equal(filterAndRankByTerms(items, ['zeus'], (i) => i.subject, 10).length, 0);
 });
