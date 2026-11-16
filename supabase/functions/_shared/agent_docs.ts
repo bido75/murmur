@@ -23,20 +23,15 @@ export type PresentationArgs = {
   kind: string;
   audience?: string;
   detail?: 'concise' | 'detailed';
-  enhancements?: Partial<DeckEnhancements>;
 };
 
 export async function generatePresentation(client: SupabaseClient, admin: SupabaseClient, userId: string, args: PresentationArgs): Promise<{ url: string | null; filename: string; slides: number; embeddedMedia: number }> {
   if (!(args.kind in DECK_KINDS)) throw new Error('Unknown deck type');
   if (!args.recording_id && !args.project_id) throw new Error('recording_id or project_id is required');
   const theme = resolveTheme(undefined);
-  // Images default OFF for the agent (avoid surprise billable generation); opt in explicitly.
-  const enh: DeckEnhancements = {
-    images: args.enhancements?.images === true,
-    diagrams: args.enhancements?.diagrams !== false,
-    charts: args.enhancements?.charts !== false,
-    notes: args.enhancements?.notes !== false,
-  };
+  // Image generation stays off for the agent (billable, not wired); the other
+  // non-billable enhancements (diagrams/charts/notes) keep the make-deck defaults.
+  const enh: DeckEnhancements = { images: false, diagrams: true, charts: true, notes: true };
 
   let recs: Rec[] = [];
   let name = '';

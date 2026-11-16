@@ -40,8 +40,13 @@ type Supa = any;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APPROVAL_TTL_MS = 60 * 60 * 1000; // an approval must be used within an hour
-const RATE_WINDOW_MS = Number(Deno.env.get('AGENT_RATE_LIMIT_WINDOW_MS') ?? '3600000');
-const RATE_MAX = Number(Deno.env.get('AGENT_RATE_LIMIT_MAX') ?? '30');
+const RATE_WINDOW_MS = envNumber('AGENT_RATE_LIMIT_WINDOW_MS', 3600000);
+const RATE_MAX = envNumber('AGENT_RATE_LIMIT_MAX', 30);
+
+function envNumber(name: string, fallback: number): number {
+  const n = Number(Deno.env.get(name));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -82,6 +87,8 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
   if (existing?.id) return json({ run_id: existing.id, status: existing.status, reused: true });
 
   const admin = adminClient();
+  const { data: clash } = await admin.from('agent_runs').select('id').eq('id', runId).maybeSingle();
+  if (clash) throw new HttpError(409, 'run_id already exists');
   await enforceRateLimit(admin, userId);
 
   await client.from('agent_runs').insert({ id: runId, user_id: userId, intent: 'general', status: 'running', plan: [], idempotency_key: key });
@@ -108,18 +115,7 @@ async function resumeRun(client: Supa, userId: string, runId: string) {
   const plan = Array.isArray(run.plan) ? (run.plan as PlanStep[]) : [];
   if (!plan.length) throw new HttpError(409, 'Nothing to resume');
 
-  const { data: stepRows } = await admin.from('agent_steps').select('id').eq('run_id', runId);
-  const stepIds = (stepRows ?? []).map((s: { id: string }) => s.id);
-  const done = new Set<string>();
-  const pending = new Set<string>();
-  if (stepIds.length) {
-    const { data: tcs } = await admin.from('agent_tool_calls').select('tool, args, status').in('step_id', stepIds);
-    for (const tc of (tcs ?? []) as { tool: string; args: Record<string, unknown> | null; status: string }[]) {
-      const k = actionKeyFor(tc.tool, (tc.args ?? {}) as Record<string, unknown>);
-      if (tc.status === 'succeeded' || tc.status === 'denied') done.add(k);
-      else if (tc.status === 'pending') pending.add(k);
-    }
-  }
+  const { done, pending } = await runProgress(admin, runId);
 
   // An unanswered approval is returned as-is; never raise a duplicate.
   if (pending.size) {
@@ -141,11 +137,38 @@ async function enforceRateLimit(admin: Supa, userId: string) {
   if (!decision.allowed) throw new HttpError(429, `Rate limit reached; retry in ${Math.ceil(decision.retryAfterMs / 1000)}s`);
 }
 
+/** Decided vs pending action keys for a run, from its tool calls (via agent_steps). */
 // deno-lint-ignore no-explicit-any
-function buildActions(admin: Supa, client: Supa, userId: string) {  return {
+async function runProgress(admin: Supa, runId: string): Promise<{ done: Set<string>; pending: Set<string> }> {
+  const { data: stepRows } = await admin.from('agent_steps').select('id').eq('run_id', runId);
+  const stepIds = (stepRows ?? []).map((s: { id: string }) => s.id);
+  const done = new Set<string>();
+  const pending = new Set<string>();
+  if (stepIds.length) {
+    const { data: tcs } = await admin.from('agent_tool_calls').select('tool, args, status').in('step_id', stepIds);
+    for (const tc of (tcs ?? []) as { tool: string; args: Record<string, unknown> | null; status: string }[]) {
+      const k = actionKeyFor(tc.tool, (tc.args ?? {}) as Record<string, unknown>);
+      if (tc.status === 'succeeded' || tc.status === 'denied') done.add(k);
+      else if (tc.status === 'pending') pending.add(k);
+    }
+  }
+  return { done, pending };
+}
+
+/** Mutation steps in the plan that are not yet decided (whether to pause or finish). */
+function pendingMutations(plan: PlanStep[], done: ReadonlySet<string>): PlanStep[] {
+  return plan.filter((s) => {
+    const def = resolveTool(s.tool);
+    return def && policyFor(def).requiresApproval && !done.has(actionKeyFor(s.tool, s.args));
+  });
+}
+
+// deno-lint-ignore no-explicit-any
+function buildActions(admin: Supa, client: Supa, userId: string) {
+  return {
     sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
     exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
-    presentationsGenerate: (args: { recording_id?: string; project_id?: string; kind: string; audience?: string; detail?: 'concise' | 'detailed'; enhancements?: { images?: boolean; diagrams?: boolean; charts?: boolean; notes?: boolean } }) => generatePresentation(client, admin, userId, args),
+    presentationsGenerate: (args: { recording_id?: string; project_id?: string; kind: string; audience?: string; detail?: 'concise' | 'detailed' }) => generatePresentation(client, admin, userId, args),
     documentsGenerate: (recording_id: string) => generateDocument(admin, userId, recording_id),
   };
 }
@@ -237,9 +260,14 @@ async function decideApproval(client: Supa, userId: string, approvalId: string, 
     const result = await tool.run((tc.args ?? {}) as Record<string, unknown>, { userId, source, actions: buildActions(admin, client, userId) });
     await admin.from('agent_tool_calls').update({ status: 'succeeded', result }).eq('id', ap.tool_call_id);
     await admin.from('agent_approvals').update({ status: 'approved', decided_at: new Date().toISOString() }).eq('id', approvalId);
-    // The run may have more steps after this one; leave it runnable (resume continues).
-    await admin.from('agent_runs').update({ status: 'awaiting_approval' }).eq('id', ap.run_id);
-    return json({ ok: true, status: 'approved', result });
+    // Finalize now when no undecided mutations remain; otherwise stay resumable so the
+    // client continues (trailing read steps re-run safely on resume).
+    const { done } = await runProgress(admin, ap.run_id);
+    const { data: planRow } = await admin.from('agent_runs').select('plan').eq('id', ap.run_id).maybeSingle();
+    const plan = Array.isArray(planRow?.plan) ? (planRow.plan as PlanStep[]) : [];
+    const next = pendingMutations(plan, done);
+    await admin.from('agent_runs').update({ status: next.length ? 'awaiting_approval' : 'completed' }).eq('id', ap.run_id);
+    return json({ ok: true, status: 'approved', result, completed: next.length === 0 });
   } catch (e) {
     await ignoreWrite(() => admin.from('agent_tool_calls').update({ status: 'failed', result: null }).eq('id', ap.tool_call_id));
     await ignoreWrite(() => admin.from('agent_approvals').update({ status: 'approved', decided_at: new Date().toISOString() }).eq('id', approvalId));
