@@ -31,6 +31,7 @@ import { runAgent, type AgentDeps } from '../_shared/agent_orchestrator.ts';
 import { policyFor } from '../_shared/agent_policies.ts';
 import { actionKeyFor } from '../_shared/agent_approvals.ts';
 import { remainingSteps } from '../_shared/agent_resume.ts';
+import { allow } from '../_shared/agent_rate_limit.ts';
 import { AgentError, toAgentError, UnknownToolError } from '../_shared/agent_errors.ts';
 import type { PlanStep, StepOutcome } from '../_shared/agent_types.ts';
 
@@ -39,6 +40,8 @@ type Supa = any;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APPROVAL_TTL_MS = 60 * 60 * 1000; // an approval must be used within an hour
+const RATE_WINDOW_MS = Number(Deno.env.get('AGENT_RATE_LIMIT_WINDOW_MS') ?? '3600000');
+const RATE_MAX = Number(Deno.env.get('AGENT_RATE_LIMIT_MAX') ?? '30');
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -78,10 +81,12 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
     : { data: null };
   if (existing?.id) return json({ run_id: existing.id, status: existing.status, reused: true });
 
+  const admin = adminClient();
+  await enforceRateLimit(admin, userId);
+
   await client.from('agent_runs').insert({ id: runId, user_id: userId, intent: 'general', status: 'running', plan: [], idempotency_key: key });
   await client.from('agent_messages').insert({ run_id: runId, user_id: userId, role: 'user', content: objective });
 
-  const admin = adminClient();
   const source = await makeSource(admin, userId);
   const names = toolNames();
   const rawPlan = await llmStructured<{ steps?: unknown }>(
@@ -128,8 +133,16 @@ async function resumeRun(client: Supa, userId: string, runId: string) {
 }
 
 // deno-lint-ignore no-explicit-any
-function buildActions(admin: Supa, client: Supa, userId: string) {
-  return {
+async function enforceRateLimit(admin: Supa, userId: string) {
+  const cutoff = new Date(Date.now() - RATE_WINDOW_MS).toISOString();
+  const { data } = await admin.from('agent_runs').select('created_at').eq('user_id', userId).gte('created_at', cutoff).order('created_at', { ascending: true }).limit(RATE_MAX + 1);
+  const events = ((data ?? []) as { created_at: string }[]).map((r) => Date.parse(r.created_at)).filter((n) => Number.isFinite(n));
+  const decision = allow(events, Date.now(), { max: RATE_MAX, windowMs: RATE_WINDOW_MS });
+  if (!decision.allowed) throw new HttpError(429, `Rate limit reached; retry in ${Math.ceil(decision.retryAfterMs / 1000)}s`);
+}
+
+// deno-lint-ignore no-explicit-any
+function buildActions(admin: Supa, client: Supa, userId: string) {  return {
     sendFollowup: (input: { recording_id: string; to: string[] }) => sendFollowup(admin, userId, input),
     exportNotes: (rid: string, destination: 'slack' | 'notion' | 'onenote' | 'hubspot' | 'salesforce') => exportNotes(admin, userId, rid, destination),
     presentationsGenerate: (args: { recording_id?: string; project_id?: string; kind: string; audience?: string; detail?: 'concise' | 'detailed'; enhancements?: { images?: boolean; diagrams?: boolean; charts?: boolean; notes?: boolean } }) => generatePresentation(client, admin, userId, args),
