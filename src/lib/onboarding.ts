@@ -18,6 +18,8 @@ export type TipId =
   | "detail_transcript"
   | "detail_tasks"
   | "detail_ask"
+  | "detail_export"
+  | "detail_more"
   | "tasks_review"
   | "share_links"
   | "settings_first"
@@ -276,6 +278,22 @@ export const TIPS: Tip[] = [
     anchor: "detail-tabs",
     title: "Ask",
     text: "Ask anything about this conversation.",
+    group: "detail",
+  },
+  {
+    id: "detail_export",
+    screen: "/recording",
+    anchor: null,
+    title: "Export or share",
+    text: "The Export button at the top saves or sends the notes, transcript and audio.",
+    group: "detail",
+  },
+  {
+    id: "detail_more",
+    screen: "/recording",
+    anchor: null,
+    title: "More actions",
+    text: "More opens the rest: make a deck, draft a follow-up email, translate, add photos, and delete.",
     group: "detail",
   },
   {

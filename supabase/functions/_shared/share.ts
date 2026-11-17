@@ -14,6 +14,8 @@ export type PublicNotes = {
   decisions: { text: string; quote: string | null }[];
   tasks: { text: string; owner: string | null; due: string | null; done: boolean }[];
   open_questions: string[];
+  detailed_sections: { heading: string; paragraphs: string[]; quote: string | null; quote_ms: number | null; verified: boolean }[];
+  conclusions: string[];
   site_log: { title: string; items: string[] }[];
   transcript: { at: string; speaker: string; text: string }[] | null;
 };
@@ -26,6 +28,8 @@ type Src = {
     key_point_details?: { text: string; quote?: string | null; quote_ms?: number | null; verified?: boolean }[] | null;
     decisions?: { text: string; quote?: string | null; verified?: boolean }[];
     open_questions?: string[];
+    detailed_sections?: { heading: string; paragraphs?: string[]; quote?: string | null; quote_ms?: number | null; verified?: boolean }[] | null;
+    conclusions?: string[] | null;
     site_log?: SiteLog | null;
   } | null;
   tasks: { text: string; owner: string | null; due_text: string | null; status: string; needs_review: boolean }[];
@@ -77,6 +81,14 @@ export function publicNotes(src: Src, includeTranscript: boolean): PublicNotes {
       .filter((t) => t.status !== 'dismissed' && !t.needs_review)
       .map((t) => ({ text: t.text, owner: t.owner, due: t.due_text, done: t.status === 'done' })),
     open_questions: s?.open_questions ?? [],
+    detailed_sections: (s?.detailed_sections ?? []).map((d) => ({
+      heading: d.heading,
+      paragraphs: d.paragraphs ?? [],
+      quote: d.quote ?? null,
+      quote_ms: d.quote_ms ?? null,
+      verified: d.verified !== false,
+    })),
+    conclusions: s?.conclusions ?? [],
     site_log: siteLogSections(s?.site_log),
     transcript:
       includeTranscript && src.transcript

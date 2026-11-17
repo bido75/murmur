@@ -3,7 +3,10 @@
 // words are yours and only has to tell the remote people apart. Audio is appended to disk every few seconds and split into 5-minute files,
 // so a crash or power cut loses at most a few seconds.
 import type { Bridge } from "../shared/bridge";
-import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config";
+import { SilenceGuard, dbfs, keepSegment } from "../shared/level.ts";
+import { micFailureMessage, type MicDeviceInfo } from "../shared/micFailure.ts";
+import { transition, type CapturePhase } from "../shared/captureState.ts";
+import { CHUNK_MS, SEGMENT_MS, SILENCE_DB, SILENCE_WARN_MS } from "./config.ts";
 
 declare const window: Window & { murmur: Bridge };
 const bridge = () => window.murmur;
@@ -39,26 +42,66 @@ export class Capture {
   private writes: Promise<void> = Promise.resolve();
   private timers: number[] = [];
   private offMac: (() => void) | null = null;
-  private silenceSince: number | null = null;
+  private silence: SilenceGuard = new SilenceGuard(SILENCE_DB, SILENCE_WARN_MS);
   private rotating = false;
   private video: MediaStreamTrack | null = null; // screen recording
+  private recordingId: string;
+  private events: CaptureEvents;
+  private local: boolean;
+  /** Explicit recording state (idle → … → locally_saved); sync.ts owns the later phases. */
+  phase: CapturePhase = 'idle';
   doneMs = 0;
   systemAudio: "on" | "unavailable" | "denied" = "unavailable";
 
   constructor(
-    private recordingId: string,
-    private events: CaptureEvents,
+    recordingId: string,
+    events: CaptureEvents,
     /** Made on this computer: the parts are transcribed here and never uploaded. */
-    private local = false,
-  ) {}
+    local = false,
+  ) {
+    this.recordingId = recordingId;
+    this.events = events;
+    this.local = local;
+  }
+
+  /** Reject instead of hanging forever when the OS audio stack never answers
+   *  (broken/disabled sound devices leave getUserMedia unresolved). */
+  private async bounded<T>(stage: string, ms: number, p: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${stage} did not respond within ${Math.round(ms / 1000)} s. ` +
+                "Check your microphone in Windows Settings → Sound, then try again.",
+            ),
+          ),
+        ms,
+      );
+    });
+    try {
+      return await Promise.race([p, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /** withScreen: also record the screen (video kept for playback; audio is transcribed as usual). */
   async start(withSystemAudio: boolean, withScreen = false) {
-    if (!(await bridge().micPermission()))
+    // One sanitized diagnostic identifier per attempt; each stage logs next to it.
+    const trace = (stage: string) =>
+      console.debug("murmur-capture", this.recordingId, stage);
+    trace("start");
+    this.phase = transition(this.phase, 'start');
+    if (!(await this.bounded("Microphone permission check", 5_000, bridge().micPermission())))
       throw new Error(
         "Microphone access is off. Allow it in your system settings.",
       );
+    trace("permission-ok");
+    this.phase = transition(this.phase, 'permission_granted');
     this.ctx = new AudioContext({ sampleRate: 48000 });
+    trace("context-created");
     this.dest = this.ctx.createMediaStreamDestination();
     this.dest.channelCount = 2;
     this.merger = this.ctx.createChannelMerger(2);
@@ -68,13 +111,76 @@ export class Capture {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
 
-    const mic = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    // Enumerate devices for diagnostics only — never as a gate. Chromium and the OS can
+    // misreport devices (Safari returns an empty list before permission; an RDP session
+    // exposes only playback devices; a camera may have no mic), so "no audioinput here"
+    // does not prove getUserMedia will fail. The real decision is the acquisition below.
+    let deviceInfo: MicDeviceInfo = null;
+    try {
+      const list = await this.bounded(
+        "Listing audio devices",
+        10_000,
+        navigator.mediaDevices.enumerateDevices(),
+      );
+      trace("devices-probed");
+      const inputs = list.filter((d) => d.kind === "audioinput");
+      if (inputs.length === 0) {
+        // Diagnostic only; raw device ids are never logged.
+        console.error(
+          "murmur-capture device-dump",
+          JSON.stringify(list.map((d) => ({ kind: d.kind, label: d.label }))),
+        );
+      }
+      const outputs = list.filter((d) => d.kind === "audiooutput");
+      deviceInfo = {
+        audioInputs: inputs.length,
+        hasCamera: list.some((d) => d.kind === "videoinput"),
+        remoteOnly:
+          outputs.length > 0 &&
+          outputs.every((d) => /remote/i.test(d.label || "")),
+      };
+    } catch {
+      // enumerateDevices failing is not fatal; getUserMedia gives the real answer.
+    }
+
+    // Open the microphone first. Only a rejection is diagnosed, using the device
+    // enumeration (RDP, camera-only, OS privacy) to keep the message actionable.
+    let mic: MediaStream;
+    try {
+      mic = await this.bounded(
+        "Opening the microphone",
+        20_000,
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        }),
+      );
+    } catch (e) {
+      this.phase = transition(this.phase, 'mic_failed');
+      const name = (e as { name?: string }).name ?? "";
+      throw new Error(
+        micFailureMessage(
+          name,
+          (e as Error).message,
+          deviceInfo,
+          navigator.userAgent,
+        ),
+      );
+    }
+    trace("mic-open");
+
+    // Confirm we actually received a live audio track before wiring it up.
+    const micTrack = mic.getAudioTracks()[0];
+    if (!micTrack) throw new Error("The browser opened no audio track.");
+    if (micTrack.readyState === "ended") {
+      mic.getTracks().forEach((t) => t.stop());
+      throw new Error(
+        "The microphone track ended before recording could start. Check the device and try again.",
+      );
+    }
     this.inputs.push(mic);
     const micSrc = this.ctx.createMediaStreamSource(mic);
     this.route(micSrc, 0);
@@ -85,16 +191,22 @@ export class Capture {
       await this.addSystemAudio();
 
     await this.openSegment();
+    trace("segment-open");
+    this.phase = transition(this.phase, 'recording_started');
     this.timers.push(window.setInterval(() => this.tick(), 500));
   }
 
   /** One screen-picker prompt gives the video and, on Windows, the computer audio too. */
   private async addScreen(withSystemAudio: boolean) {
     const { platform } = await bridge().info();
-    const s = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 15 },
-      audio: withSystemAudio && platform === "win32",
-    });
+    const s = await this.bounded(
+      "Screen capture",
+      120_000,
+      navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 15 },
+        audio: withSystemAudio && platform === "win32",
+      }),
+    );
     const v = s.getVideoTracks()[0];
     if (!v) throw new Error("No screen was shared.");
     this.video = v;
@@ -117,10 +229,14 @@ export class Capture {
     try {
       if (platform === "win32") {
         // Main process answers with the screen + "loopback" (system) audio; we drop the video.
-        const s = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true,
-        });
+        const s = await this.bounded(
+          "Computer audio capture",
+          60_000,
+          navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true,
+          }),
+        );
         s.getVideoTracks().forEach((t) => t.stop());
         if (!s.getAudioTracks().length)
           throw new Error("No system audio track");
@@ -192,7 +308,11 @@ export class Capture {
 
   private async openSegment() {
     this.segIdx += 1;
-    await bridge().segmentOpen(this.recordingId, this.segIdx, EXT);
+    await this.bounded(
+      "Preparing the recording file",
+      10_000,
+      bridge().segmentOpen(this.recordingId, this.segIdx, EXT),
+    );
     this.segActiveMs = 0;
     this.segResumedAt = Date.now();
     await bridge().activeSet({
@@ -247,16 +367,29 @@ export class Capture {
     const rec = this.recorder;
     if (!rec) return;
     const durationMs = this.segmentMs();
-    await new Promise<void>((resolve) => {
-      rec.onstop = () => resolve();
-      rec.stop();
-    });
-    await this.writes;
+    try {
+      if (rec.state === "recording" || rec.state === "paused") {
+        await new Promise<void>((resolve) => {
+          rec.onstop = () => resolve();
+          try {
+            rec.stop();
+          } catch {
+            resolve();
+          }
+          // Never wait forever on the recorder: a stuck MediaRecorder must not
+          // keep the app in "recording" mode.
+          setTimeout(resolve, 5_000);
+        });
+      }
+    } catch {
+      // Recorder already stopped/errored — carry on with what we captured.
+    }
+    await this.writes.catch(() => {});
     this.recorder = null;
     // Where this part starts on the recording's own timeline, before the total moves on.
     const offsetMs = this.doneMs;
     this.doneMs += durationMs;
-    if (durationMs > 500)
+    if (keepSegment(durationMs))
       await this.events.onSegment({
         idx: this.segIdx,
         ext: EXT,
@@ -279,21 +412,14 @@ export class Capture {
     // Input level (dBFS) for the meter and the silence warning.
     const data = new Float32Array(this.analyser!.fftSize);
     this.analyser!.getFloatTimeDomainData(data);
-    let sum = 0;
-    for (const v of data) sum += v * v;
-    const db = 20 * Math.log10(Math.sqrt(sum / data.length) || 1e-8);
+    const db = dbfs(data);
     this.events.onLevel(db);
-    const now = Date.now();
-    if (db < SILENCE_DB) {
-      this.silenceSince ??= now;
-      if (now - this.silenceSince > SILENCE_WARN_MS)
-        this.events.onWarning(
-          "Not hearing your mic for a while. Check it isn't muted.",
-        );
-    } else if (this.silenceSince !== null) {
-      this.silenceSince = null;
-      this.events.onWarning(null);
-    }
+    const event = this.silence.update(db, Date.now());
+    if (event === "warn")
+      this.events.onWarning(
+        "Not hearing your mic for a while. Check it isn't muted.",
+      );
+    else if (event === "clear") this.events.onWarning(null);
   }
 
   /** The mixed mic + computer audio (mono), e.g. for the live transcript. */
@@ -317,24 +443,31 @@ export class Capture {
     if (this.recorder?.state !== "recording") return;
     this.segActiveMs += Date.now() - this.segResumedAt;
     this.recorder.pause();
+    this.phase = transition(this.phase, 'paused');
   }
 
   resume() {
     if (this.recorder?.state !== "paused") return;
     this.segResumedAt = Date.now();
     this.recorder.resume();
+    this.phase = transition(this.phase, 'resumed');
   }
 
   /** Stop everything; returns total recorded milliseconds. */
   async stop(): Promise<number> {
+    this.phase = transition(this.phase, 'stop_requested');
     this.timers.forEach((t) => clearInterval(t));
     this.timers = [];
     await this.closeSegment();
-    await bridge().macAudioStop();
+    await bridge().macAudioStop().catch(() => {});
     this.offMac?.();
     this.inputs.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-    await this.ctx?.close();
-    await bridge().activeSet(null);
+    if (this.ctx)
+      await this.bounded("Closing the audio engine", 5_000, this.ctx.close()).catch(
+        () => {},
+      );
+    await bridge().activeSet(null).catch(() => {});
+    this.phase = transition(this.phase, 'finalized');
     return this.doneMs;
   }
 }

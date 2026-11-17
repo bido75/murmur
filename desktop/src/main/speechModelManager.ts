@@ -18,6 +18,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -161,6 +162,20 @@ async function download(
 }
 
 /**
+ * Free bytes on the volume that holds `dir`. Uses the OS's own statfs, so no shell
+ * or extra dependency is involved.
+ */
+export async function freeBytes(dir: string): Promise<number> {
+  const s = await statfs(dir);
+  return s.bavail * s.bsize;
+}
+
+/** The archive plus room to unpack it: extracted files are about as large again. */
+export function hasSpaceFor(free: number, archiveBytes: number, marginBytes = 512 * 1024 * 1024): boolean {
+  return free > archiveBytes + marginBytes;
+}
+
+/**
  * Download the model and check it.
  *
  * The download can be stopped with the signal and its progress is reported. The archive
@@ -175,6 +190,21 @@ export async function installModel(
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const dir = modelDir(bundle, base);
   mkdirSync(dir, { recursive: true });
+
+  // Ask before filling the disk: refuse with the numbers rather than failing midway.
+  try {
+    const free = await freeBytes(dir);
+    if (!hasSpaceFor(free, bundle.archive.sizeBytes))
+      return {
+        ok: false,
+        reason: `Not enough space on this disk. The model needs about ${Math.round(
+          bundle.archive.sizeBytes / (1024 * 1024),
+        )} MB plus room to unpack; ${Math.round(free / (1024 * 1024))} MB is free.`,
+      };
+  } catch {
+    // If statfs is unavailable the install proceeds; the per-file digest checks still
+    // guard against a corrupt result.
+  }
 
   const marker = readMarker(dir);
   const next: Marker = { version: bundle.version, files: { ...marker.files } };

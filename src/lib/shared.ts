@@ -11,7 +11,7 @@ export {
   normalizeMediaLink,
   titleFromLink,
 } from "../../supabase/functions/_shared/links";
-export { LANGUAGES, TRANSLATION_LANGUAGES } from "../../supabase/functions/_shared/translate";
+export { LANGUAGES, TRANSLATION_LANGUAGES, LANGUAGE_REGISTRY, findLanguage } from "../../supabase/functions/_shared/translate";
 export {
   exifTakenAt,
   pcmLevelDb,

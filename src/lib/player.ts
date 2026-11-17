@@ -1,36 +1,54 @@
 // Playing a recording that is split into part files. One player, one global position:
 // the position is the part's offset plus the position inside the part, so the scrubber,
 // the timestamp chips and the transcript all talk about the same moment.
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audioUrl } from './api';
-import type { Utterance } from './types';
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { audioUrl } from "./api";
+import type { Utterance } from "./types";
 
-export type PlaySegment = { idx: number; storage_path: string | null; source_url: string | null; duration_ms: number | null };
+export type PlaySegment = {
+  idx: number;
+  storage_path: string | null;
+  source_url: string | null;
+  duration_ms: number | null;
+};
 
 /** The speeds on the player bar. */
 export const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
 /** Where each part starts and ends on the recording's timeline. */
-export function partSpans(segments: PlaySegment[], totalMs: number): { start: number; end: number }[] {
+export function partSpans(
+  segments: PlaySegment[],
+  totalMs: number,
+): { start: number; end: number }[] {
   let offset = 0;
   return segments.map((s) => {
     // A part with an unknown length (recovered or imported) runs to the end of the recording.
-    const d = s.duration_ms && s.duration_ms > 0 ? s.duration_ms : Math.max(0, (totalMs || 0) - offset);
+    const d =
+      s.duration_ms && s.duration_ms > 0
+        ? s.duration_ms
+        : Math.max(0, (totalMs || 0) - offset);
     offset += d;
     return { start: offset - d, end: offset };
   });
 }
 
 /** The part that holds a moment on the recording's timeline. */
-export function partAt(spans: { start: number; end: number }[], ms: number): number {
+export function partAt(
+  spans: { start: number; end: number }[],
+  ms: number,
+): number {
   for (let i = 0; i < spans.length; i++) {
     if (ms < spans[i].end || i === spans.length - 1) return i;
   }
   return 0;
 }
 
-export function useRecordingPlayer(segments: PlaySegment[], totalMs: number, utterances: Utterance[]) {
+export function useRecordingPlayer(
+  segments: PlaySegment[],
+  totalMs: number,
+  utterances: Utterance[],
+) {
   const player = useAudioPlayer(null, { updateInterval: 200 });
   const status = useAudioPlayerStatus(player);
   const [part, setPart] = useState<number | null>(null);
@@ -57,10 +75,20 @@ export function useRecordingPlayer(segments: PlaySegment[], totalMs: number, utt
     statusRef.current = status;
   }, [status]);
 
-  const spans = useMemo(() => partSpans(segments, totalMs), [segments, totalMs]);
-  const durationMs = totalMs > 0 ? totalMs : spans.length ? spans[spans.length - 1].end : 0;
-  const partStart = part != null ? spans[part]?.start ?? 0 : 0;
-  const positionMs = Math.max(0, Math.min(durationMs || Number.MAX_SAFE_INTEGER, partStart + Math.round((status.currentTime || 0) * 1000)));
+  const spans = useMemo(
+    () => partSpans(segments, totalMs),
+    [segments, totalMs],
+  );
+  const durationMs =
+    totalMs > 0 ? totalMs : spans.length ? spans[spans.length - 1].end : 0;
+  const partStart = part != null ? (spans[part]?.start ?? 0) : 0;
+  const positionMs = Math.max(
+    0,
+    Math.min(
+      durationMs || Number.MAX_SAFE_INTEGER,
+      partStart + Math.round((status.currentTime || 0) * 1000),
+    ),
+  );
 
   /** Wait for the audio to be ready, so a seek after a part change lands. */
   const waitForLoaded = useCallback(async (timeoutMs = 8000) => {
@@ -80,8 +108,10 @@ export function useRecordingPlayer(segments: PlaySegment[], totalMs: number, utt
       setError(null);
       try {
         // Link imports play straight from the link.
-        const url = seg.storage_path ? await audioUrl(seg.storage_path) : seg.source_url;
-        if (!url) throw new Error('The audio for this part is not available.');
+        const url = seg.storage_path
+          ? await audioUrl(seg.storage_path)
+          : seg.source_url;
+        if (!url) throw new Error("The audio for this part is not available.");
         player.replace({ uri: url });
         partRef.current = index;
         setPart(index);

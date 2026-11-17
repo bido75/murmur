@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-30",
+  "incident": "P0 web recording regression + Expo Go inaccessibility",
+  "findings": [
+    {
+      "id": "INC-1",
+      "failure": "A: hosted web/mobile-browser recording",
+      "root_cause": "CONFIRMED — serve-web-dist.cjs sent Permissions-Policy: microphone=() (deny-all), added in hardening commit 2065aac (2026-10-29). Browsers enforce this before the permission prompt, so getUserMedia rejects NotAllowedError with no prompt. Matches the exact user-reported message and timeline.",
+      "evidence": ["live header capture before fix: microphone=()", "scripts/serve-web-dist.cjs:108 (old line)", "fix verified live after deploy: microphone=(self)"],
+      "fix": "scripts/securityHeaders.cjs + serve-web-dist.cjs + 4 regression tests; deployed by server restart",
+      "status": "FIXED AND DEPLOYED (device click-test pending operator)"
+    },
+    {
+      "id": "INC-2",
+      "failure": "B: Expo Go cannot open the project",
+      "root_cause": "DIAGNOSED — project is Expo SDK 58 / RN 0.88.1; Expo Go runs one pinned SDK. Without the matching Expo Go build the project cannot open. Native modules (expo-audio) further limit Expo Go applicability. Supported path: development build via EAS.",
+      "evidence": ["package.json expo ~58.0.21", "expo-doctor 20/20 after RN alignment", "eas-cli whoami: Not logged in (operator gate)"],
+      "fix": "eas.json created (development/preview APK/production AAB); android package com.giscop.murmur; awaiting operator eas-cli login",
+      "status": "STAGED (operator-gated)"
+    },
+    {
+      "id": "INC-3",
+      "failure": "desktop regression suspicion",
+      "root_cause": "EXCLUDED WITH EVIDENCE — no desktop commit touches shared recording, Metro, app.json or Supabase; the only cross-cutting change in the window was the hardening commit that carried INC-1.",
+      "evidence": ["commit-range inspection", "desktop tests 160/0 same day"],
+      "status": "RESOLVED (no desktop regression)"
+    }
+  ],
+  "security": {
+    "policy_scope": "Only microphone changed from () to (self); camera/payment remain denied; all other headers unchanged",
+    "no_security_regression": true
+  }
+}

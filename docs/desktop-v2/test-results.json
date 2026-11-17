@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-29",
+  "branch": "feature/murmur-desktop-v2",
+  "baseline": { "commit": "2d0cb0d", "tests": { "pass": 92, "fail": 0, "skipped": 2 } },
+  "final": {
+    "typecheck": "pass (tsc --noEmit, 0 errors)",
+    "unit_tests": { "pass": 153, "fail": 0, "skipped": 2, "runner": "node:test --experimental-strip-types" },
+    "build": "pass (node build.mjs; main/preloads CJS node22, renderer IIFE chrome140; floatingPreload.js + floating.html emitted)",
+    "boot_smoke": "pass (MURMUR_SMOKE_SHOT: 'SMOKE bridge-isolated true', screenshot captured; run 4x across phases 1-7)",
+    "ci": "desktop-ci workflow on windows-latest + macos-latest (typecheck+tests+build, SHA-pinned actions)"
+  },
+  "suites": {
+    "shared": ["settings (9)", "settingsSync (7)", "level (11)", "queue", "queueOwner (5)", "meetings", "dictionary", "formatting", "history", "insert", "pcm", "shortcuts", "transcription/select (7)"],
+    "main": ["logger (6)", "auth (6 incl. live loopback HTTP roundtrip)", "settings file store (7)"],
+    "renderer": ["onboarding derivation (4)"],
+    "skipped": ["parakeet engine integration test x2 - require the downloaded ONNX model; no audio hardware in this environment"]
+  },
+  "not_claimed": [
+    "Live signed-in run against Supabase (record -> process -> notes) on real hardware",
+    "System-audio loopback/ScreenCaptureKit on real devices; long-recording drift measurement",
+    "ONNX inference soak with real audio",
+    "Installer execution on clean machines; signing/notarization"
+  ]
+}

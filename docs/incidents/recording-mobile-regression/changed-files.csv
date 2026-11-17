@@ -1,0 +1,7 @@
+file,change
+scripts/serve-web-dist.cjs,consume shared header builder (mic fix)
+scripts/securityHeaders.cjs,NEW header source of truth with microphone=(self)
+scripts/securityHeaders.test.mjs,NEW 4 regression tests
+app.json,android package com.example.murmur -> com.giscop.murmur
+eas.json,NEW development/preview/production profiles
+docs/security/security-audit-report.md,F-06 correction note

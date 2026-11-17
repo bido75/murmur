@@ -2,8 +2,10 @@
 // The service client is used, so every query is explicitly limited to what the token's user
 // could see in the app: their own recordings plus those in projects of teams they belong to.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import type { RecordingInfo, Source, TaskInfo } from './mcp.ts';
+import type { RecordingInfo, Source, TaskInfo, KnowledgeHit, DecisionHistoryRow, TaskCreateInput } from './mcp.ts';
 import { formatTranscript, type Utterance } from './verify.ts';
+import { contentTerms, filterAndRankByTerms } from './agent_retrieval.ts';
+import { buildTaskInput } from './agent_actions.ts';
 
 export async function sha256(s: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
@@ -132,6 +134,56 @@ export async function makeSource(db: SupabaseClient, uid: string): Promise<Sourc
       if (!allowed) return false;
       const { error } = await db.from('tasks').update({ status }).eq('id', taskId);
       return !error;
+    },
+
+    async searchKnowledge(query, limit) {
+      const terms = contentTerms(String(query ?? '').slice(0, 200));
+      if (!terms.length) return [];
+      const { data: assertions } = await db
+        .from('knowledge_assertions')
+        .select('id, subject_id, object_id, predicate, value, confidence, source_refs')
+        .eq('user_id', uid)
+        .eq('review_status', 'verified')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      const rows = (assertions ?? []) as { id: string; subject_id: string; object_id: string | null; predicate: string; value: string | null; confidence: number; source_refs: KnowledgeHit['source_refs'] }[];
+      if (!rows.length) return [];
+      const ids = new Set<string>();
+      for (const a of rows) {
+        ids.add(a.subject_id);
+        if (a.object_id) ids.add(a.object_id);
+      }
+      const { data: entities } = await db.from('knowledge_entities').select('id, name').in('id', [...ids]);
+      const nameOf = new Map((entities ?? []).map((e: { id: string; name: string }) => [e.id, e.name]));
+      const items: KnowledgeHit[] = rows.map((a) => ({
+        id: a.id,
+        subject: nameOf.get(a.subject_id) ?? '?',
+        predicate: a.predicate,
+        object: a.object_id ? nameOf.get(a.object_id) ?? '?' : null,
+        value: a.value,
+        confidence: a.confidence,
+        source_refs: a.source_refs ?? [],
+      }));
+      return filterAndRankByTerms(items, terms, (h) => `${h.subject} ${h.predicate} ${h.object ?? ''} ${h.value ?? ''}`, limit);
+    },
+
+    async listDecisionHistory({ project_id, limit }) {
+      let q = db.from('decision_history').select('id, text, status, recording_id, project_id, supersedes_id, created_at').eq('user_id', uid);
+      if (project_id) q = q.eq('project_id', project_id);
+      const { data } = await q.order('created_at', { ascending: true }).limit(limit);
+      return (data ?? []) as DecisionHistoryRow[];
+    },
+
+    async createTask(input: TaskCreateInput) {
+      const r = await readableRec(input.recording_id);
+      if (!r) throw new Error('Not found, or you do not have access');
+      if (r.user_id !== uid) throw new Error('Only the recording owner can create tasks on it');
+      const { data: tr } = await db.from('transcripts').select('utterances').eq('recording_id', input.recording_id).maybeSingle();
+      const out = buildTaskInput(input, (tr?.utterances ?? []) as Utterance[]);
+      if (!out.ok) throw new Error(out.reason);
+      const { data, error } = await db.from('tasks').insert({ ...out.task, recording_id: input.recording_id, user_id: uid }).select('id').single();
+      if (error) throw new Error(error.message);
+      return { id: data.id as string, ...out.task };
     },
   };
 }

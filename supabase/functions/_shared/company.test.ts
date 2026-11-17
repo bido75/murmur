@@ -27,7 +27,8 @@ test('zip files open with a standard unzip tool', { skip: pythonSkip() }, () => 
 const n: PublicNotes = {
   title: 'OAC #12', date: '2026-10-15T14:00:00Z', duration_ms: 1800000, template: 'site_walk', overview: 'Holds.', key_points: [{ text: 'Steel Oct 22', verified: true }],
   decisions: [{ text: 'Hilti', quote: 'go with Hilti' }], tasks: [{ text: 'RFI 14', owner: 'Maya', due: 'Fri', done: true }], open_questions: [],
-  site_log: [{ title: 'Safety', items: ['Guardrail'] }], transcript: [{ at: '0:05', speaker: 'Vinny', text: 'Morning.' }],
+  site_log: [{ title: 'Safety', items: ['Guardrail'] }], detailed_sections: [], conclusions: [],
+  transcript: [{ at: '0:05', speaker: 'Vinny', text: 'Morning.' }],
 };
 
 test('export files: names, markdown, transcript and safe CSV', () => {
@@ -37,6 +38,7 @@ test('export files: names, markdown, transcript and safe CSV', () => {
   const md = notesMarkdown(n);
   assert.match(md, /- \[x\] RFI 14 \(Maya\) — due Fri/);
   assert.match(md, /## Safety\n\n- Guardrail/);
+  assert.match(md, /## Transcript\n\n\[0:05\] Vinny: Morning\./);
   assert.equal(transcriptText(n), '[0:05] Vinny: Morning.\n');
   const csv = tasksCsv([{ text: '=HYPERLINK("x")', owner: 'Maya, PM', due_text: null, status: 'open', recording: 'OAC', created_at: '2026-10-15', quote: 'say "hi"' }]);
   assert.equal(csv.split('\r\n')[1], `"'=HYPERLINK(""x"")","Maya, PM",,open,OAC,2026-10-15,"say ""hi"""`);

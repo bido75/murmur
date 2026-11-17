@@ -5,6 +5,31 @@ export const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 export type RecordingInfo = { id: string; title: string; date: string; project: string | null; status: string; minutes: number };
 export type TaskInfo = { id: string; text: string; owner: string | null; due: string | null; status: string; needs_review: boolean; recording: string | null; recording_id: string | null; quote: string | null };
+export type KnowledgeHit = {
+  id: string;
+  subject: string;
+  predicate: string;
+  object: string | null;
+  value: string | null;
+  confidence: number;
+  source_refs: { recordingId?: string; startMs?: number | null; excerpt?: string | null; verificationStatus?: string }[];
+};
+export type DecisionHistoryRow = {
+  id: string;
+  text: string;
+  status: string;
+  recording_id: string | null;
+  project_id: string | null;
+  supersedes_id: string | null;
+  created_at: string;
+};
+export type TaskCreateInput = {
+  recording_id: string;
+  text: string;
+  owner?: string | null;
+  due_text?: string | null;
+  quote: string;
+};
 
 export interface Source {
   listProjects(): Promise<{ id: string; name: string; team: string | null }[]>;
@@ -17,6 +42,12 @@ export interface Source {
   getTranscript(recordingId: string, offset: number, maxChars: number): Promise<{ text: string; next_offset: number | null } | null>;
   listTasks(opts: { status: 'open' | 'review' | 'done'; project_id?: string; limit: number }): Promise<TaskInfo[]>;
   setTaskStatus(taskId: string, status: 'open' | 'done'): Promise<boolean>;
+  /** Agent memory: verified knowledge-graph assertions matching a query, ranked. */
+  searchKnowledge?(query: string, limit: number): Promise<KnowledgeHit[]>;
+  /** Agent memory: the decision lifecycle, chronological (accepted and superseded). */
+  listDecisionHistory?(opts: { project_id?: string; limit: number }): Promise<DecisionHistoryRow[]>;
+  /** Agent action: create a quote-grounded task on a recording the user owns. */
+  createTask?(input: TaskCreateInput): Promise<{ id: string; text: string; owner: string | null; owner_basis: string; due_text: string | null; quote: string; quote_ms: number | null; kind: string; verified: boolean; needs_review: boolean }>;
 }
 
 type Json = Record<string, unknown>;

@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-30",
+  "branch": "feature/murmur-desktop-v2",
+  "source_sha": "7abf483 (fix release checksums; full sha 7abf483d... - the exact commit the run checked out)",
+  "run": {
+    "id": 41000210092,
+    "url": "https://github.com/bido75/murmur/actions/runs/41000210092",
+    "trigger": "push tag desktop-v0.1.0-test2",
+    "workflow": "desktop-release.yml"
+  },
+  "artifacts": [
+    {
+      "name": "installer-win-x64",
+      "file": "Murmur-Setup-0.1.0-win-x64.exe",
+      "arch": "x64",
+      "os": "Windows 10/11",
+      "size_mb": 127.4,
+      "sha256": "69FFB5D29BFCD68944901AF1BDBA63C2A99970BE907DFC62C86A9128E020B5B2",
+      "signed": false,
+      "sidecars": ["Murmur-Setup-0.1.0-win-x64.exe.blockmap", "latest.yml (electron-updater feed metadata)", "SHA256SUMS.txt"]
+    },
+    {
+      "name": "installer-mac-arm64",
+      "file": "Murmur-0.1.0-arm64.dmg",
+      "arch": "arm64 (Apple Silicon)",
+      "os": "macOS 13+",
+      "size_mb": 151.8,
+      "sha256": "2135A37FCB1701AF7B876DFC1F1E15969CC16CC8CF26844B4C6A33B7C614B972",
+      "signed": false,
+      "notarized": false,
+      "sidecars": ["Murmur-0.1.0-arm64.zip (150.4 MB, sha256 2BCBB79B4FCA221EA1D6EB203ED1A9E47BFC7716AF5512C1E727500DFF961DDB - electron-updater artifact)", "blockmaps", "latest-mac.yml", "SHA256SUMS.txt"]
+    },
+    {
+      "name": "installer-mac-x64",
+      "file": "Murmur-0.1.0-x64.dmg (expected)",
+      "arch": "x64 (Intel)",
+      "os": "macOS 13+ (Intel)",
+      "status": "RUN QUEUED AT WRITE TIME - macos-13 (Intel) runners have long queue times; the run link above is the source of truth for its final state. The win-x64 and mac-arm64 legs of the same matrix completed successfully, and the mac-x64 leg runs the identical steps.",
+      "sha256": "RECORDED-WHEN-RUN-COMPLETES"
+    }
+  ],
+  "verification_performed": {
+    "checksums": "local re-hash of downloaded artifacts matched the CI-generated SHA256SUMS.txt exactly for all three installers (exe, dmg, zip)",
+    "win_contents": "NSIS installer built; onnxruntime win32/x64 unpacked outside asar; darwin/linux pruned (verified in the identical local build)",
+    "mac_contents": "CI verified the zip contains Contents/MacOS/Murmur and the SystemAudioCapture helper",
+    "signature": "NOT SIGNED (Windows Get-AuthenticodeSignature -> NotSigned locally; no Apple Developer ID configured) - test builds only"
+  },
+  "download": {
+    "public_release": "none published by design - the pipeline only creates DRAFT prereleases on explicit dispatch",
+    "collaborators": "gh run download 41000210092 --repo bido75/murmur --pattern 'installer-*'",
+    "after_publish": "https://github.com/bido75/murmur/releases (the draft, once an operator publishes it)"
+  },
+  "local_deeplink_note": "The Windows installer from this exact pipeline is also available locally at desktop/release/Murmur-Setup-0.1.0-win-x64.exe (same config; hashes recorded above are from the CI artifacts)."
+}

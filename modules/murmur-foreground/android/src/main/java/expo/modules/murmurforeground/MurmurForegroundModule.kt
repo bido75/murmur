@@ -20,8 +20,10 @@ class MurmurForegroundModule : Module() {
     }
 
     Function("stop") {
-      val ctx = appContext.reactContext ?: return@Function
-      ctx.stopService(Intent(ctx, RecordingService::class.java))
+      val ctx = appContext.reactContext
+      if (ctx != null) {
+        ctx.stopService(Intent(ctx, RecordingService::class.java))
+      }
     }
   }
 }

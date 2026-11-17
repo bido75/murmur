@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-30",
+  "branch": "feature/murmur-desktop-v2",
+  "run": { "id": 41000210092, "tag": "desktop-v0.1.0-test2", "sha": "7abf483 (see manifest for full sha)", "url": "https://github.com/bido75/murmur/actions/runs/41000210092" },
+  "packaging": [
+    { "platform": "win-x64", "runner": "windows-latest", "status": "PASS", "notes": "NSIS installer + blockmap + latest.yml produced; content checks passed (exists, >10MB); SHA256SUMS written" },
+    { "platform": "mac-arm64", "runner": "macos-latest", "status": "PASS", "notes": "DMG + ZIP built; zip verified to contain the app binary and SystemAudioCapture helper; SHA256SUMS written" },
+    { "platform": "mac-x64", "runner": "macos-13 (Intel)", "status": "PENDING-AT-WRITE-TIME", "notes": "queued; Intel runners queue longer - final status recorded in release-artifact-manifest.json" }
+  ],
+  "local_build_evidence": [
+    { "what": "Windows installer built locally on the dev machine", "result": "Murmur-Setup-0.1.0-win-x64.exe, 127.4 MB after per-platform ONNX pruning (was 177.4 MB)", "signature": "Get-AuthenticodeSignature -> NotSigned (honest: unsigned test build)", "asarUnpack": "onnxruntime win32/x64 present outside asar; darwin pruned", "updateMetadata": "latest.yml + blockmap emitted" },
+    { "what": "electron-builder runs in the local dev environment", "result": "first local run hit EPERM rename (antivirus/indexer lock on win-unpacked.tmp); resolved by clearing the release dir and retrying - recorded because it will look identical on user machines' AV interference" }
+  ],
+  "unit_tests_at_pack": { "pass": 160, "fail": 0, "skipped": 2, "note": "+7 updater gate tests; CI runs the same suite before every packaging step" },
+  "installation_tests": {
+    "status": "BLOCKED",
+    "rule": "A CI packaging success is not an installation pass.",
+    "windows": { "installer_launch": "BLOCKED", "install_complete": "BLOCKED", "app_opens": "BLOCKED", "signin": "BLOCKED", "mic_permissions": "BLOCKED", "recording": "BLOCKED", "local_transcription": "BLOCKED", "data_survives_restart": "BLOCKED", "uninstall": "BLOCKED", "upgrade_preserves_data": "BLOCKED (meaningful only after the appId decision)" },
+    "macos_arm64": { "dmg_mounts": "BLOCKED", "copy_to_applications": "BLOCKED", "launch": "BLOCKED", "permissions": "BLOCKED", "helper_included": "VERIFIED-BY-CI (zip listing)", "recording": "BLOCKED", "local_transcription": "BLOCKED", "signing_notarization": "BLOCKED (unsigned by design for test builds)" },
+    "macos_x64": { "same_as_arm64": "BLOCKED" }
+  },
+  "not_claimed": [
+    "No end-user installation has been performed by a human on any machine",
+    "No signed or notarized artifact exists",
+    "mac-x64 final status is recorded in the manifest, not assumed here"
+  ]
+}

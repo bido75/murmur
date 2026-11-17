@@ -30,4 +30,4 @@ class PcmPlayer extends AudioWorkletProcessor {
     return true;
   }
 }
-registerProcessor('pcm-player', PcmPlayer);
+registerProcessor("pcm-player", PcmPlayer);

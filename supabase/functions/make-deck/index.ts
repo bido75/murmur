@@ -1,21 +1,30 @@
 // POST { kind, recording_id? | project_id?, audience? } → { url, filename }
 // Builds a .pptx from a recording's (or a whole project's) verified notes.
-import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, sanitizeSlides, type DeckData, type DeckKind } from '../_shared/deck.ts';
+import { buildPptx, DECK_KINDS, DECK_TOOL, deckSystemPrompt, resolveTheme, sanitizeSlides, type DeckData, type DeckEnhancements, type DeckKind, type DeckStyle } from '../_shared/deck.ts';
 import { adminClient, clientUrl, llmStructured, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { captionPhotos, type PhotoRow, type SiteLog } from '../_shared/field.ts';
 import { classifyEmbeddedImage } from '../_shared/imageGuard.ts';
+import { DEFAULT_IMAGE_BUDGET, imageBudget, imageProviderConfig, imageRequest, type ImageProviderConfig } from '../_shared/deck_images.ts';
+import { inspectPptx } from '../_shared/pptx_verify.ts';
 
 type Rec = { id: string; title: string; created_at: string };
-type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
+type Sum = { recording_id: string; site_log: SiteLog | null; overview: string; key_points: string[]; detailed_sections: { heading: string; paragraphs: string[] }[] | null; conclusions: string[] | null; decisions: { text: string; quote: string; verified: boolean }[]; open_questions: string[] };
 type TaskRow = { text: string; owner: string | null; due_text: string | null; status: string; needs_review: boolean; recording_id: string; quote: string | null; photo_ids: string[] | null };
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
     const { id: userId, client } = await requireUser(req);
-    const { kind, recording_id, project_id, audience } = await req.json();
+    const { kind, recording_id, project_id, audience, style, detail, enhancements } = await req.json();
     if (!(kind in DECK_KINDS)) throw new HttpError(400, 'Unknown deck type');
     if (!recording_id && !project_id) throw new HttpError(400, 'recording_id or project_id is required');
+    const theme = resolveTheme((['corporate', 'minimal', 'tech', 'research', 'construction', 'dark', 'creative'] as DeckStyle[]).includes(style) ? style as DeckStyle : undefined);
+    const enh: DeckEnhancements = {
+      images: (enhancements?.images ?? true) !== false,
+      diagrams: (enhancements?.diagrams ?? true) !== false,
+      charts: (enhancements?.charts ?? true) !== false,
+      notes: (enhancements?.notes ?? true) !== false,
+    };
 
     // Gather material as the user (RLS keeps it to their own data).
     let recs: Rec[] = [];
@@ -41,7 +50,7 @@ Deno.serve(async (req) => {
 
     const ids = recs.map((r) => r.id);
     const [{ data: sums }, { data: tasks }] = await Promise.all([
-      client.from('summaries').select('recording_id, overview, key_points, decisions, open_questions, site_log').in('recording_id', ids),
+      client.from('summaries').select('recording_id, overview, key_points, detailed_sections, conclusions, decisions, open_questions, site_log').in('recording_id', ids),
       client.from('tasks').select('text, owner, due_text, status, needs_review, recording_id, quote, photo_ids').in('recording_id', ids).neq('status', 'dismissed').eq('needs_review', false).order('created_at'),
     ]);
 
@@ -49,20 +58,24 @@ Deno.serve(async (req) => {
       .map((r) => {
         const s = (sums as Sum[] | null)?.find((x) => x.recording_id === r.id);
         if (!s) return '';
+        const detailed = (s.detailed_sections ?? []).map((sec) => `### ${sec.heading}\n${(sec.paragraphs ?? []).join('\n')}`).join('\n\n');
         return [
           `## ${r.title} (${r.created_at.slice(0, 10)})`,
           s.overview,
           ...s.key_points.map((k) => `- ${k}`),
           ...s.decisions.filter((d) => d.verified).map((d) => `Decision: ${d.text}`),
           ...s.open_questions.map((q) => `Open question: ${q}`),
-        ].join('\n');
+          ...(s.conclusions?.length ? [`Conclusions: ${s.conclusions.join('; ')}`] : []),
+          detailed,
+        ].filter(Boolean).join('\n');
       })
       .join('\n\n');
     const taskList = ((tasks ?? []) as TaskRow[]).map((t) => `- [${t.status}] ${t.text}${t.owner ? ` (${t.owner})` : ''}`).join('\n');
 
     const k = kind as DeckKind;
+    const depth = detail === 'concise' ? 'Keep it tight: 3 to 5 slides.' : detail === 'detailed' ? 'Be thorough: up to 9 slides.' : 'Aim for 4 to 7 slides.';
     const written = await llmStructured<{ title: string; subtitle: string; slides: unknown }>(
-      deckSystemPrompt(k, audience ? String(audience).slice(0, 300) : null),
+      deckSystemPrompt(k, audience ? String(audience).slice(0, 300) : null, enh) + `\n${depth}`,
       [{ role: 'user', content: `Material:\n\n${material}\n\nTasks (already shown on their own slide):\n${taskList || 'none'}` }],
       DECK_TOOL,
     );
@@ -86,7 +99,42 @@ Deno.serve(async (req) => {
       deck.photos = await deckPhotos(client, ids, logs, (tasks ?? []) as TaskRow[], Object.fromEntries(recs.map((r) => [r.id, r.title])));
     }
 
-    const bytes = await buildPptx(deck);
+    // Illustrative imagery: generated for any slide that requested one (a caption), only
+// when the user asked for images AND a provider is configured. Failures degrade to the
+// editable placeholder and are reported, never a broken deck.
+    const imageStatus = {
+      requested: enh.images,
+      providerConfigured: false,
+      requestedCount: 0,
+      generated: 0,
+      failed: 0,
+      reason: null as string | null,
+    };
+    if (enh.images) {
+      const cfg = imageProviderConfig(Deno.env.toObject());
+      if (cfg) {
+        imageStatus.providerConfigured = true;
+        const wanted = deck.slides.filter((s) => (s.caption ?? '').trim());
+        imageStatus.requestedCount = wanted.length;
+        const budget = imageBudget(wanted.length, Number(Deno.env.get('IMAGE_BUDGET') ?? '') || DEFAULT_IMAGE_BUDGET);
+        for (const sl of wanted.slice(0, budget)) {
+          try {
+            sl.image = { ...(await generateImage(cfg, sl.caption!, theme.name)), illustrative: true };
+            imageStatus.generated += 1;
+          } catch (e) {
+            imageStatus.failed += 1;
+            imageStatus.reason = imageStatus.reason ?? (e as Error).message.slice(0, 200);
+          }
+        }
+      }
+    }
+
+    const bytes = await buildPptx(deck, { theme });
+    const inspection = inspectPptx(bytes);
+    // Surfaced in the response so a missing image is never mistaken for success.
+    if (imageStatus.generated > 0 && inspection.media.length === 0) {
+      console.warn('deck images generated but not embedded in the pptx');
+    }
     const safe = deck.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'deck';
     const filename = `${safe}.pptx`;
     const path = `${userId}/${crypto.randomUUID()}/${filename}`;
@@ -97,7 +145,7 @@ Deno.serve(async (req) => {
     });
     if (upErr) throw new Error(upErr.message);
     const { data: signed } = await admin.storage.from('exports').createSignedUrl(path, 60 * 60, { download: filename });
-    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1 });
+    return json({ url: clientUrl(signed?.signedUrl), filename, slides: deck.slides.length + 1, images: imageStatus, embeddedMedia: inspection.media.length });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     return json({ error: (e as Error).message }, status);
@@ -142,4 +190,21 @@ function encodeBase64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
+}
+
+/** Generate one image from the configured provider (OpenRouter or OpenAI). Returns a data URI. */
+async function generateImage(cfg: ImageProviderConfig, description: string, style: string): Promise<{ dataUri: string }> {
+  const { url, body } = imageRequest(cfg, { description, style, illustrative: true });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`image provider ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const b64 = data?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('image provider returned no image');
+  const mediaType = data?.data?.[0]?.media_type ?? 'image/png';
+  return { dataUri: `data:${mediaType};base64,${b64}` };
 }

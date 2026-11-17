@@ -17,6 +17,10 @@ export function rewriteHost(url: string, externalBase: string): string {
     const e = new URL(base);
     u.protocol = e.protocol;
     u.host = e.host;
+    // Setting `host` alone leaves the old port in place when the new base has
+    // none (kong:8000 -> https://domain kept :8000 and the link died). Assign
+    // the port explicitly: an empty port resets to the scheme's default.
+    u.port = e.port;
     return u.toString();
   } catch {
     return url;

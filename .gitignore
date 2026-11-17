@@ -6,6 +6,7 @@ node_modules/
 # Expo
 .expo/
 dist/
+dist-web/
 web-build/
 expo-env.d.ts
 
@@ -50,3 +51,9 @@ wear/build/
 wear/app/build/
 wear/local.properties
 watch/*.xcodeproj/
+
+# evaluation artifacts carrying private recording content
+evaluations/detailed-notes-*.md
+evaluations/*.headings.txt
+evaluations/quality-report.md
+evaluations/quality-report.json

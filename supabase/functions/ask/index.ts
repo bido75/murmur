@@ -2,12 +2,10 @@
 // With recording_id: answers from that recording. Without: searches all of the user's recordings.
 import { llmText, corsHeaders, HttpError, json, requireUser } from '../_shared/services.ts';
 import { ASK_SYSTEM } from '../_shared/prompts.ts';
-import { formatClock, formatTranscript, normalize, speakerLabel, type Utterance } from '../_shared/verify.ts';
+import { formatTranscript, type Utterance } from '../_shared/verify.ts';
+import { askKeywords, relevantLines } from '../_shared/ask_retrieval.ts';
 
 const MAX_CONTEXT_CHARS = 150_000;
-const STOP = new Set(
-  'what when where who whom why how did does do was were is are the a an and or of to in on for with about from by it its that this these those me my we our you your they them their i any anything something tell said say says during meeting call recording'.split(' '),
-);
 
 type Rec = { id: string; title: string; created_at: string };
 
@@ -29,7 +27,7 @@ Deno.serve(async (req) => {
       context = `## ${rec.title} (${rec.created_at.slice(0, 10)})\n${lines}`.slice(0, MAX_CONTEXT_CHARS);
       sources = [rec];
     } else {
-      const words = normalize(question).split(' ').filter((w) => w.length > 1 && !STOP.has(w));
+      const words = askKeywords(question);
       let ids: string[] = [];
       if (words.length) {
         const { data: hits } = await client.rpc('search_transcripts', { q: words.join(' or '), max_results: 8 });
@@ -66,19 +64,3 @@ Deno.serve(async (req) => {
     return json({ error: (e as Error).message }, status);
   }
 });
-
-/** Lines that mention a query word, with one line of context either side (max 60 lines). */
-function relevantLines(utterances: Utterance[], words: string[], names: Record<string, string>): string {
-  if (!words.length) return formatTranscript(utterances.slice(0, 60), names);
-  const keep = new Set<number>();
-  utterances.forEach((u, i) => {
-    const t = ' ' + normalize(u.text) + ' ';
-    if (words.some((w) => t.includes(' ' + w + ' '))) [i - 1, i, i + 1].forEach((j) => keep.add(j));
-  });
-  return [...keep]
-    .filter((i) => i >= 0 && i < utterances.length)
-    .sort((a, b) => a - b)
-    .slice(0, 60)
-    .map((i) => `[${formatClock(utterances[i].start_ms)}] ${speakerLabel(utterances[i].speaker, names)}: ${utterances[i].text}`)
-    .join('\n');
-}

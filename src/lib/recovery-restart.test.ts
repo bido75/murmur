@@ -59,12 +59,6 @@ function expireBackoff() {
   fs.writeFileSync(kit.storageFile, JSON.stringify(store));
 }
 
-async function clearSessionMarker() {
-  const store = JSON.parse(fs.readFileSync(kit.storageFile, "utf8"));
-  delete store["recorder.active.v1"];
-  fs.writeFileSync(kit.storageFile, JSON.stringify(store));
-}
-
 test("not signed in: the queue survives untouched (nothing is lost while offline)", async () => {
   seedCrashedSession();
   kit.session = null;
@@ -76,8 +70,7 @@ test("not signed in: the queue survives untouched (nothing is lost while offline
 
 test("signed in: recovered part is queued and the whole recording drains in order", async () => {
   kit.session = { user: { id: "user-1" }, access_token: "test-token" };
-  const crashed = simulateCrashMidRecording(kit, { recordingId: RECORDING, segIdx: 3, doneMs: 600_000, partBytes: 9000 });
-  const part = crashed.currentUri;
+  simulateCrashMidRecording(kit, { recordingId: RECORDING, segIdx: 3, doneMs: 600_000, partBytes: 9000 });
   expireBackoff();
   // Injecting the failure before recovery makes the auto-flush triggered by
   // enqueue deterministic: create succeeds, segment 1 fails, the rest blocks.

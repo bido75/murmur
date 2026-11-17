@@ -7,6 +7,7 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -104,7 +105,11 @@ export function TipCard(props: TipCardProps) {
     <Animated.View
       ref={cardRef}
       accessible
-      accessibilityRole="dialog"
+      // "dialog" is valid ARIA on web but is not in React Native's Android
+      // accessibility-role set: passing it there crashes the view manager
+      // (Invalid accessibility role value: dialog). The card keeps its screen-reader
+      // semantics on native through `accessible` + the label + the live region.
+      accessibilityRole={Platform.OS === "web" ? "dialog" : undefined}
       accessibilityLabel={props.title}
       aria-live="assertive"
       focusable

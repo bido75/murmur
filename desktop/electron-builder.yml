@@ -1,14 +1,51 @@
-appId: com.example.murmur.desktop
+appId: com.example.murmur.desktop # PENDING OPERATOR: real reverse-DNS id before any public release (docs/desktop-v2/distribution/09)
 productName: Murmur
 directories:
   output: release
-files:
-  - dist/**
-  - package.json
+asar: true
+# The ONNX runtime ships native binaries (.node plus its platform libraries) that must
+# stay outside the asar archive for the dynamic loader to find them.
+asarUnpack:
+  - "**/node_modules/onnxruntime-node/**"
+# Update feed for electron-updater once signed releases exist; --publish never in CI.
+publish:
+  provider: github
+  owner: bido75
+  repo: murmur
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Murmur-Setup-${version}-win-${arch}.${ext}
+  # onnxruntime-node ships every platform's prebuilt binaries (~430 MB total);
+  # each installer only carries its own platform's folder.
+  files:
+    - dist/**
+    - package.json
+    # A transitive dep of electron-updater ships its own compiled test files; they
+    # are never executed by the app and are excluded so installers contain no
+    # test code at all.
+    - "!node_modules/global-agent/dist/**/*.test.js"
+    - "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**"
+    - "!node_modules/onnxruntime-node/bin/napi-v6/linux/**"
+    - "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**"
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createStartMenuShortcut: true
+  shortcutName: Murmur
+  uninstallDisplayName: Murmur
+  deleteAppDataOnUninstall: false # recordings survive an uninstall unless the user clears them
 mac:
+  icon: build/icon.png
   category: public.app-category.productivity
-  target: [dmg, zip]
+  target:
+    - target: dmg
+    - target: zip
   hardenedRuntime: true
+  gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -19,8 +56,22 @@ mac:
     - from: native/macos/build/SystemAudioCapture
       to: SystemAudioCapture
   minimumSystemVersion: '13.0'
-win:
-  target: [nsis]
-nsis:
-  oneClick: false
-  perMachine: false
+  artifactName: Murmur-${version}-${arch}.${ext}
+  files:
+    - dist/**
+    - package.json
+    - "!node_modules/global-agent/dist/**/*.test.js"
+    - "!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
+    - "!node_modules/onnxruntime-node/bin/napi-v6/linux/**"
+linux:
+  icon: build/icon.png
+  target:
+    - AppImage
+  category: Audio
+  artifactName: Murmur-${version}-${arch}.${ext}
+  maintainer: bido75
+  files:
+    - dist/**
+    - package.json
+    - "!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
+    - "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**"

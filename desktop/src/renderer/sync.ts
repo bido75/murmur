@@ -1,6 +1,7 @@
 // Upload outbox for the desktop app; the same server pipeline as the phone app.
 import type { Bridge } from "../shared/bridge";
 import { markFailed, runnable, storagePath, type Op } from "../shared/queue";
+import { nextOwnerAction } from "../shared/queueOwner";
 import { supabase } from "./supabase";
 import { transcribeSegment } from "./speech";
 
@@ -30,10 +31,24 @@ async function save(q: Op[]) {
 }
 
 export async function enqueue(op: NewOp) {
+  await ensureOwner();
   const q = await getQueue();
   q.push({ ...op, attempts: 0, nextAt: 0 } as Op);
   await save(q);
   void flush();
+}
+
+/**
+ * The queue belongs to exactly one account. Before any op is added or run, the
+ * previous account's queue is quarantined under its own id, so a recording can
+ * never be uploaded under someone else's session.
+ */
+async function ensureOwner() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  const userId = data.session.user.id;
+  const last = (await bridge().queueOwner()) as string | null;
+  if (nextOwnerAction(last, userId) === "rotate") await bridge().queueRotate(userId);
 }
 
 export function flush(): Promise<void> {
@@ -44,6 +59,7 @@ export function flush(): Promise<void> {
 async function run() {
   const { data } = await supabase.auth.getSession();
   if (!data.session) return;
+  await ensureOwner();
   const userId = data.session.user.id;
   // Keep going until nothing is runnable (each recording's ops run in order).
   for (let guard = 0; guard < 200; guard++) {
