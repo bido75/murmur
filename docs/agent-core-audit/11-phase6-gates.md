@@ -60,3 +60,20 @@ Consolidation of the implemented agent core (`feature/murmur-desktop-v2`, commit
 - multi-approval `resume` is typechecked but not exercised end-to-end on the edge runtime.
 
 **GO (continued engineering)** toward Phase 5/6 completion. A production gate additionally requires: Phase 10 A–J integration tests on a live sandbox, a per-user rate limiter + cost meter, a feature-flag rollout (`ROADMAP.md` M2), and operator sign-off.
+
+## 11.6 Phase 10 scenario → test coverage (backend)
+
+The machine-testable acceptance scenarios are covered by the following suites; the rest (`F` deck/docx, `J` recording performance) require the live stack and are deferred to the A–J run:
+
+| Scenario | Covered by |
+|---|---|
+| D — task creation, quote-grounded | `agent_actions.test.ts` + `agent_registry.test.ts` |
+| E — decision supersession | `decisionLifecycle.test.ts` |
+| G — prompt injection (no unknown tool executes) | `agent_planner.test.ts` + `agent_orchestrator.test.ts` |
+| H — cross-tenant isolation | `agent-core.test.mjs` + `knowledge.test.mjs` |
+| I — partial failure, no auto-executed mutation | `agent_orchestrator.test.ts` |
+| A — citations | `agent_retrieval.test.ts` |
+| B — meeting brief | `agent_meeting.test.ts` |
+| C — approval binding / no replay | `agent_approvals.test.ts` |
+| Per-user rate limit | `agent_rate_limit.test.ts` |
+| Token budget | `agent_cost.test.ts` |

@@ -32,6 +32,7 @@ import { policyFor } from '../_shared/agent_policies.ts';
 import { actionKeyFor } from '../_shared/agent_approvals.ts';
 import { remainingSteps } from '../_shared/agent_resume.ts';
 import { allow } from '../_shared/agent_rate_limit.ts';
+import { estimateTokens, overTokenBudget } from '../_shared/agent_cost.ts';
 import { AgentError, toAgentError, UnknownToolError } from '../_shared/agent_errors.ts';
 import type { PlanStep, StepOutcome } from '../_shared/agent_types.ts';
 
@@ -42,6 +43,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APPROVAL_TTL_MS = 60 * 60 * 1000; // an approval must be used within an hour
 const RATE_WINDOW_MS = envNumber('AGENT_RATE_LIMIT_WINDOW_MS', 3600000);
 const RATE_MAX = envNumber('AGENT_RATE_LIMIT_MAX', 30);
+const TOKEN_BUDGET = envNumber('AGENT_TOKEN_BUDGET', 40000);
 
 function envNumber(name: string, fallback: number): number {
   const n = Number(Deno.env.get(name));
@@ -102,6 +104,8 @@ async function createRun(client: Supa, userId: string, body: { objective?: strin
     PLAN_TOOL as unknown as { name: string; input_schema: Record<string, unknown> },
   );
   const steps = validatePlan(rawPlan, newBudget().maxSteps);
+  const estimate = estimateTokens(objective, steps);
+  if (overTokenBudget(estimate, TOKEN_BUDGET)) throw new HttpError(400, 'This request is too large for the agent token budget; try a narrower question.');
   await client.from('agent_runs').update({ plan: steps }).eq('id', runId);
 
   return await executeSteps({ client, userId, runId, source, actions: buildActions(admin, client, userId), steps, key });
