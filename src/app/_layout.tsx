@@ -177,6 +177,7 @@ export default function RootLayout() {
                 name="followup"
                 options={{ title: "Follow-up email", presentation: "modal" }}
               />
+              <Stack.Screen name="assistant" options={{ title: "Ask Murmur" }} />
             </Stack.Protected>
             <Stack.Protected guard={!session}>
               <Stack.Screen name="sign-in" options={{ headerShown: false }} />

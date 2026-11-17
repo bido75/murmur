@@ -916,6 +916,53 @@ export async function ask(
   return data;
 }
 
+// ---------- Agent (Ask Murmur) ----------
+
+export type AgentStep = {
+  step_index: number;
+  tool: string;
+  status: "succeeded" | "failed" | "awaiting_approval";
+  error?: { code: string; message: string } | null;
+};
+
+export type AgentApproval = {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  action_hash: string;
+  expires_at: string;
+};
+
+export type AgentRunResult = {
+  run_id: string;
+  status: string;
+  steps: AgentStep[];
+  approvals?: AgentApproval[];
+  result?: unknown;
+  completed?: boolean;
+  reused?: boolean;
+  error?: { code: string; message: string };
+};
+
+/** Submit an objective; the agent runs read-only steps and pauses for approval on actions. */
+export function runAgent(objective: string) {
+  return callFn<AgentRunResult>("agent/runs", { objective });
+}
+
+/** Continue a run after an approval: re-runs reads, skips decided actions. */
+export function resumeAgentRun(runId: string) {
+  return callFn<AgentRunResult>(`agent/runs/${runId}/resume`, {});
+}
+
+/** Approve or reject a proposed action (single-use, bound to the exact args). */
+export function decideAgentApproval(id: string, decision: "approved" | "rejected") {
+  return callFn<{ ok: boolean; status: string; result?: unknown; completed?: boolean }>(
+    `agent/approvals/${id}/${decision === "approved" ? "approve" : "reject"}`,
+    {},
+  );
+}
+
+
 // Local settings
 /** myState: a US state code, 'OTHER' for outside the US, or null when not set. */
 export type Settings = {

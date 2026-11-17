@@ -129,6 +129,11 @@ export default function Search() {
           loading={asking}
         />
       )}
+      <Button
+        label="Ask Murmur — plan & approve actions"
+        kind="ghost"
+        onPress={() => router.push("/assistant")}
+      />
 
       {answer && (
         <Card style={{ gap: space.sm, borderColor: t.accent }}>
